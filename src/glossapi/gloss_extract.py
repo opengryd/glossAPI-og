@@ -581,10 +581,16 @@ class GlossExtract:
                 if hasattr(torch_mod, "cuda") and isinstance(getattr(self, "pipeline_options", None), PdfPipelineOptions):
                     dev = getattr(self.pipeline_options, "accelerator_options", None)
                     dv = getattr(dev, "device", None)
-                    if (isinstance(dv, str) and dv.lower().startswith("cuda")) and not torch_mod.cuda.is_available():
+                    if isinstance(dv, str) and dv.lower().startswith("cuda") and not torch_mod.cuda.is_available():
                         raise RuntimeError("Torch CUDA not available but formula enrichment requested.")
+                    if isinstance(dv, str) and dv.lower().startswith("mps"):
+                        try:
+                            if not (getattr(torch_mod, "backends", None) and torch_mod.backends.mps.is_available()):
+                                raise RuntimeError("Torch MPS not available but formula enrichment requested.")
+                        except Exception as _e:
+                            raise RuntimeError(f"Torch MPS preflight failed: {_e}")
         except Exception as e:
-            raise RuntimeError(f"Torch CUDA preflight failed: {e}")
+            raise RuntimeError(f"Torch preflight failed: {e}")
 
         # Build PDF pipeline via the canonical builder (preferred)
         opts = None

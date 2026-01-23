@@ -2,14 +2,14 @@
 
 ## OCR runs on CPU
 
-- Verify ONNXRuntime GPU: `python -c "import onnxruntime as ort; print(ort.get_available_providers())"` — must include `CUDAExecutionProvider`.
-- Ensure CPU ORT wheel is not installed: `pip uninstall -y onnxruntime`.
-- Make sure you pass `accel_type='CUDA'` (or `use_gpus='multi'`).
+- Verify ONNXRuntime GPU: `python -c "import onnxruntime as ort; print(ort.get_available_providers())"` — must include `CUDAExecutionProvider` (Linux/Windows) or `CoreMLExecutionProvider` (macOS).
+- Ensure CPU ORT wheel is not installed on CUDA systems: `pip uninstall -y onnxruntime`.
+- Make sure you pass `accel_type='CUDA'` (or `use_gpus='multi'`) on CUDA; on macOS use `accel_type='MPS'`.
 
 ## Torch doesn’t see the GPU
 
-- Check `nvidia-smi` and driver installation.
-- Match Torch CUDA build to your driver; see getting_started.md for the recommended wheel.
+- CUDA: Check `nvidia-smi` and driver installation. Match Torch CUDA build to your driver; see getting_started.md for the recommended wheel.
+- macOS: Ensure you installed a PyTorch build with MPS support and that `torch.backends.mps.is_available()` returns True.
 
 ## RapidOCR font download failure
 

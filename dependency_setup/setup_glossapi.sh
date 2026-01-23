@@ -81,6 +81,15 @@ if [[ -z "${VENV_PATH}" ]]; then
 fi
 
 REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements-glossapi-${MODE}.txt"
+if [[ "${MODE}" == "rapidocr" ]]; then
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    MAC_REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements-glossapi-rapidocr-macos.txt"
+    if [[ -f "${MAC_REQUIREMENTS_FILE}" ]]; then
+      REQUIREMENTS_FILE="${MAC_REQUIREMENTS_FILE}"
+    fi
+  fi
+fi
+
 if [[ ! -f "${REQUIREMENTS_FILE}" ]]; then
   echo "Requirements file not found for mode ${MODE}: ${REQUIREMENTS_FILE}" >&2
   exit 1

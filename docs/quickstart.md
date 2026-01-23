@@ -10,6 +10,7 @@ This page shows the most common tasks in a few lines each.
 from glossapi import Corpus
 c = Corpus('IN', 'OUT')
 c.extract(input_format='pdf', accel_type='CUDA')  # OCR is off by default
+# macOS (Metal): use accel_type='MPS'
 ```
 
 This keeps Docling’s native parser out of the hot path and is the recommended
@@ -21,6 +22,7 @@ mode when you prioritise stability.
 from glossapi import Corpus
 c = Corpus('IN', 'OUT')
 c.extract(input_format='pdf', accel_type='CUDA', phase1_backend='docling')
+# macOS (Metal): use accel_type='MPS'
 ```
 
 `phase1_backend='docling'` streams multiple PDFs through Docling’s converter and
@@ -44,6 +46,7 @@ without losing progress (no extra checkpoint files required).
 from glossapi import Corpus
 c = Corpus('IN', 'OUT')
 c.extract(input_format='pdf', accel_type='CUDA', force_ocr=True)
+# macOS (Metal): accel_type='MPS'
 # or reuse multi-GPU batching
 c.extract(input_format='pdf', use_gpus='multi', force_ocr=True)
 ```
@@ -59,6 +62,7 @@ c.extract(input_format='pdf', accel_type='CUDA', emit_formula_index=True)
 
 # Enrich math/code on GPU and write enriched Markdown into markdown/<stem>.md
 c.formula_enrich_from_json(device='cuda', batch_size=12)
+# macOS (Metal): device='mps'
 ```
 
 Progress (downloaded, OCRed, math-enriched) now lives in `download_results/download_results.parquet`; rerun `c.ocr(..., reprocess_completed=True)` whenever you need to force already successful rows back through OCR or math.

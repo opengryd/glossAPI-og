@@ -154,21 +154,16 @@ class ExtractPhaseMixin:
         require_math: bool,
         require_backend_gpu: bool = False,
     ) -> None:
-        """Abort early when GPU OCR/math is requested but CUDA is unavailable."""
+        """Abort early when GPU OCR/math is requested but GPU backends are unavailable."""
         if not (require_ocr or require_math or require_backend_gpu):
             return
-
-        instructions = (
-            "GPU OCR and math enrichment require CUDA-enabled torch and onnxruntime-gpu. "
-            "Install the CUDA wheels and ensure NVIDIA drivers expose the desired devices."
-        )
 
         # Enforce non-CPU accelerator selection when OCR/math is forced
         accel_lower = str(accel_type or "").strip().lower()
         if accel_lower.startswith("cpu"):
             raise RuntimeError(
                 "GPU OCR was requested (force_ocr/math) but accel_type='CPU'. "
-                f"{instructions}"
+                "Select accel_type='CUDA', accel_type='MPS', or accel_type='Auto' to enable GPU backends."
             )
 
         try:
@@ -177,38 +172,77 @@ class ExtractPhaseMixin:
         except Exception as exc:
             raise RuntimeError(
                 "onnxruntime not available while attempting GPU OCR. "
-                "Install onnxruntime-gpu and rerun."
+                "Install onnxruntime (CPU/CoreML) or onnxruntime-gpu (CUDA) and rerun."
             ) from exc
 
-        if "CUDAExecutionProvider" not in providers:
-            raise RuntimeError(
-                "CUDAExecutionProvider missing from onnxruntime providers. "
-                f"Detected providers={providers}. {instructions}"
-            )
+        has_cuda_ep = "CUDAExecutionProvider" in providers
+        has_coreml_ep = "CoreMLExecutionProvider" in providers
 
         torch_mod = _maybe_import_torch(force=True)
-        if torch_mod is None or not getattr(torch_mod, "cuda", None) or not torch_mod.cuda.is_available():
-            raise RuntimeError(
-                "Torch CUDA is not available but GPU OCR/math was requested. "
-                "Install the CUDA wheel (e.g. torch==2.5.1+cu121) and ensure CUDA drivers/devices are visible."
-            )
+        has_cuda = bool(torch_mod) and getattr(torch_mod, "cuda", None) and torch_mod.cuda.is_available()
+        try:
+            has_mps = bool(torch_mod) and getattr(torch_mod, "backends", None) and torch_mod.backends.mps.is_available()
+        except Exception:
+            has_mps = False
 
-        device_count = torch_mod.cuda.device_count()
-        if device_count < 1:
-            raise RuntimeError(
-                "Torch CUDA initialised but reports zero devices visible. "
-                "Set CUDA_VISIBLE_DEVICES appropriately before running GPU OCR."
-            )
-        device_names = []
-        for idx in range(device_count):
-            try:
-                device_names.append(torch_mod.cuda.get_device_name(idx))
-            except Exception:
-                device_names.append(f"cuda:{idx}")
+        want_cuda = accel_lower.startswith("cuda")
+        want_mps = accel_lower.startswith("mps")
+        want_auto = accel_lower in ("auto", "")
+
+        if want_auto:
+            if has_cuda_ep and has_cuda:
+                want_cuda = True
+            elif has_coreml_ep and has_mps:
+                want_mps = True
+            else:
+                raise RuntimeError(
+                    "GPU OCR/math requested but no compatible GPU backend found. "
+                    f"Detected providers={providers}. "
+                    "Install CUDA-enabled torch + onnxruntime-gpu (Linux/Windows) or torch MPS + CoreML EP (macOS)."
+                )
+
+        if want_cuda:
+            if not has_cuda_ep:
+                raise RuntimeError(
+                    "CUDAExecutionProvider missing from onnxruntime providers. "
+                    f"Detected providers={providers}. Install onnxruntime-gpu and CUDA drivers."
+                )
+            if not has_cuda:
+                raise RuntimeError(
+                    "Torch CUDA is not available but GPU OCR/math was requested. "
+                    "Install the CUDA wheel (e.g. torch==2.5.1+cu121) and ensure CUDA drivers/devices are visible."
+                )
+            device_count = torch_mod.cuda.device_count() if torch_mod is not None else 0
+            if device_count < 1:
+                raise RuntimeError(
+                    "Torch CUDA initialised but reports zero devices visible. "
+                    "Set CUDA_VISIBLE_DEVICES appropriately before running GPU OCR."
+                )
+            device_names = []
+            for idx in range(device_count):
+                try:
+                    device_names.append(torch_mod.cuda.get_device_name(idx))
+                except Exception:
+                    device_names.append(f"cuda:{idx}")
+            banner = "CUDA"
+        else:
+            if not has_coreml_ep:
+                raise RuntimeError(
+                    "CoreMLExecutionProvider missing from onnxruntime providers. "
+                    f"Detected providers={providers}. Install onnxruntime for macOS with CoreML support."
+                )
+            if not has_mps:
+                raise RuntimeError(
+                    "Torch MPS is not available but GPU OCR/math was requested. "
+                    "Install a macOS PyTorch build with MPS support and ensure you are on macOS 13+ with Metal enabled."
+                )
+            device_names = ["mps"]
+            banner = "MPS/Metal"
 
         if not self._gpu_banner_logged:
             self.logger.info(
-                "GPU preflight: using torch + onnxruntime GPU backends; ensure CUDA drivers are available."
+                "GPU preflight: using %s backends via torch + onnxruntime; ensure GPU drivers are available.",
+                banner,
             )
             self._gpu_banner_logged = True
 

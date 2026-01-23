@@ -6,6 +6,7 @@ This page lists the main knobs you can use to tune GlossAPI.
 
 - `CUDA_VISIBLE_DEVICES`: restrict/assign visible GPUs, e.g. `export CUDA_VISIBLE_DEVICES=0,1`.
 - `GLOSSAPI_DOCLING_DEVICE`: preferred device for Docling (inside a worker), e.g. `cuda:0`.
+- macOS (Metal): use `accel_type='MPS'` or set `GLOSSAPI_DOCLING_DEVICE=mps` when forcing a device.
 
 ## OCR & Parsing
 

@@ -163,23 +163,34 @@ def convert_dir(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Device-aware preflight: only enforce CUDA provider when device requests CUDA
-    want_cuda = isinstance(device, str) and device.lower().startswith("cuda")
-    if want_cuda:
+    # Device-aware preflight: only enforce provider when device requests GPU backends
+    dev_lower = str(device).lower()
+    want_cuda = isinstance(device, str) and dev_lower.startswith("cuda")
+    want_mps = isinstance(device, str) and dev_lower.startswith("mps")
+    if want_cuda or want_mps:
         try:
             import onnxruntime as _ort  # type: ignore
             _providers = _ort.get_available_providers()
-            if "CUDAExecutionProvider" not in _providers:
+            if want_cuda and "CUDAExecutionProvider" not in _providers:
                 raise RuntimeError(f"CUDAExecutionProvider not available in onnxruntime providers={_providers}")
+            if want_mps and "CoreMLExecutionProvider" not in _providers:
+                raise RuntimeError(f"CoreMLExecutionProvider not available in onnxruntime providers={_providers}")
         except Exception as e:
-            raise RuntimeError(f"onnxruntime-gpu not available or misconfigured: {e}")
-    if formula_enrichment and want_cuda:
+            suffix = "onnxruntime-gpu" if want_cuda else "onnxruntime (CoreML)"
+            raise RuntimeError(f"{suffix} not available or misconfigured: {e}")
+    if formula_enrichment and (want_cuda or want_mps):
         try:
             torch_mod = _maybe_import_torch(force=True)
-            if torch_mod is None or not torch_mod.cuda.is_available():
+            if want_cuda and (torch_mod is None or not torch_mod.cuda.is_available()):
                 raise RuntimeError("Torch CUDA not available but formula enrichment requested.")
+            if want_mps:
+                try:
+                    if torch_mod is None or not (getattr(torch_mod, "backends", None) and torch_mod.backends.mps.is_available()):
+                        raise RuntimeError("Torch MPS not available but formula enrichment requested.")
+                except Exception as _e:
+                    raise RuntimeError(f"Torch MPS preflight failed: {_e}")
         except Exception as e:
-            raise RuntimeError(f"Torch CUDA preflight failed: {e}")
+            raise RuntimeError(f"Torch preflight failed: {e}")
 
     # Optional: tune CodeFormula batch size and math precision when enrichment is requested
     if formula_enrichment:

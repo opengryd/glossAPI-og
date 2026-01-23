@@ -26,16 +26,21 @@ Policy: never OCR and math on the same file
 
 - RapidOCR/Docling stack: `pip install '.[rapidocr]'`
 - DeepSeek CLI stack (in a dedicated venv recommended): `pip install '.[deepseek]'`
-- ONNXRuntime GPU installed (no CPU ORT): `onnxruntime-gpu==1.18.1`
-- Torch CUDA installed: e.g., `torch==2.5.1+cu121`
+- ONNXRuntime GPU installed (no CPU ORT): `onnxruntime-gpu==1.18.1` (Linux/Windows)
+- macOS: `onnxruntime==1.18.1` with CoreMLExecutionProvider (Metal)
+- Torch CUDA installed: e.g., `torch==2.5.1+cu121` (Linux/Windows)
+- macOS: PyTorch with MPS support (Metal)
 - Packaged RapidOCR models/keys found under `glossapi/models/rapidocr/{onnx,keys}` or via `GLOSSAPI_RAPIDOCR_ONNX_DIR`.
 - Optional helpers for Phase‑2 JSON: `pypdfium2`, `zstandard`.
 
 Verify GPU readiness before forcing OCR or math:
 
 ```bash
-python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_count())"  # expects True, >=1
-python -c "import onnxruntime as ort; print(ort.get_available_providers())"            # must include CUDAExecutionProvider
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_count())"  # CUDA expects True, >=1
+python -c "import onnxruntime as ort; print(ort.get_available_providers())"            # CUDA: must include CUDAExecutionProvider
+# macOS (Metal/MPS)
+python -c "import torch; print(getattr(torch.backends, 'mps', None) and torch.backends.mps.is_available())"
+python -c "import onnxruntime as ort; print(ort.get_available_providers())"            # macOS: must include CoreMLExecutionProvider
 ```
 
 ## Running Phase‑1 (Extract)
@@ -48,12 +53,13 @@ c = Corpus('IN','OUT')
 c.extract(
     input_format='pdf',
     accel_type='CUDA',           # or use_gpus='multi' for multi‑GPU
+  # macOS (Metal): accel_type='MPS'
     force_ocr=True,              # OCR always on for PDFs
     emit_formula_index=True,     # request json/<stem>.formula_index.jsonl alongside the default JSON
 )
 ```
 
-When `force_ocr=True` (or when math/code enrichment is enabled), GlossAPI automatically switches to the Docling backend and aborts if CUDA‑enabled torch/ONNXRuntime providers are not available.
+When `force_ocr=True` (or when math/code enrichment is enabled), GlossAPI automatically switches to the Docling backend and aborts if CUDA/MPS-enabled torch/ONNXRuntime providers are not available.
 
 Outputs:
 - `markdown/<stem>.md`
@@ -69,6 +75,7 @@ c = Corpus('OUT','OUT')  # same folder for both
 # GPU formula/code decoding from JSON (writes enriched MD to markdown/<stem>.md)
 c.formula_enrich_from_json(
     device='cuda',
+  # macOS (Metal): device='mps'
     batch_size=12,       # tune for your GPU
 )
 ```

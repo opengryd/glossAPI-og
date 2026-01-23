@@ -733,7 +733,7 @@ class OcrMathPhaseMixin:
 
         Args:
             files: list of stems (without extension) to process; if None, auto‑discover.
-            device: 'cuda'|'cpu'
+            device: 'cuda'|'mps'|'cpu'
             batch_size: batch size for recognizer
             dpi_base: base DPI for crops; actual DPI adapts per ROI size
         """

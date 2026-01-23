@@ -175,7 +175,10 @@ class _ProcessingStateManager:
                     filename, exists = self._guess_filename(stem)
                     file_ext = Path(filename).suffix.lstrip(".")
                     row = {col: pd.NA for col in df.columns}
-                    row[self.url_column] = row.get(self.url_column, "") or ""
+                    url_value = row.get(self.url_column, "")
+                    if pd.isna(url_value):
+                        url_value = ""
+                    row[self.url_column] = url_value
                     row["filename"] = filename
                     row["file_ext"] = file_ext
                     row["filename_base"] = stem
