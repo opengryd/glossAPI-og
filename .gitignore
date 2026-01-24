@@ -79,3 +79,9 @@ deepseek-ocr/DeepSeek-OCR-empty/
 # Local DeepSeek checkout and repro scripts (keep out of master)
 deepseek-ocr/
 repro_rapidocr_onnx/
+
+# MinerU dependencies and environment files
+.venv*
+mineru_models/
+magic-pdf.json
+.env_mineru

@@ -1,0 +1,22 @@
+# MinerU profile: base GlossAPI runtime + CLI/runtime extras
+-r requirements-glossapi-vanilla.txt
+
+# MinerU CLI
+magic-pdf
+
+# MinerU runtime pins
+pydantic<2.11
+pydantic-core<2.28
+
+# MinerU runtime extras
+albumentations
+matplotlib
+opencv-python==4.11.0.86
+py-cpuinfo
+seaborn
+thop
+polars
+ultralytics
+ultralytics-thop
+doclayout-yolo
+rapid-table

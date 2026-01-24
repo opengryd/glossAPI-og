@@ -93,6 +93,19 @@ c.ocr(backend='deepseek', fix_bad=True, math_enhance=True, mode='ocr_bad_then_ma
 # → OCR only for bad files; math is included inline in the Markdown
 ```
 
+### MinerU OCR
+
+MinerU (magic-pdf) can be used as an OCR backend; equations are included inline in the OCR output, so Phase‑2 math is not required and any math flags are ignored.
+
+```python
+from glossapi import Corpus
+c = Corpus('IN','OUT')
+c.ocr(backend='mineru', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
+# → OCR only for bad files; math is included inline in the Markdown
+```
+
+To use the CLI directly, set `GLOSSAPI_MINERU_ALLOW_CLI=1` (and optionally `GLOSSAPI_MINERU_ALLOW_STUB=0`) and ensure `magic-pdf` is on PATH or set `GLOSSAPI_MINERU_COMMAND`.
+
 To avoid stub output, set `GLOSSAPI_DEEPSEEK_ALLOW_CLI=1` and `GLOSSAPI_DEEPSEEK_ALLOW_STUB=0`, and ensure the CLI bits are reachable:
 
 ```bash

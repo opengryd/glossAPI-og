@@ -71,7 +71,8 @@ class OcrMathPhaseMixin:
             math_enhance only -> 'math_only';
             neither -> no‑op.
         - backend: 'rapidocr' (default) uses the Docling + RapidOCR path via Phase‑1 extract().
-                   'deepseek' uses the DeepSeek‑OCR path (no Docling JSON, math unsupported).
+               'deepseek' uses the DeepSeek‑OCR path (no Docling JSON, math unsupported).
+               'mineru' uses the MinerU (magic-pdf) path (no Docling JSON, math unsupported).
         - fix_bad: re-run OCR on documents marked bad by the cleaner (default True).
         - math_enhance: run math/code enrichment after OCR (default True).
         - force: [DEPRECATED] alias for fix_bad retained for backward compatibility.
@@ -83,8 +84,8 @@ class OcrMathPhaseMixin:
         """
         # Normalize backend
         backend_norm = str(backend or "rapidocr").strip().lower()
-        if backend_norm not in {"rapidocr", "deepseek"}:
-            raise ValueError("backend must be 'rapidocr' or 'deepseek'")
+        if backend_norm not in {"rapidocr", "deepseek", "mineru"}:
+            raise ValueError("backend must be 'rapidocr', 'deepseek', or 'mineru'")
 
         # CONTENT_DEBUG override (preferred uppercase alias)
         # Priority: CONTENT_DEBUG > INTERNAL_DEBUG > content_debug/internal_debug flags
@@ -146,12 +147,24 @@ class OcrMathPhaseMixin:
             reprocess_flag = desired
         reprocess_completed = reprocess_flag
 
+        # Allow env override for math DPI when not explicitly set
+        try:
+            if math_dpi_base == 220:
+                env_val = os.getenv("GLOSSAPI_MATH_DPI_BASE", "")
+                if env_val:
+                    math_dpi_base = int(env_val)
+        except Exception:
+            pass
+
         # DeepSeek semantics note
-        if backend_norm == "deepseek":
+        if backend_norm in {"deepseek", "mineru"}:
             try:
-                self.logger.info(
+                msg = (
                     "DeepSeek backend: Phase-2 math is not required; equations are included inline via OCR."
+                    if backend_norm == "deepseek"
+                    else "MinerU backend: Phase-2 math is not required; equations are included inline via OCR."
                 )
+                self.logger.info(msg)
             except Exception:
                 pass
         # Identify bad documents from parquet (Rust cleaner output)
@@ -564,19 +577,22 @@ class OcrMathPhaseMixin:
         reran_ocr = False
 
         if mode_norm in {"ocr_bad", "ocr_bad_then_math"}:
-            if backend_norm == "deepseek":
-                # DeepSeek path: run OCR via dedicated runner (no Docling JSON)
-                from glossapi.ocr.deepseek import runner as _deepseek_runner  # type: ignore
+            if backend_norm in {"deepseek", "mineru"}:
+                # DeepSeek/MinerU path: run OCR via dedicated runner (no Docling JSON)
+                if backend_norm == "deepseek":
+                    from glossapi.ocr.deepseek import runner as _runner  # type: ignore
+                else:
+                    from glossapi.ocr.mineru import runner as _runner  # type: ignore
 
                 try:
-                    _deepseek_runner.run_for_files(
+                    _runner.run_for_files(
                         self,
                         bad_files,
                         model_dir=Path(model_dir) if model_dir else None,
                         content_debug=bool(content_debug),
                     )
                 except Exception as _e:
-                    self.logger.error("DeepSeek OCR runner failed: %s", _e)
+                    self.logger.error("%s OCR runner failed: %s", backend_norm, _e)
                     raise
             else:
                 # RapidOCR/Docling path via Phase-1 extract
@@ -591,8 +607,8 @@ class OcrMathPhaseMixin:
                     skip_existing=False,
                     use_gpus=use_gpus,
                     devices=devices,
-                    # Do not generate Docling JSON for OCR targets; math will skip them
-                    export_doc_json=False,
+                    # Emit Docling JSON when math enrichment is requested to recover formulas
+                    export_doc_json=bool(math_enhance),
                     emit_formula_index=False,
                     phase1_backend="docling",
                 )
@@ -629,8 +645,8 @@ class OcrMathPhaseMixin:
                                     df_meta.loc[mask, "filter"] = "ok"
                                     df_meta.loc[mask, "needs_ocr"] = False
                                     df_meta.loc[mask, "ocr_success"] = True
-                                    if backend_norm == "deepseek":
-                                        df_meta.loc[mask, "extraction_mode"] = "deepseek"
+                                    if backend_norm in {"deepseek", "mineru"}:
+                                        df_meta.loc[mask, "extraction_mode"] = backend_norm
                             self._cache_metadata_parquet(parquet_path)
                             parquet_schema.write_metadata_parquet(df_meta, parquet_path)
                     # Keep sectioner in sync with newly recovered files

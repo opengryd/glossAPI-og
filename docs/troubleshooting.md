@@ -15,6 +15,18 @@
 
 - The first OCR call might download a visualization font. Ensure egress is allowed; the file is cached afterwards.
 
+## MinerU (magic-pdf) MFR errors with newer Transformers
+
+- Symptom: AttributeError on `past_key_values[0][0].shape` or `cache_position` during MFR Predict.
+- Cause: Newer `transformers` switched to `EncoderDecoderCache` and adds `cache_position`, while UnimerNet expects legacy tuples.
+- Fix: Re-run MinerU setup with the patcher enabled (setup script applies a compatibility patch automatically in mineru mode).
+- If you must pin: keep a dedicated MinerU venv and use a Transformers version before the cache API change.
+
+## MinerU missing runtime deps
+
+- Errors like `No module named 'matplotlib'` or `rapid_table` indicate optional runtime deps needed by MinerU backends.
+- Fix: re-run MinerU setup; it installs the runtime extras and patches OCR weight mapping automatically.
+
 ## Out of memory
 
 - Lower Phase‑2 `batch_size` (e.g., 8) and reduce inline `GLOSSAPI_FORMULA_BATCH`.

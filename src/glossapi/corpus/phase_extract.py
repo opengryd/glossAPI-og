@@ -89,12 +89,21 @@ class ExtractPhaseMixin:
             threads_effective = int(num_threads) if isinstance(num_threads, int) else 2
         self.extractor.enable_accel(threads=threads_effective, type=accel_type)
 
-        # Images scale env default
+        # Images scale env default (boost OCR fidelity when OCR is enabled)
         try:
             import os as _os
-            images_scale_env = _os.getenv("GLOSSAPI_IMAGES_SCALE", "1.25")
+            default_scale = "1.5" if force_ocr else "1.25"
+            images_scale_env = _os.getenv("GLOSSAPI_IMAGES_SCALE", default_scale)
         except Exception:
-            images_scale_env = "1.25"
+            images_scale_env = "1.5" if force_ocr else "1.25"
+
+        # OCR languages (comma-separated), e.g. GLOSSAPI_OCR_LANGS=el,en
+        try:
+            import os as _os
+            ocr_langs_env = _os.getenv("GLOSSAPI_OCR_LANGS", "")
+            ocr_langs = [lang.strip() for lang in ocr_langs_env.split(",") if lang.strip()]
+        except Exception:
+            ocr_langs = []
 
         # Hard GPU preflight before we attempt to build OCR/enrichment pipelines
         self._gpu_preflight(
@@ -119,6 +128,7 @@ class ExtractPhaseMixin:
             code_enrichment=bool(code_enrichment),
             images_scale=float(images_scale_env),
             use_cls=bool(use_cls),
+            ocr_langs=ocr_langs or None,
             profile_timings=not bool(benchmark_mode),
         )
 

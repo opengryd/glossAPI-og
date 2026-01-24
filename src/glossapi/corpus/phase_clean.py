@@ -625,6 +625,13 @@ class CleanPhaseMixin:
             if min_pages < 0:
                 min_pages = 0
 
+            try:
+                threshold_value = float(threshold)
+            except Exception:
+                threshold_value = 0.10
+            if threshold_value < 0:
+                threshold_value = 0.10
+
             raw_moj = df_final.get("mojibake_badness_score")
             if isinstance(raw_moj, pd.Series):
                 mojibake_series = pd.to_numeric(raw_moj, errors="coerce")
@@ -633,7 +640,8 @@ class CleanPhaseMixin:
             if mojibake_series.notna().any():
                 # Token policy: every OCR-trigger writes a filter tag.
                 # Keep original label for compatibility with tests and downstream tools.
-                _append_reason(mojibake_series > 0.1, "mojibake>0.1", requires_ocr=True)
+                token = f"mojibake>{threshold_value:g}"
+                _append_reason(mojibake_series > threshold_value, token, requires_ocr=True)
 
             raw_gr = df_final.get("greek_badness_score")
             if isinstance(raw_gr, pd.Series):

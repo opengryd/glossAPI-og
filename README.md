@@ -40,7 +40,7 @@ PY
 
 ## Automated Environment Profiles
 
-Use `dependency_setup/setup_glossapi.sh` to provision a virtualenv with the right dependency stack for the three supported modes:
+Use `dependency_setup/setup_glossapi.sh` to provision a virtualenv with the right dependency stack for the supported modes:
 
 ```bash
 # Vanilla pipeline (no GPU OCR extras)
@@ -55,6 +55,18 @@ Use `dependency_setup/setup_glossapi.sh` to provision a virtualenv with the righ
   --venv dependency_setup/.venvs/deepseek \
   --weights-dir /path/to/deepseek-ocr \
   --run-tests --smoke-test
+
+# MinerU OCR mode (uses external magic-pdf CLI)
+./dependency_setup/setup_glossapi.sh \
+  --mode mineru \
+  --venv dependency_setup/.venvs/mineru \
+  --download-mineru-models \
+  --run-tests
+
+# MinerU quick demo (setup → source → run)
+source dependency_setup/.venvs/mineru/bin/activate
+source dependency_setup/.env_mineru
+python run_mineru_demo.py
 ```
 
 Pass `--download-deepseek` if you need the script to fetch weights automatically; otherwise it looks for `${REPO_ROOT}/deepseek-ocr/DeepSeek-OCR` unless you override `--weights-dir`. Check `dependency_setup/dependency_notes.md` for the latest pins, caveats, and validation history. The script also installs the Rust extensions in editable mode so local changes are picked up immediately.
@@ -72,6 +84,14 @@ Pass `--download-deepseek` if you need the script to fetch weights automatically
 - If FlashInfer is problematic, disable with `VLLM_USE_FLASHINFER=0` and `FLASHINFER_DISABLE=1`.
 - To avoid FP8 KV cache issues, export `GLOSSAPI_DEEPSEEK_NO_FP8_KV=1` (propagates `--no-fp8-kv`).
 - Tune VRAM use via `GLOSSAPI_DEEPSEEK_GPU_MEMORY_UTILIZATION=<0.5–0.9>`.
+
+**MinerU runtime checklist**
+- Ensure `magic-pdf` is on PATH (or pass `--mineru-command /path/to/magic-pdf` in setup).
+- Export these to force the real CLI and avoid stub output:
+  - `GLOSSAPI_MINERU_ALLOW_CLI=1`
+  - `GLOSSAPI_MINERU_ALLOW_STUB=0`
+  - `GLOSSAPI_MINERU_COMMAND=/path/to/magic-pdf` (optional override)
+  - `GLOSSAPI_MINERU_MODE=auto` (or `fast`/`accurate` if your MinerU build supports it)
 
 ## Choose Your Install Path
 
