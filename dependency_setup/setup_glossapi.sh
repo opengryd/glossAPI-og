@@ -352,6 +352,29 @@ if [[ "${MODE}" == "mineru" ]]; then
   info "Patching PaddleOCR model mapping"
   patch_mineru_paddleocr_config || warn "PaddleOCR model config patch failed."
 
+  DETECTRON2_AUTO_INSTALL=${DETECTRON2_AUTO_INSTALL:-0}
+  if [[ -n "${DETECTRON2_WHL_URL:-}" ]]; then
+    info "Installing detectron2 from DETECTRON2_WHL_URL"
+    pip_run install "${DETECTRON2_WHL_URL}" || warn "Detectron2 install failed; MinerU CLI may require a source build on macOS."
+  elif [[ "${DETECTRON2_AUTO_INSTALL}" == "1" && "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
+    info "Installing detectron2 from source (macOS arm64)"
+    CC=clang CXX=clang++ ARCHFLAGS="-arch arm64" pip_run install --no-build-isolation \
+      "git+https://github.com/facebookresearch/detectron2.git" \
+      || warn "Detectron2 source install failed; MinerU CLI will use stub fallback unless detectron2 is installed."
+  fi
+
+  info "Installing unimernet (no deps) to avoid transformer downgrades"
+  pip_run install --no-deps "unimernet" || warn "Unimernet install failed; MinerU math features may be unavailable."
+
+  DETECTRON2_AVAILABLE=0
+  if python_run - <<'PY'
+import importlib.util as iu
+raise SystemExit(0 if iu.find_spec("detectron2") else 1)
+PY
+  then
+    DETECTRON2_AVAILABLE=1
+  fi
+
   MINERU_FOUND="$(resolve_mineru_cmd)"
   if [[ -n "${MINERU_FOUND}" ]]; then
     export GLOSSAPI_MINERU_COMMAND="${MINERU_FOUND}"
@@ -426,13 +449,17 @@ if [[ "${MODE}" == "mineru" ]]; then
   if [[ -d "${MINERU_MODELS_DIR}/models" ]]; then
     MINERU_MODEL_ROOT="${MINERU_MODELS_DIR}/models"
   fi
+  MINERU_DEVICE_MODE_DEFAULT="cpu"
+  if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
+    MINERU_DEVICE_MODE_DEFAULT="mps"
+  fi
   cat <<EOF > "${MINERU_CONFIG_PATH}"
 {
   "bucket_info": {
     "[default]": ["", "", ""]
   },
   "models-dir": "${MINERU_MODEL_ROOT}",
-  "device-mode": "cpu",
+  "device-mode": "${MINERU_DEVICE_MODE_DEFAULT}",
   "layout-config": {
     "model": "doclayout_yolo"
   },
@@ -443,20 +470,27 @@ if [[ "${MODE}" == "mineru" ]]; then
   }
 }
 EOF
+  MINERU_ALLOW_STUB_DEFAULT=0
+  if [[ "${DETECTRON2_AVAILABLE}" -eq 0 ]]; then
+    warn "detectron2 not available; enabling MinerU stub fallback (set GLOSSAPI_MINERU_ALLOW_STUB=0 after installing detectron2)."
+    MINERU_ALLOW_STUB_DEFAULT=1
+  fi
   cat <<EOF
 MinerU-specific exports (optional):
   export GLOSSAPI_MINERU_ALLOW_CLI=1
-  export GLOSSAPI_MINERU_ALLOW_STUB=0
+  export GLOSSAPI_MINERU_ALLOW_STUB=${MINERU_ALLOW_STUB_DEFAULT}
   export GLOSSAPI_MINERU_COMMAND="${GLOSSAPI_MINERU_COMMAND:-}"
   export GLOSSAPI_MINERU_MODE="auto"
+  export GLOSSAPI_SKIP_DOCLING_BOOT=1
   export MINERU_TOOLS_CONFIG_JSON="${MINERU_CONFIG_PATH}"
 EOF
   ENV_FILE="${SCRIPT_DIR}/.env_mineru"
   cat <<EOF > "${ENV_FILE}"
 export GLOSSAPI_MINERU_ALLOW_CLI=1
-export GLOSSAPI_MINERU_ALLOW_STUB=0
+export GLOSSAPI_MINERU_ALLOW_STUB=${MINERU_ALLOW_STUB_DEFAULT}
 export GLOSSAPI_MINERU_COMMAND="${GLOSSAPI_MINERU_COMMAND:-}"
 export GLOSSAPI_MINERU_MODE="auto"
+export GLOSSAPI_SKIP_DOCLING_BOOT=1
 export MINERU_TOOLS_CONFIG_JSON="${MINERU_CONFIG_PATH}"
 EOF
   info "Wrote MinerU env exports to ${ENV_FILE} (source it before running OCR)."

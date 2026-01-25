@@ -34,6 +34,7 @@ class OcrMathPhaseMixin:
         fix_bad: bool = True,
         mode: Optional[str] = None,
         backend: str = "rapidocr",
+        mineru_backend: Optional[str] = None,
         device: Optional[str] = None,
         model_dir: Optional[Union[str, Path]] = None,
         max_pages: Optional[int] = None,
@@ -590,6 +591,8 @@ class OcrMathPhaseMixin:
                         bad_files,
                         model_dir=Path(model_dir) if model_dir else None,
                         content_debug=bool(content_debug),
+                        device=device,
+                        backend=mineru_backend if backend_norm == "mineru" else None,
                     )
                 except Exception as _e:
                     self.logger.error("%s OCR runner failed: %s", backend_norm, _e)

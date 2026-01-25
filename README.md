@@ -87,6 +87,8 @@ Pass `--download-deepseek` if you need the script to fetch weights automatically
 
 **MinerU runtime checklist**
 - Ensure `magic-pdf` is on PATH (or pass `--mineru-command /path/to/magic-pdf` in setup).
+- Prefer Python 3.11 for the MinerU venv (3.10–3.13 supported upstream).
+- MinerU’s layout module imports Detectron2. If Detectron2 is unavailable (common on macOS), the setup script auto-enables stub fallback. To install Detectron2 when you have a wheel, set `DETECTRON2_WHL_URL` before running `setup_glossapi.sh`.
 - Export these to force the real CLI and avoid stub output:
   - `GLOSSAPI_MINERU_ALLOW_CLI=1`
   - `GLOSSAPI_MINERU_ALLOW_STUB=0`

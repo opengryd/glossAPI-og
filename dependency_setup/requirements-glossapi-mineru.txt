@@ -1,17 +1,22 @@
 # MinerU profile: base GlossAPI runtime + CLI/runtime extras
--r requirements-glossapi-vanilla.txt
 
 # MinerU CLI
+# NOTE: MinerU requires Python 3.10–3.13. For macOS GPU (MPS) support,
+# install MinerU with extras in a compatible venv:
+#   pip install -U "mineru[all]"
 magic-pdf
 
 # MinerU runtime pins
-pydantic<2.11
-pydantic-core<2.28
+pydantic>=2.11.7,<2.12
+pydantic-core>=2.33.2,<2.34
 
 # MinerU runtime extras
+paddlepaddle
+paddleocr==2.7.3
 albumentations
 matplotlib
-opencv-python==4.11.0.86
+opencv-python<=4.6.0.66
+pycocotools
 py-cpuinfo
 seaborn
 thop
@@ -20,3 +25,22 @@ ultralytics
 ultralytics-thop
 doclayout-yolo
 rapid-table
+rapidocr_onnxruntime
+struct_eqtable
+timm
+
+# Detectron2 is required by some MinerU layout modules but is not available on PyPI
+# for macOS. Install it from source if needed.
+
+# Compatibility pins (macOS/Docling/MinerU)
+pandas>=2.1.4,<3.0.0
+pypdfium2>=4.30.0,<5.0.0
+huggingface-hub>=0.23,<1.0.0
+lxml<6.0.0
+numpy<2.0.0
+pillow<12.0.0
+pymupdf<=1.24.14
+pyyaml==6.0.2
+transformers==4.42.4
+tokenizers==0.19.1
+torch<2.10

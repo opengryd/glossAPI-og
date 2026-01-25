@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import platform
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,6 +17,7 @@ except Exception:  # pragma: no cover - optional dependency
     _pypdfium2 = None
 
 LOGGER = logging.getLogger(__name__)
+_MAGIC_PDF_BACKEND_SUPPORT: Optional[bool] = None
 
 
 def _page_count(pdf_path: Path) -> int:
@@ -51,7 +53,10 @@ def _run_cli(
     *,
     magic_pdf_bin: str,
     mode: str,
+    backend: Optional[str] = None,
+    env: Optional[Dict[str, str]] = None,
 ) -> None:
+    supports_backend = _supports_backend_flag(magic_pdf_bin)
     cmd: List[str] = [
         magic_pdf_bin,
         "-p",
@@ -61,8 +66,103 @@ def _run_cli(
         "-m",
         mode,
     ]
+    if backend and supports_backend:
+        cmd.extend(["-b", backend])
+    elif backend and not supports_backend:
+        LOGGER.info("MinerU CLI does not support -b/--backend; ignoring backend=%s", backend)
     LOGGER.info("Running MinerU CLI: %s", " ".join(cmd))
-    subprocess.run(cmd, check=True)  # nosec: controlled arguments
+    subprocess.run(cmd, check=True, env=env)  # nosec: controlled arguments
+
+
+def _supports_backend_flag(magic_pdf_bin: str) -> bool:
+    global _MAGIC_PDF_BACKEND_SUPPORT
+    if _MAGIC_PDF_BACKEND_SUPPORT is not None:
+        return _MAGIC_PDF_BACKEND_SUPPORT
+    try:
+        result = subprocess.run(
+            [magic_pdf_bin, "--help"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        output = (result.stdout or "") + (result.stderr or "")
+        _MAGIC_PDF_BACKEND_SUPPORT = "-b," in output or "--backend" in output
+    except Exception:
+        _MAGIC_PDF_BACKEND_SUPPORT = False
+    return _MAGIC_PDF_BACKEND_SUPPORT
+
+
+def _normalize_device_mode(device: Optional[str]) -> Optional[str]:
+    if not device:
+        return None
+    value = str(device).strip().lower()
+    if value in {"gpu", "cuda"}:
+        return "cuda"
+    if value in {"mps", "metal"}:
+        return "mps"
+    if value in {"cpu"}:
+        return "cpu"
+    if value in {"auto"}:
+        return None
+    return value
+
+
+def _mps_available() -> bool:
+    try:
+        import torch  # type: ignore
+
+        return bool(getattr(torch.backends, "mps", None) and torch.backends.mps.is_available())
+    except Exception:
+        return False
+
+
+def _resolve_backend(device_mode: Optional[str], backend: Optional[str]) -> Optional[str]:
+    if backend:
+        value = str(backend).strip()
+        if value.lower() == "auto":
+            return None
+        return value
+    if device_mode in {"cuda", "mps"}:
+        if device_mode == "mps":
+            if platform.system() == "Darwin" and _mps_available():
+                return "hybrid-auto-engine"
+            return "pipeline"
+        return "hybrid-auto-engine"
+    return "pipeline"
+
+
+def _prepare_mineru_env(
+    base_env: Dict[str, str],
+    tmp_root: Path,
+    device_mode: Optional[str],
+) -> Dict[str, str]:
+    if not device_mode:
+        return base_env
+    config_path = base_env.get("MINERU_TOOLS_CONFIG_JSON", "")
+    if not config_path:
+        LOGGER.warning("MINERU_TOOLS_CONFIG_JSON not set; cannot override device-mode=%s", device_mode)
+        return base_env
+    config_file = Path(config_path)
+    if not config_file.exists():
+        LOGGER.warning("MinerU config not found at %s; cannot override device-mode=%s", config_file, device_mode)
+        return base_env
+    try:
+        data = json.loads(config_file.read_text(encoding="utf-8"))
+    except Exception as exc:
+        LOGGER.warning("Failed to read MinerU config %s (%s); skipping device override", config_file, exc)
+        return base_env
+
+    if data.get("device-mode") == device_mode:
+        return base_env
+
+    data["device-mode"] = device_mode
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    tmp_config = tmp_root / f"mineru_config_{device_mode}.json"
+    tmp_config.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    env_copy = dict(base_env)
+    env_copy["MINERU_TOOLS_CONFIG_JSON"] = str(tmp_config)
+    return env_copy
 
 
 def _write_stub(pdf_path: Path, md_out: Path, metrics_out: Path, content_debug: bool) -> Dict[str, Any]:
@@ -94,7 +194,9 @@ def run_for_files(
     allow_cli: bool = False,
     magic_pdf_bin: Optional[str] = None,
     mode: Optional[str] = None,
+    backend: Optional[str] = None,
     content_debug: bool = False,
+    device: Optional[str] = None,
     **_: Any,
 ) -> Dict[str, Any]:
     """Run MinerU OCR for the provided files.
@@ -107,7 +209,7 @@ def run_for_files(
         return {}
 
     input_root = Path(getattr(self_ref, "input_dir", ".")).resolve()
-    out_root = Path(output_dir) if output_dir else Path(getattr(self_ref, "output_dir", input_root))
+    out_root = (Path(output_dir) if output_dir else Path(getattr(self_ref, "output_dir", input_root))).resolve()
     md_dir = out_root / "markdown"
     metrics_dir = out_root / "json" / "metrics"
     tmp_root = out_root / "mineru_tmp"
@@ -119,11 +221,17 @@ def run_for_files(
     env_allow_cli = env.get("GLOSSAPI_MINERU_ALLOW_CLI", "0") == "1"
     env_mode = env.get("GLOSSAPI_MINERU_MODE")
     env_bin = env.get("GLOSSAPI_MINERU_COMMAND")
+    env_backend = env.get("GLOSSAPI_MINERU_BACKEND")
+    env_device = env.get("GLOSSAPI_MINERU_DEVICE_MODE") or env.get("GLOSSAPI_MINERU_DEVICE")
 
     use_cli = allow_cli or env_allow_cli
     use_stub = allow_stub and env_allow_stub
     mode = (mode or env_mode or "auto").strip()
     magic_pdf = _resolve_magic_pdf(magic_pdf_bin or env_bin)
+    device_mode = _normalize_device_mode(device or env_device)
+    backend_choice = _resolve_backend(device_mode, backend or env_backend)
+
+    cli_env = _prepare_mineru_env(dict(env), tmp_root, device_mode) if use_cli else env
 
     results: Dict[str, Any] = {}
 
@@ -147,7 +255,14 @@ def run_for_files(
                 if tmp_out.exists():
                     shutil.rmtree(tmp_out)
                 tmp_out.mkdir(parents=True, exist_ok=True)
-                _run_cli(pdf_path, tmp_out, magic_pdf_bin=magic_pdf, mode=mode)
+                _run_cli(
+                    pdf_path,
+                    tmp_out,
+                    magic_pdf_bin=magic_pdf,
+                    mode=mode,
+                    backend=backend_choice,
+                    env=cli_env,
+                )
                 md_src = _find_markdown(tmp_out, stem)
                 if md_src and md_src.exists():
                     md_path.parent.mkdir(parents=True, exist_ok=True)

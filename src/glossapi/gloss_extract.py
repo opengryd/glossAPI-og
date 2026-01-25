@@ -493,6 +493,20 @@ class GlossExtract:
             bool(getattr(self, "use_pypdfium_backend", False)),
         )
 
+    def _should_skip_docling(
+        self,
+        *,
+        enable_ocr: bool,
+        formula_enrichment: bool,
+        code_enrichment: bool,
+    ) -> bool:
+        return (
+            bool(getattr(self, "use_pypdfium_backend", False))
+            and not enable_ocr
+            and not formula_enrichment
+            and not code_enrichment
+        )
+
     def ensure_extractor(
         self,
         *,
@@ -522,6 +536,28 @@ class GlossExtract:
             ocr_langs=ocr_langs,
             profile_timings=profile_timings,
         )
+        if (
+            getattr(self, "_skip_docling_converter", False)
+            and self._last_extractor_cfg == sig
+            and os.environ.get("GLOSSAPI_SKIP_DOCLING_BOOT") == "1"
+        ):
+            return
+        if self._should_skip_docling(
+            enable_ocr=enable_ocr,
+            formula_enrichment=formula_enrichment,
+            code_enrichment=code_enrichment,
+        ) and os.environ.get("GLOSSAPI_SKIP_DOCLING_BOOT") == "1":
+            try:
+                self._log.info("Skipping Docling converter; using PyPDFium safe extractor.")
+            except Exception:
+                pass
+            self._skip_docling_converter = True
+            self.converter = None
+            self._last_extractor_cfg = sig
+            self._current_ocr_enabled = bool(enable_ocr)
+            self._active_pdf_backend = None
+            self._active_pdf_options = None
+            return
         if getattr(self, "converter", None) is not None and self._last_extractor_cfg == sig:
             try:
                 self._log.info("Reusing existing Docling converter (config unchanged)")
@@ -559,8 +595,72 @@ class GlossExtract:
         to avoid duplicated provider checks and option wiring. Falls back to the legacy
         inline path if the canonical builder is unavailable.
         """
-        _ensure_docling_converter_loaded()
-        _ensure_docling_pipeline_loaded()
+        if self._should_skip_docling(
+            enable_ocr=enable_ocr,
+            formula_enrichment=formula_enrichment,
+            code_enrichment=code_enrichment,
+        ) and os.environ.get("GLOSSAPI_SKIP_DOCLING_BOOT") == "1":
+            try:
+                self._log.info("Skipping Docling converter; using PyPDFium safe extractor.")
+            except Exception:
+                pass
+            self._skip_docling_converter = True
+            self.converter = None
+            self._current_ocr_enabled = bool(enable_ocr)
+            self._active_pdf_backend = None
+            self._active_pdf_options = None
+            try:
+                self._last_extractor_cfg = self._cfg_signature(
+                    enable_ocr=enable_ocr,
+                    force_full_page_ocr=force_full_page_ocr,
+                    text_score=text_score,
+                    images_scale=images_scale,
+                    formula_enrichment=formula_enrichment,
+                    code_enrichment=code_enrichment,
+                    use_cls=use_cls,
+                    ocr_langs=ocr_langs,
+                    profile_timings=profile_timings,
+                )
+            except Exception:
+                self._last_extractor_cfg = None
+            return None
+        try:
+            _ensure_docling_converter_loaded()
+            _ensure_docling_pipeline_loaded()
+        except Exception as exc:
+            if self._should_skip_docling(
+                enable_ocr=enable_ocr,
+                formula_enrichment=formula_enrichment,
+                code_enrichment=code_enrichment,
+            ):
+                try:
+                    self._log.warning(
+                        "Docling load failed (%s); falling back to PyPDFium safe extractor.",
+                        exc,
+                    )
+                except Exception:
+                    pass
+                self._skip_docling_converter = True
+                self.converter = None
+                self._current_ocr_enabled = bool(enable_ocr)
+                self._active_pdf_backend = None
+                self._active_pdf_options = None
+                try:
+                    self._last_extractor_cfg = self._cfg_signature(
+                        enable_ocr=enable_ocr,
+                        force_full_page_ocr=force_full_page_ocr,
+                        text_score=text_score,
+                        images_scale=images_scale,
+                        formula_enrichment=formula_enrichment,
+                        code_enrichment=code_enrichment,
+                        use_cls=use_cls,
+                        ocr_langs=ocr_langs,
+                        profile_timings=profile_timings,
+                    )
+                except Exception:
+                    self._last_extractor_cfg = None
+                return None
+            raise
         # Enable/disable Docling pipeline timings collection (for benchmarks)
         try:
             from docling.datamodel.settings import settings as _settings  # type: ignore

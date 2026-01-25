@@ -29,6 +29,7 @@ Policy: never OCR and math on the same file
 - RapidOCR/Docling stack: `pip install '.[rapidocr]'`
 - DeepSeek CLI stack (in a dedicated venv recommended): `pip install '.[deepseek]'`
 - MinerU CLI: ensure `magic-pdf` is available on PATH (or set `GLOSSAPI_MINERU_COMMAND`).
+- macOS MinerU GPU: install `mineru[all]` in a Python 3.10–3.13 venv so Torch MPS is available.
 - ONNXRuntime GPU installed (no CPU ORT): `onnxruntime-gpu==1.18.1` (Linux/Windows)
 - macOS: `onnxruntime==1.18.1` with CoreMLExecutionProvider (Metal)
 - Torch CUDA installed: e.g., `torch==2.5.1+cu121` (Linux/Windows)
@@ -114,6 +115,21 @@ from glossapi import Corpus
 c = Corpus('IN','OUT')
 c.ocr(backend='mineru', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
 # → runs OCR only for bad files; equations are included inline; Phase‑2 is skipped
+```
+
+Recommended macOS GPU settings:
+
+```bash
+export GLOSSAPI_MINERU_BACKEND="hybrid-auto-engine"
+export GLOSSAPI_MINERU_DEVICE_MODE="mps"
+export MINERU_TOOLS_CONFIG_JSON="/path/to/magic-pdf.json"
+python -m glossapi.ocr.mineru.preflight
+```
+
+Validate your MinerU setup (CLI, config, device, and model paths):
+
+```bash
+python -m glossapi.ocr.mineru.preflight
 ```
 
 ## Multi‑GPU

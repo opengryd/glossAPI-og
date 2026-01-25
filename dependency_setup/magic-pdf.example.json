@@ -3,7 +3,7 @@
     "[default]": ["", "", ""]
   },
   "models-dir": "/path/to/mineru_models/models",
-  "device-mode": "cpu",
+  "device-mode": "mps",
   "layout-config": {
     "model": "doclayout_yolo"
   },
