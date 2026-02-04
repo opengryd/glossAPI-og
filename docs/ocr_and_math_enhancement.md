@@ -10,6 +10,7 @@ This document summarizes how GlossAPI uses the GPU for OCR and formula/code enri
 Backends
 - `backend='rapidocr'` (default): Docling + RapidOCR; Phase‑2 math runs from Docling JSON.
 - `backend='deepseek'`: DeepSeek‑OCR; equations are included inline in OCR output, so Phase‑2 math is not required and is treated as a no‑op.
+- `backend='mineru'`: MinerU (magic-pdf) OCR; equations are included inline in OCR output, so Phase‑2 math is not required and is treated as a no‑op.
 
 Policy: never OCR and math on the same file
 - If a file needs OCR, GlossAPI runs OCR only (no Phase‑2 on that file in the same pass).
@@ -18,6 +19,7 @@ Policy: never OCR and math on the same file
 ### Python API layout
 
 - DeepSeek entry point: `glossapi.ocr.deepseek.runner.run_for_files(...)`
+- MinerU entry point: `glossapi.ocr.mineru.runner.run_for_files(...)`
 - RapidOCR dispatcher: `glossapi.ocr.rapidocr.dispatch.run_via_extract(...)`
 - Math enrichment: `glossapi.ocr.math.enrich.enrich_from_docling_json(...)`
 - Utility helpers (Docling JSON / cleaning): `glossapi.ocr.utils.*`
@@ -26,6 +28,8 @@ Policy: never OCR and math on the same file
 
 - RapidOCR/Docling stack: `pip install '.[rapidocr]'`
 - DeepSeek CLI stack (in a dedicated venv recommended): `pip install '.[deepseek]'`
+- MinerU CLI: ensure `magic-pdf` is available on PATH (or set `GLOSSAPI_MINERU_COMMAND`).
+- macOS MinerU GPU: install `mineru[all]` in a Python 3.10–3.13 venv so Torch MPS is available.
 - ONNXRuntime GPU installed (no CPU ORT): `onnxruntime-gpu==1.18.1` (Linux/Windows)
 - macOS: `onnxruntime==1.18.1` with CoreMLExecutionProvider (Metal)
 - Torch CUDA installed: e.g., `torch==2.5.1+cu121` (Linux/Windows)
@@ -100,6 +104,32 @@ If you need Phase‑2 math on files that do not require OCR, use RapidOCR/Doclin
 ```python
 c.ocr(backend='rapidocr', fix_bad=False, math_enhance=True, mode='math_only')
 # → runs Phase‑2 on non‑OCR files only (requires Docling JSON)
+```
+
+## MinerU usage
+
+Run OCR for files flagged by the cleaner as needing OCR (math flags are ignored for MinerU):
+
+```python
+from glossapi import Corpus
+c = Corpus('IN','OUT')
+c.ocr(backend='mineru', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
+# → runs OCR only for bad files; equations are included inline; Phase‑2 is skipped
+```
+
+Recommended macOS GPU settings:
+
+```bash
+export GLOSSAPI_MINERU_BACKEND="hybrid-auto-engine"
+export GLOSSAPI_MINERU_DEVICE_MODE="mps"
+export MINERU_TOOLS_CONFIG_JSON="/path/to/magic-pdf.json"
+python -m glossapi.ocr.mineru.preflight
+```
+
+Validate your MinerU setup (CLI, config, device, and model paths):
+
+```bash
+python -m glossapi.ocr.mineru.preflight
 ```
 
 ## Multi‑GPU

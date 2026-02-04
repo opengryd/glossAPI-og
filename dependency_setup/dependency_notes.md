@@ -4,6 +4,7 @@
 - **Vanilla** – core GlossAPI pipeline without GPU OCR add-ons. Uses `requirements-glossapi-vanilla.txt`.
 - **RapidOCR** – Docling + RapidOCR GPU stack. Builds on vanilla requirements and adds ONNX runtime (`requirements-glossapi-rapidocr.txt`). On macOS, the installer switches to `requirements-glossapi-rapidocr-macos.txt` with `onnxruntime==1.18.1`.
 - **DeepSeek** – GPU OCR via DeepSeek/vLLM. Extends vanilla requirements with torch/cu128, nightly vLLM and supporting CUDA libs (`requirements-glossapi-deepseek.txt`). `xformers` was dropped because the published wheels still pin Torch 2.8; the rest of the stack now installs cleanly on Torch 2.9.
+- **MinerU** – OCR via the external `magic-pdf` CLI. Uses `requirements-glossapi-mineru.txt` (vanilla + CLI setup).
 
 Each profile is installed through `dependency_setup/setup_glossapi.sh`:
 ```bash
@@ -11,6 +12,7 @@ Each profile is installed through `dependency_setup/setup_glossapi.sh`:
 ./dependency_setup/setup_glossapi.sh --mode vanilla  --venv dependency_setup/.venvs/vanilla  --run-tests
 ./dependency_setup/setup_glossapi.sh --mode rapidocr --venv dependency_setup/.venvs/rapidocr --run-tests
 ./dependency_setup/setup_glossapi.sh --mode deepseek --venv dependency_setup/.venvs/deepseek --run-tests
+./dependency_setup/setup_glossapi.sh --mode mineru  --venv dependency_setup/.venvs/mineru  --run-tests
 ```
 
 Key flags:

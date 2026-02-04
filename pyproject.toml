@@ -75,7 +75,8 @@ python-source = "src"
 manifest-path = "rust/glossapi_rs_noise/Cargo.toml"
 include = ["src/**"]
 python-packages = [
-    "glossapi"
+    "glossapi",
+    "ppocr"
 ]
 
 [tool.pytest.ini_options]

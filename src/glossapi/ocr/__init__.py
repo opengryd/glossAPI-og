@@ -12,16 +12,19 @@ import importlib
 
 __all__ = [
     "deepseek",
+    "mineru",
     "rapidocr",
     "math",
     "utils",
     "deepseek_runner",
+    "mineru_runner",
     "rapidocr_dispatch",
 ]
 
-_SUBPACKAGES = {"deepseek", "rapidocr", "math", "utils"}
+_SUBPACKAGES = {"deepseek", "mineru", "rapidocr", "math", "utils"}
 _ALIASES = {
     "deepseek_runner": "glossapi.ocr.deepseek.runner",
+    "mineru_runner": "glossapi.ocr.mineru.runner",
     "rapidocr_dispatch": "glossapi.ocr.rapidocr.dispatch",
 }
 

@@ -36,6 +36,8 @@ pip install -r deepseek-ocr/requirements-deepseek.txt
 
 When using `backend='deepseek'`, equations are included inline in the OCR output; Phase‑2 math flags are accepted but skipped.
 
+When using `backend='mineru'`, equations are included inline in the OCR output; Phase‑2 math flags are accepted but skipped.
+
 ### DeepSeek runtime controls
 
 - `GLOSSAPI_DEEPSEEK_ALLOW_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
@@ -43,6 +45,23 @@ When using `backend='deepseek'`, equations are included inline in the OCR output
 - `GLOSSAPI_DEEPSEEK_PYTHON`: absolute path to the Python interpreter that runs `run_pdf_ocr_vllm.py` (defaults to the current interpreter).
 - `GLOSSAPI_DEEPSEEK_VLLM_SCRIPT`: override path to the DeepSeek CLI script (defaults to `deepseek-ocr/run_pdf_ocr_vllm.py` under the repo).
 - `GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH`: prepend extra library search paths (e.g., for `libjpeg-turbo`) when launching the CLI.
+
+### MinerU runtime controls
+
+- `GLOSSAPI_MINERU_ALLOW_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
+- `GLOSSAPI_MINERU_ALLOW_CLI` (`0` by default): flip to `1` to run `magic-pdf` when available.
+- `GLOSSAPI_MINERU_COMMAND`: override the `magic-pdf` executable path.
+- `GLOSSAPI_MINERU_MODE`: override the MinerU mode flag (passed to `magic-pdf -m`, default `auto`).
+- `GLOSSAPI_MINERU_BACKEND`: override the MinerU backend (passed to `magic-pdf -b`, e.g. `pipeline`, `hybrid-auto-engine`, `vlm`).
+- `GLOSSAPI_MINERU_DEVICE_MODE`: override the MinerU device mode (`mps`, `cuda`, or `cpu`). Requires `MINERU_TOOLS_CONFIG_JSON` to point at the base config.
+
+#### MinerU doctor checks
+
+Run the preflight checker to validate your CLI, config, device, and model paths:
+
+```bash
+python -m glossapi.ocr.mineru.preflight
+```
 
 ## Math Enrichment (Phase‑2)
 

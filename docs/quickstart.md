@@ -102,3 +102,39 @@ export GLOSSAPI_DEEPSEEK_MODEL_DIR=/path/to/deepseek-ocr/DeepSeek-OCR
 export GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH=/path/to/libjpeg-turbo/lib
 python -m glossapi.ocr.deepseek.preflight  # optional: validates env without running OCR
 ```
+
+### MinerU OCR
+
+MinerU (magic-pdf) can be used as an OCR backend; equations are included inline in the OCR output, so Phase‑2 math is not required and any math flags are ignored.
+
+On macOS, install MinerU GPU extras in a Python 3.10–3.13 venv:
+
+```bash
+pip install -U "mineru[all]"
+```
+
+Recommended: use Python 3.11 for the MinerU venv to avoid dependency gaps.
+
+Ensure GlossAPI is installed in the active venv:
+
+```bash
+pip install -e .
+```
+
+```python
+from glossapi import Corpus
+c = Corpus('IN','OUT')
+c.ocr(backend='mineru', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
+# → OCR only for bad files; math is included inline in the Markdown
+```
+
+To use the CLI directly, set `GLOSSAPI_MINERU_ALLOW_CLI=1` (and optionally `GLOSSAPI_MINERU_ALLOW_STUB=0`) and ensure `magic-pdf` is on PATH or set `GLOSSAPI_MINERU_COMMAND`.
+
+To force the GPU backend on Apple Silicon:
+
+```bash
+export GLOSSAPI_MINERU_BACKEND="hybrid-auto-engine"
+export GLOSSAPI_MINERU_DEVICE_MODE="mps"
+export MINERU_TOOLS_CONFIG_JSON="/path/to/magic-pdf.json"
+python -m glossapi.ocr.mineru.preflight
+```
