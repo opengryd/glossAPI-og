@@ -82,8 +82,8 @@ repro_rapidocr_onnx/
 
 # MinerU dependencies and environment files
 .venv*
-mineru_models/
-magic-pdf.json
+dependency_setup/mineru/
+dependency_setup/mineru/magic-pdf.json
 .env_mineru
 
 # Output

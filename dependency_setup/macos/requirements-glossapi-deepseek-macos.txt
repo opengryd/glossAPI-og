@@ -1,0 +1,6 @@
+# DeepSeek profile (macOS)
+# NOTE: DeepSeek/vLLM CUDA wheels are Linux-only. This file intentionally falls
+# back to the vanilla macOS requirements so installs do not fail on macOS.
+# Use DeepSeek mode on a Linux CUDA host for full GPU OCR support.
+
+-r requirements-glossapi-vanilla-macos.txt

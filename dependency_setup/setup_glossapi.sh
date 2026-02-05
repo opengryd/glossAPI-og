@@ -26,7 +26,7 @@ Options:
   --download-deepseek    Fetch DeepSeek-OCR weights (only meaningful for --mode deepseek)
   --weights-dir PATH     Destination directory for DeepSeek weights (default: $REPO_ROOT/deepseek-ocr)
   --download-mineru-models
-                         Download MinerU model bundle into dependency_setup/mineru_models
+                         Download MinerU model bundle into dependency_setup/mineru
   --mineru-command PATH  Path to magic-pdf binary (optional; stored in GLOSSAPI_MINERU_COMMAND)
   --run-tests            Run pytest -q after installation
   --smoke-test           Run dependency_setup/deepseek_gpu_smoke.py (deepseek mode only)
@@ -89,14 +89,36 @@ case "${MODE}" in
     ;;
 esac
 
-if [[ -z "${VENV_PATH}" ]]; then
-  VENV_PATH="${REPO_ROOT}/.venv_glossapi_${MODE}"
+REQUIREMENTS_FILE="${SCRIPT_DIR}/base/requirements-glossapi-${MODE}.txt"
+if [[ "${MODE}" == "vanilla" ]]; then
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    MAC_REQUIREMENTS_FILE="${SCRIPT_DIR}/macos/requirements-glossapi-vanilla-macos.txt"
+    if [[ -f "${MAC_REQUIREMENTS_FILE}" ]]; then
+      REQUIREMENTS_FILE="${MAC_REQUIREMENTS_FILE}"
+    fi
+  fi
 fi
-
-REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements-glossapi-${MODE}.txt"
 if [[ "${MODE}" == "rapidocr" ]]; then
   if [[ "$(uname -s)" == "Darwin" ]]; then
-    MAC_REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements-glossapi-rapidocr-macos.txt"
+    MAC_REQUIREMENTS_FILE="${SCRIPT_DIR}/macos/requirements-glossapi-rapidocr-macos.txt"
+    if [[ -f "${MAC_REQUIREMENTS_FILE}" ]]; then
+      REQUIREMENTS_FILE="${MAC_REQUIREMENTS_FILE}"
+    fi
+  fi
+fi
+
+if [[ "${MODE}" == "deepseek" ]]; then
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    MAC_REQUIREMENTS_FILE="${SCRIPT_DIR}/macos/requirements-glossapi-deepseek-macos.txt"
+    if [[ -f "${MAC_REQUIREMENTS_FILE}" ]]; then
+      REQUIREMENTS_FILE="${MAC_REQUIREMENTS_FILE}"
+    fi
+  fi
+fi
+
+if [[ "${MODE}" == "mineru" ]]; then
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    MAC_REQUIREMENTS_FILE="${SCRIPT_DIR}/macos/requirements-glossapi-mineru-macos.txt"
     if [[ -f "${MAC_REQUIREMENTS_FILE}" ]]; then
       REQUIREMENTS_FILE="${MAC_REQUIREMENTS_FILE}"
     fi
@@ -112,7 +134,86 @@ info()  { printf "\033[1;32m==>\033[0m %s\n" "$*"; }
 warn()  { printf "\033[1;33m[warn]\033[0m %s\n" "$*"; }
 error() { printf "\033[1;31m[err]\033[0m %s\n" "$*" >&2; exit 1; }
 
+python_version_minor() {
+  "$1" - <<'PY' 2>/dev/null
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+PY
+}
+
+python_version_tag() {
+  local version
+  version="$(python_version_minor "$1")"
+  if [[ -z "${version}" ]]; then
+    echo ""
+    return 0
+  fi
+  echo "${version//./}"
+}
+
+if [[ -z "${VENV_PATH}" ]]; then
+  py_tag="$(python_version_tag "${PYTHON_BIN}")"
+  if [[ -n "${py_tag}" ]]; then
+    VENV_PATH="${REPO_ROOT}/dependency_setup/.venvs/${MODE}-py${py_tag}"
+  else
+    VENV_PATH="${REPO_ROOT}/dependency_setup/.venvs/${MODE}"
+  fi
+fi
+
+python_supports_glossapi() {
+  local version
+  version="$(python_version_minor "$1")"
+  [[ -z "${version}" ]] && return 1
+  local major="${version%%.*}"
+  local minor="${version##*.}"
+  [[ "${major}" == "3" && "${minor}" -ge 11 && "${minor}" -lt 14 ]]
+}
+
+select_glossapi_python() {
+  local candidates=(python3.13 python3.12 python3.11)
+  local cmd
+  for cmd in "${candidates[@]}"; do
+    if command -v "${cmd}" >/dev/null 2>&1; then
+      if python_supports_glossapi "${cmd}"; then
+        echo "${cmd}"
+        return 0
+      fi
+    fi
+  done
+  echo ""
+  return 0
+}
+
 ensure_venv() {
+  local recreate=0
+  if [[ -d "${VENV_PATH}" && ! -x "${VENV_PATH}/bin/python" ]]; then
+    warn "Existing venv is missing its Python interpreter. Recreating it."
+    recreate=1
+  fi
+
+  if [[ -d "${VENV_PATH}" && -x "${VENV_PATH}/bin/python" ]]; then
+    local venv_version
+    venv_version="$(${VENV_PATH}/bin/python - <<'PY'
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+PY
+)"
+    if ! python_supports_glossapi "${VENV_PATH}/bin/python"; then
+      warn "Existing venv uses Python ${venv_version}, which is not supported (requires 3.11–3.13). Recreating it."
+      recreate=1
+    fi
+    local requested_version
+    requested_version="$(python_version_minor "${PYTHON_BIN}")"
+    if [[ -n "${requested_version}" && "${requested_version}" != "${venv_version}" ]]; then
+      warn "Existing venv uses Python ${venv_version}, but ${PYTHON_BIN} is ${requested_version}. Recreating it."
+      recreate=1
+    fi
+  fi
+
+  if [[ "${recreate}" -eq 1 ]]; then
+    rm -rf "${VENV_PATH}"
+  fi
+
   if [[ ! -d "${VENV_PATH}" ]]; then
     info "Creating virtual environment at ${VENV_PATH}"
     "${PYTHON_BIN}" -m venv "${VENV_PATH}"
@@ -220,23 +321,55 @@ PY
 patch_mineru_paddleocr_config() {
   python_run - <<'PY'
 from pathlib import Path
+import sys
+import importlib.util
 
-try:
-  import magic_pdf.model.sub_modules.ocr.paddleocr2pytorch.pytorchocr.utils.resources as res
-except Exception as exc:
-  print(f"[warn] Unable to import PaddleOCR resources: {exc}")
-  raise SystemExit(0)
+def _candidate_paths() -> list[Path]:
+  candidates: list[Path] = []
 
-path = Path(res.__file__).parent / "models_config.yml"
-if not path.exists():
-  print("[warn] PaddleOCR models_config.yml not found.")
-  raise SystemExit(0)
+  spec = importlib.util.find_spec(
+    "magic_pdf.model.sub_modules.ocr.paddleocr2pytorch.pytorchocr.utils.resources"
+  )
+  if spec and spec.origin:
+    candidates.append(Path(spec.origin).parent / "models_config.yml")
 
-text = path.read_text(encoding="utf-8")
-text = text.replace("det: ch_PP-OCRv3_det_infer.pth", "det: ch_PP-OCRv5_det_infer.pth")
-text = text.replace("rec: ch_PP-OCRv4_rec_infer.pth", "rec: ch_PP-OCRv5_rec_infer.pth")
-path.write_text(text, encoding="utf-8")
-print(f"[info] Patched PaddleOCR model config in {path}")
+  spec = importlib.util.find_spec("mineru.model.utils.pytorchocr.utils.resources")
+  if spec and spec.origin:
+    candidates.append(Path(spec.origin).parent / "models_config.yml")
+
+  for base in map(Path, sys.path):
+    candidates.append(
+      base
+      / "magic_pdf/model/sub_modules/ocr/paddleocr2pytorch/pytorchocr/utils/resources/models_config.yml"
+    )
+    candidates.append(
+      base / "mineru/model/utils/pytorchocr/utils/resources/models_config.yml"
+    )
+
+  seen = set()
+  ordered: list[Path] = []
+  for path in candidates:
+    if path in seen:
+      continue
+    seen.add(path)
+    ordered.append(path)
+  return ordered
+
+
+patched = 0
+for path in _candidate_paths():
+  if not path.exists():
+    continue
+  text = path.read_text(encoding="utf-8")
+  updated = text.replace("det: ch_PP-OCRv3_det_infer.pth", "det: ch_PP-OCRv5_det_infer.pth")
+  updated = updated.replace("rec: ch_PP-OCRv4_rec_infer.pth", "rec: ch_PP-OCRv5_rec_infer.pth")
+  if updated != text:
+    path.write_text(updated, encoding="utf-8")
+    print(f"[info] Patched PaddleOCR model config in {path}")
+    patched += 1
+
+if patched == 0:
+  print("[warn] PaddleOCR models_config.yml not found for patching.")
 PY
 }
 
@@ -316,12 +449,33 @@ print("MinerU model download complete.")
 PY
 }
 
+if ! python_supports_glossapi "${PYTHON_BIN}"; then
+  ALT_PYTHON="$(select_glossapi_python)"
+  if [[ -n "${ALT_PYTHON}" ]]; then
+    warn "Python ${PYTHON_BIN} is not supported (requires 3.11–3.13). Using ${ALT_PYTHON} instead."
+    PYTHON_BIN="${ALT_PYTHON}"
+  else
+    error "Python ${PYTHON_BIN} is not supported (requires 3.11–3.13). Install Python 3.11–3.13 and re-run with --python PATH."
+  fi
+fi
+
 ensure_venv
 info "Upgrading pip tooling"
 pip_run install --upgrade pip wheel setuptools
 
 info "Installing ${MODE} requirements from $(basename "${REQUIREMENTS_FILE}")"
-pip_run install -r "${REQUIREMENTS_FILE}"
+if [[ "${MODE}" == "mineru" ]]; then
+  TMP_REQ="$(mktemp)"
+  grep -vE '^(magic-pdf|mineru(\[.*\])?==|-r|--requirement)' "${REQUIREMENTS_FILE}" > "${TMP_REQ}"
+  pip_run install -r "${TMP_REQ}"
+  rm -f "${TMP_REQ}"
+  info "Installing mineru without dependencies to avoid deep resolver"
+  pip_run install --no-deps "mineru[all]==2.7.5"
+  info "Installing magic-pdf without dependencies"
+  pip_run install --no-deps "magic-pdf==1.3.12"
+else
+  pip_run install -r "${REQUIREMENTS_FILE}"
+fi
 
 info "Installing glossapi in editable mode"
 pip_run install -e "${REPO_ROOT}" --no-deps
@@ -383,7 +537,7 @@ PY
   fi
 
   if [[ "${DOWNLOAD_MINERU_MODELS}" -eq 1 ]]; then
-    download_mineru_models "${SCRIPT_DIR}/mineru_models"
+    download_mineru_models "${SCRIPT_DIR}/mineru"
   else
     warn "MinerU models not downloaded (use --download-mineru-models to fetch the PDF-Extract-Kit bundle)."
   fi
@@ -442,8 +596,8 @@ EOF
 fi
 
 if [[ "${MODE}" == "mineru" ]]; then
-  MINERU_CONFIG_PATH="${SCRIPT_DIR}/magic-pdf.json"
-  MINERU_MODELS_DIR="${SCRIPT_DIR}/mineru_models"
+  MINERU_CONFIG_PATH="${SCRIPT_DIR}/mineru/magic-pdf.json"
+  MINERU_MODELS_DIR="${SCRIPT_DIR}/mineru"
   mkdir -p "${MINERU_MODELS_DIR}"
   MINERU_MODEL_ROOT="${MINERU_MODELS_DIR}"
   if [[ -d "${MINERU_MODELS_DIR}/models" ]]; then
