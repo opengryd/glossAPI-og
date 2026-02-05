@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 MODE="vanilla"
-PYTHON_BIN="${PYTHON:-python3}"
+PYTHON_BIN="${PYTHON:-}"
 VENV_PATH="${GLOSSAPI_VENV:-}"
 DOWNLOAD_DEEPSEEK=0
 DEEPSEEK_ROOT="${DEEPSEEK_ROOT:-${REPO_ROOT}/deepseek-ocr}"
@@ -33,6 +33,15 @@ Options:
   --help                 Show this help message
 EOF
 }
+
+if [[ -z "${PYTHON_BIN}" ]]; then
+  for candidate in python3.12 python3.11 python3.13 python3 python; do
+    if command -v "${candidate}" >/dev/null 2>&1; then
+      PYTHON_BIN="${candidate}"
+      break
+    fi
+  done
+fi
 
 while (( "$#" )); do
   case "$1" in
@@ -170,7 +179,7 @@ python_supports_glossapi() {
 }
 
 select_glossapi_python() {
-  local candidates=(python3.13 python3.12 python3.11)
+  local candidates=(python3.11 python3.12 python3.13)
   local cmd
   for cmd in "${candidates[@]}"; do
     if command -v "${cmd}" >/dev/null 2>&1; then
@@ -199,7 +208,7 @@ print(f"{sys.version_info.major}.{sys.version_info.minor}")
 PY
 )"
     if ! python_supports_glossapi "${VENV_PATH}/bin/python"; then
-      warn "Existing venv uses Python ${venv_version}, which is not supported (requires 3.11–3.13). Recreating it."
+      warn "Existing venv uses Python ${venv_version}, which is not supported (requires 3.11–3.13, recommended 3.12). Recreating it."
       recreate=1
     fi
     local requested_version
@@ -452,10 +461,10 @@ PY
 if ! python_supports_glossapi "${PYTHON_BIN}"; then
   ALT_PYTHON="$(select_glossapi_python)"
   if [[ -n "${ALT_PYTHON}" ]]; then
-    warn "Python ${PYTHON_BIN} is not supported (requires 3.11–3.13). Using ${ALT_PYTHON} instead."
+    warn "Python ${PYTHON_BIN} is not supported (requires 3.11–3.13, recommended 3.12). Using ${ALT_PYTHON} instead."
     PYTHON_BIN="${ALT_PYTHON}"
   else
-    error "Python ${PYTHON_BIN} is not supported (requires 3.11–3.13). Install Python 3.11–3.13 and re-run with --python PATH."
+    error "Python ${PYTHON_BIN} is not supported (requires 3.11–3.13, recommended 3.12). Install Python 3.11–3.13 and re-run with --python PATH."
   fi
 fi
 
@@ -473,6 +482,8 @@ if [[ "${MODE}" == "mineru" ]]; then
   pip_run install --no-deps "mineru[all]==2.7.5"
   info "Installing magic-pdf without dependencies"
   pip_run install --no-deps "magic-pdf==1.3.12"
+  info "Installing magic-pdf runtime deps"
+  pip_run install "loguru"
 else
   pip_run install -r "${REQUIREMENTS_FILE}"
 fi

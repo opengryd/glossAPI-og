@@ -51,3 +51,7 @@ rich>=14.0
 safetensors>=0.4
 huggingface-hub>=0.22
 transformers>=4.45,<5
+
+# Torch (MPS/Metal support for macOS)
+torch>=2.2,<3
+torchvision>=0.17,<1
