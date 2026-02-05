@@ -106,6 +106,46 @@ Pass `--download-deepseek` if you need the script to fetch weights automatically
 
 See the refreshed docs (`docs/index.md`) for detailed environment notes, CUDA/ORT combinations, and troubleshooting tips.
 
+## GlossAPI CLI (interactive)
+
+GlossAPI ships an interactive, arrow-key driven CLI for stepping through phases.
+It uses a checklist-style wizard so you can run only the stages you need.
+
+Highlights:
+- Interactive phase selection with arrow keys and checkboxes.
+- Per-phase confirmation before execution.
+- Optional JSONL export at the end of the run.
+
+Prerequisite:
+- Install [gum](https://github.com/charmbracelet/gum) for the interactive prompts.
+
+## Unified CLI
+
+Use the unified CLI to provision the correct dependency stack and venv for your
+chosen pipeline profile (vanilla, rapidocr, mineru, deepseek), then run the
+pipeline from the same entrypoint.
+
+Examples:
+- glossapi setup
+- glossapi setup --mode mineru --venv dependency_setup/.venvs/mineru --download-mineru-models
+- glossapi setup --mode rapidocr --venv dependency_setup/.venvs/rapidocr --run-tests
+- glossapi pipeline
+
+## One-command runner (any profile)
+
+If you want a single command that does setup + env activation + runs the CLI:
+
+- [scripts/glossapi.sh](scripts/glossapi.sh)
+
+This script provisions the selected profile, sources the venv, and launches
+glossapi. It prompts for the profile unless you set MODE=....
+
+### macOS (MinerU) quickstart
+
+GlossAPI supports macOS GPU acceleration via Metal/MPS (see
+[docs/ocr_and_math_enhancement.md](docs/ocr_and_math_enhancement.md)). Use the
+generic runner and choose the MinerU profile.
+
 ## Repo Landmarks
 - `samples/lightweight_pdf_corpus/`: 20 one-page PDFs with manifest + expected Markdown.
 - `src/glossapi/`: Corpus pipeline, cleaners, and orchestration logic.

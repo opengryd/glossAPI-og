@@ -1576,6 +1576,21 @@ class GlossExtract:
             return
         
         # Process files in batches
+        progress = None
+        try:
+            use_progress = (
+                bool(getattr(self, "_current_ocr_enabled", False))
+                and not bool(getattr(self, "use_pypdfium_backend", False))
+            )
+            if use_progress:
+                progress = tqdm(
+                    total=remaining_files,
+                    desc="RapidOCR",
+                    unit="file",
+                    disable=not sys.stderr.isatty(),
+                )
+        except Exception:
+            progress = None
         batch_count = (remaining_files + batch_size - 1) // batch_size  # Ceiling division
         success_count = 0
         partial_success_count = 0
@@ -1583,81 +1598,89 @@ class GlossExtract:
         
         backend_name = getattr(self, "pdf_backend_name", "unknown")
 
-        for i in range(0, len(unprocessed_files), batch_size):
-            batch = unprocessed_files[i:i + batch_size]
-            batch_start_time = time.time()
-            
-            self._log.info(f"Processing batch {i//batch_size + 1}/{batch_count} ({len(batch)} files)")
-            try:
-                # Surface intended OCR mode for this batch
-                batch_mode = "disabled"
+        try:
+            for i in range(0, len(unprocessed_files), batch_size):
+                batch = unprocessed_files[i:i + batch_size]
+                batch_start_time = time.time()
+
+                self._log.info(f"Processing batch {i//batch_size + 1}/{batch_count} ({len(batch)} files)")
                 try:
-                    if getattr(self, "_current_ocr_enabled", False):
-                        ocr_opts = None
-                        opts = getattr(self, "_active_pdf_options", None)
-                        if opts is not None:
-                            ocr_opts = getattr(opts, "ocr_options", None)
-                        if ocr_opts is None:
-                            ocr_opts = getattr(self.pipeline_options, "ocr_options", None)
-                        forced = False
-                        if ocr_opts is not None:
-                            try:
-                                forced = bool(getattr(ocr_opts, "force_full_page_ocr", False))
-                            except Exception:
-                                forced = False
-                        batch_mode = "forced" if forced else "auto"
+                    # Surface intended OCR mode for this batch
+                    batch_mode = "disabled"
+                    try:
+                        if getattr(self, "_current_ocr_enabled", False):
+                            ocr_opts = None
+                            opts = getattr(self, "_active_pdf_options", None)
+                            if opts is not None:
+                                ocr_opts = getattr(opts, "ocr_options", None)
+                            if ocr_opts is None:
+                                ocr_opts = getattr(self.pipeline_options, "ocr_options", None)
+                            forced = False
+                            if ocr_opts is not None:
+                                try:
+                                    forced = bool(getattr(ocr_opts, "force_full_page_ocr", False))
+                                except Exception:
+                                    forced = False
+                            batch_mode = "forced" if forced else "auto"
+                    except Exception:
+                        pass
+                    self._log.info("Batch OCR mode: %s", batch_mode)
+                    self._log.info("Batch backend: %s", backend_name)
+                    for idx, _p in enumerate(batch, 1):
+                        self._log.debug("Queueing [%d/%d]: %s", idx, len(batch), Path(_p).name)
                 except Exception:
                     pass
-                self._log.info("Batch OCR mode: %s", batch_mode)
-                self._log.info("Batch backend: %s", backend_name)
-                for idx, _p in enumerate(batch, 1):
-                    self._log.debug("Queueing [%d/%d]: %s", idx, len(batch), Path(_p).name)
-            except Exception:
-                pass
-            
-            # Process the batch
-            successful, problematic = self._process_batch(batch, output_dir, timeout_dir)
-            
-            # Update counts
-            success_count += len(successful)
-            failure_count += len(problematic)
-            
-            # Update processed and problematic files using canonical stems
-            processed_files.update(canonical_stem(name) for name in successful)
-            problematic_files.update(canonical_stem(name) for name in problematic)
 
-            if self.external_state_updates and self.batch_result_callback:
-                try:
-                    self.batch_result_callback(successful, problematic)
-                except Exception as exc:
-                    self._log.warning("Batch result callback failed: %s", exc)
-            
-            # Move problematic files to the problematic directory
-            for filename in problematic:
-                for input_path in input_doc_paths:
-                    if Path(input_path).name == filename:
-                        try:
-                            # Create a copy of the problematic file
-                            copy2(input_path, problematic_dir / filename)
-                            self._log.info(f"Copied problematic file to {problematic_dir / filename}")
-                            break
-                        except Exception as e:
-                            self._log.error(f"Failed to copy problematic file {filename}: {e}")
-            
-            if can_manage_state:
-                # Save the current state after each batch
-                state_mgr.save(processed_files, problematic_files)  # type: ignore[arg-type]
-            
-            batch_duration = time.time() - batch_start_time
-            self._log.info(f"Batch processed in {batch_duration:.2f} seconds")
-            self._log.info(f"Progress: {len(processed_files)}/{total_files} files ({len(problematic_files)} problematic)")
-        
-        # Check if all files have been processed
-        if len(processed_files) + len(problematic_files) >= total_files:
-            self._log.info("All files have been processed")
-            if can_manage_state:
-                # Keep the parquet-backed state in sync for resumption
-                state_mgr.save(processed_files, problematic_files)  # type: ignore[arg-type]
+                # Process the batch
+                successful, problematic = self._process_batch(batch, output_dir, timeout_dir)
+
+                # Update counts
+                success_count += len(successful)
+                failure_count += len(problematic)
+                if progress is not None:
+                    progress.update(len(successful) + len(problematic))
+
+                # Update processed and problematic files using canonical stems
+                processed_files.update(canonical_stem(name) for name in successful)
+                problematic_files.update(canonical_stem(name) for name in problematic)
+
+                if self.external_state_updates and self.batch_result_callback:
+                    try:
+                        self.batch_result_callback(successful, problematic)
+                    except Exception as exc:
+                        self._log.warning("Batch result callback failed: %s", exc)
+
+                # Move problematic files to the problematic directory
+                for filename in problematic:
+                    for input_path in input_doc_paths:
+                        if Path(input_path).name == filename:
+                            try:
+                                # Create a copy of the problematic file
+                                copy2(input_path, problematic_dir / filename)
+                                self._log.info(f"Copied problematic file to {problematic_dir / filename}")
+                                break
+                            except Exception as e:
+                                self._log.error(f"Failed to copy problematic file {filename}: {e}")
+
+                if can_manage_state:
+                    # Save the current state after each batch
+                    state_mgr.save(processed_files, problematic_files)  # type: ignore[arg-type]
+
+                batch_duration = time.time() - batch_start_time
+                self._log.info(f"Batch processed in {batch_duration:.2f} seconds")
+                self._log.info(
+                    f"Progress: {len(processed_files)}/{total_files} files ({len(problematic_files)} problematic)"
+                )
+
+                # Check if all files have been processed
+                if len(processed_files) + len(problematic_files) >= total_files:
+                    self._log.info("All files have been processed")
+                    if can_manage_state:
+                        # Keep the parquet-backed state in sync for resumption
+                        state_mgr.save(processed_files, problematic_files)  # type: ignore[arg-type]
+        finally:
+            if progress is not None:
+                progress.close()
         
         end_time = time.time() - start_time
         self._log.info(f"Document extraction complete in {end_time:.2f} seconds.")

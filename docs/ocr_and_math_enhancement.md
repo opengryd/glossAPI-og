@@ -122,7 +122,7 @@ Recommended macOS GPU settings:
 ```bash
 export GLOSSAPI_MINERU_BACKEND="hybrid-auto-engine"
 export GLOSSAPI_MINERU_DEVICE_MODE="mps"
-export MINERU_TOOLS_CONFIG_JSON="/path/to/magic-pdf.json"
+export MINERU_TOOLS_CONFIG_JSON="/path/to/dependency_setup/mineru/magic-pdf.json"
 python -m glossapi.ocr.mineru.preflight
 ```
 

@@ -102,9 +102,10 @@ class SectionPhaseMixin:
                 for p in Path(self.markdown_dir).glob("*.md")
             ]
             if not good_filenames:
-                error_msg = "No markdown files found to section. Extraction might have failed."
-                self.logger.error(error_msg)
-                raise ValueError(error_msg)
+                self.logger.warning(
+                    "No markdown files found to section. Extraction might have failed. Skipping section phase."
+                )
+                return
 
         # Extract sections - pass list of good filenames to the sectioner
         # We will pass the original markdown directory and the list of good filenames 

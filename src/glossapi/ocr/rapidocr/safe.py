@@ -11,12 +11,14 @@ revert to the vanilla ``RapidOcrModel``.
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Optional, Type
 
 import numpy
+from tqdm import tqdm
 
 from docling.datamodel.base_models import Page
 from docling.datamodel.document import ConversionResult
@@ -28,6 +30,29 @@ from docling_core.types.doc import BoundingBox, CoordOrigin
 from docling_core.types.doc.page import BoundingRectangle
 
 from ._paths import resolve_packaged_onnx_and_keys
+
+
+def _resolve_page_total(conv_res: ConversionResult, page_list: list[Page]) -> int:
+    source = getattr(getattr(conv_res, "input", None), "file", None)
+    if source:
+        try:
+            import pypdfium2 as _pypdfium2  # type: ignore
+
+            return len(_pypdfium2.PdfDocument(str(source)))
+        except Exception:
+            pass
+    try:
+        doc = getattr(conv_res, "document", None)
+        pages = getattr(doc, "pages", None) if doc is not None else None
+        if pages is not None:
+            return int(len(pages))
+    except Exception:
+        pass
+    try:
+        page_no_max = max(int(getattr(p, "page_no", 0) or 0) for p in page_list)
+        return page_no_max or len(page_list)
+    except Exception:
+        return len(page_list)
 
 
 class SafeRapidOcrModel(_RapidOcrModel):
@@ -162,67 +187,114 @@ class SafeRapidOcrModel(_RapidOcrModel):
             yield from page_batch
             return
 
-        for page in page_batch:
-            assert page._backend is not None
-            if not page._backend.is_valid():
-                yield page
-                continue
+        page_list = list(page_batch)
+        progress = None
+        progress_env = os.getenv("GLOSSAPI_OCR_PAGE_PROGRESS", "1").strip().lower()
+        if progress_env not in {"0", "false", "no"}:
+            total_pages = getattr(conv_res, "_glossapi_page_total", None)
+            if total_pages is None:
+                total_pages = _resolve_page_total(conv_res, page_list)
+                setattr(conv_res, "_glossapi_page_total", total_pages)
 
-            with TimeRecorder(conv_res, "ocr"):
-                ocr_rects = self.get_ocr_rects(page)
-
-                all_ocr_cells = []
-                for ocr_rect in ocr_rects:
-                    if ocr_rect.area() == 0:
-                        continue
-                    high_res_image = page._backend.get_page_image(
-                        scale=self.scale, cropbox=ocr_rect
+            progress = getattr(conv_res, "_glossapi_ocr_progress", None)
+            if progress is None:
+                source = getattr(getattr(conv_res, "input", None), "file", None)
+                label = Path(source).name if source else "OCR"
+                try:
+                    progress = tqdm(
+                        total=total_pages,
+                        desc=f"OCR {label}",
+                        unit="page",
+                        disable=not sys.stderr.isatty(),
                     )
-                    im = numpy.array(high_res_image)
-                    raw_result = self.reader(
-                        im,
-                        use_det=self.options.use_det,
-                        use_cls=self.options.use_cls,
-                        use_rec=self.options.use_rec,
-                    )
-                    result = self._normalise_result(raw_result)
-                    del high_res_image
-                    del im
+                except Exception:
+                    progress = None
+                setattr(conv_res, "_glossapi_ocr_progress", progress)
+                setattr(conv_res, "_glossapi_ocr_done", 0)
 
-                    if not result:
-                        continue
+        try:
+            for page in page_list:
+                assert page._backend is not None
+                if not page._backend.is_valid():
+                    yield page
+                    continue
 
-                    cells = [
-                        TextCell(
-                            index=ix,
-                            text=line[1],
-                            orig=line[1],
-                            confidence=line[2],
-                            from_ocr=True,
-                            rect=BoundingRectangle.from_bounding_box(
-                                BoundingBox.from_tuple(
-                                    coord=(
-                                        (line[0][0][0] / self.scale) + ocr_rect.l,
-                                        (line[0][0][1] / self.scale) + ocr_rect.t,
-                                        (line[0][2][0] / self.scale) + ocr_rect.l,
-                                        (line[0][2][1] / self.scale) + ocr_rect.t,
-                                    ),
-                                    origin=CoordOrigin.TOPLEFT,
-                                )
-                            ),
+                with TimeRecorder(conv_res, "ocr"):
+                    ocr_rects = self.get_ocr_rects(page)
+
+                    all_ocr_cells = []
+                    for ocr_rect in ocr_rects:
+                        if ocr_rect.area() == 0:
+                            continue
+                        high_res_image = page._backend.get_page_image(
+                            scale=self.scale, cropbox=ocr_rect
                         )
-                        for ix, line in enumerate(result)
-                    ]
-                    all_ocr_cells.extend(cells)
+                        im = numpy.array(high_res_image)
+                        raw_result = self.reader(
+                            im,
+                            use_det=self.options.use_det,
+                            use_cls=self.options.use_cls,
+                            use_rec=self.options.use_rec,
+                        )
+                        result = self._normalise_result(raw_result)
+                        del high_res_image
+                        del im
 
-                self.post_process_cells(all_ocr_cells, page)
+                        if not result:
+                            continue
 
-            from docling.datamodel.settings import settings
+                        cells = [
+                            TextCell(
+                                index=ix,
+                                text=line[1],
+                                orig=line[1],
+                                confidence=line[2],
+                                from_ocr=True,
+                                rect=BoundingRectangle.from_bounding_box(
+                                    BoundingBox.from_tuple(
+                                        coord=(
+                                            (line[0][0][0] / self.scale) + ocr_rect.l,
+                                            (line[0][0][1] / self.scale) + ocr_rect.t,
+                                            (line[0][2][0] / self.scale) + ocr_rect.l,
+                                            (line[0][2][1] / self.scale) + ocr_rect.t,
+                                        ),
+                                        origin=CoordOrigin.TOPLEFT,
+                                    )
+                                ),
+                            )
+                            for ix, line in enumerate(result)
+                        ]
+                        all_ocr_cells.extend(cells)
 
-            if settings.debug.visualize_ocr:
-                self.draw_ocr_rects_and_cells(conv_res, page, ocr_rects)
+                    self.post_process_cells(all_ocr_cells, page)
 
-            yield page
+                from docling.datamodel.settings import settings
+
+                if settings.debug.visualize_ocr:
+                    self.draw_ocr_rects_and_cells(conv_res, page, ocr_rects)
+
+                if progress is not None:
+                    try:
+                        progress.update(1)
+                        done = int(getattr(conv_res, "_glossapi_ocr_done", 0)) + 1
+                        setattr(conv_res, "_glossapi_ocr_done", done)
+                        total_pages = int(getattr(conv_res, "_glossapi_page_total", 0) or 0)
+                        if total_pages > 0 and done >= total_pages:
+                            progress.close()
+                            setattr(conv_res, "_glossapi_ocr_progress", None)
+                    except Exception:
+                        pass
+                yield page
+        finally:
+            if progress is not None:
+                try:
+                    progress.close()
+                except Exception:
+                    pass
+                try:
+                    setattr(conv_res, "_glossapi_ocr_progress", None)
+                except Exception:
+                    pass
 
 
 def patch_docling_rapidocr() -> bool:

@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import os
+import platform
 import queue
 import random
 import re
@@ -28,6 +29,45 @@ from .corpus_utils import _maybe_import_torch
 
 
 class OcrMathPhaseMixin:
+    def _resolve_math_device(self, device: Optional[str]) -> str:
+        device_norm = str(device or "").strip().lower()
+        if device_norm in {"cuda", "mps", "cpu"}:
+            torch = _maybe_import_torch()
+            if device_norm == "cuda":
+                if torch and getattr(torch, "cuda", None) and torch.cuda.is_available():
+                    return "cuda"
+                try:
+                    self.logger.warning("Math device 'cuda' requested but unavailable; falling back to CPU")
+                except Exception:
+                    pass
+                return "cpu"
+            if device_norm == "mps":
+                if (
+                    torch
+                    and getattr(torch.backends, "mps", None)
+                    and torch.backends.mps.is_built()
+                    and torch.backends.mps.is_available()
+                ):
+                    return "mps"
+                try:
+                    self.logger.warning("Math device 'mps' requested but unavailable; falling back to CPU")
+                except Exception:
+                    pass
+                return "cpu"
+            return "cpu"
+        torch = _maybe_import_torch()
+        if platform.system() == "Darwin":
+            if (
+                torch
+                and getattr(torch.backends, "mps", None)
+                and torch.backends.mps.is_built()
+                and torch.backends.mps.is_available()
+            ):
+                return "mps"
+        if torch and getattr(torch, "cuda", None) and torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
+
     def ocr(
         self,
         *,
@@ -281,6 +321,22 @@ class OcrMathPhaseMixin:
             local_targets = None
             if math_targets:
                 local_targets = {s: math_targets.get(s) for s in stems if s in math_targets}
+            try:
+                torch = _maybe_import_torch()
+                if torch is not None:
+                    mps_backend = getattr(torch.backends, "mps", None)
+                    mps_built = bool(getattr(mps_backend, "is_built", lambda: False)())
+                    mps_avail = bool(getattr(mps_backend, "is_available", lambda: False)())
+                    cuda_avail = bool(getattr(torch, "cuda", None) and torch.cuda.is_available())
+                    self.logger.info(
+                        "Math device probe: torch=%s mps_built=%s mps_available=%s cuda_available=%s",
+                        getattr(torch, "__version__", "unknown"),
+                        mps_built,
+                        mps_avail,
+                        cuda_avail,
+                    )
+            except Exception:
+                pass
             if str(use_gpus).lower() == "multi":
                 # Detect GPU devices
                 devs = devices or []
@@ -520,7 +576,7 @@ class OcrMathPhaseMixin:
             # Single-GPU path
             self.formula_enrich_from_json(
                 files=stems,
-                device=(device or "cuda"),
+                device=self._resolve_math_device(device),
                 batch_size=int(math_batch_size),
                 dpi_base=int(math_dpi_base),
                 targets_by_stem=local_targets,
@@ -599,10 +655,25 @@ class OcrMathPhaseMixin:
                     raise
             else:
                 # RapidOCR/Docling path via Phase-1 extract
+                accel_override = os.getenv("GLOSSAPI_OCR_ACCEL", "").strip()
+                if accel_override:
+                    accel_type = accel_override
+                else:
+                    device_lower = str(device or "").lower()
+                    if device_lower == "cpu":
+                        accel_type = "CPU"
+                    elif device_lower == "mps" or platform.system() == "Darwin":
+                        torch = _maybe_import_torch()
+                        if torch and getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+                            accel_type = "MPS"
+                        else:
+                            accel_type = "CPU"
+                    else:
+                        accel_type = "CUDA"
                 self.extract(
                     input_format="pdf",
                     num_threads=os.cpu_count() or 4,
-                    accel_type="CUDA",
+                    accel_type=accel_type,
                     force_ocr=True,
                     formula_enrichment=False,
                     code_enrichment=False,
@@ -714,8 +785,12 @@ class OcrMathPhaseMixin:
                         if "filename" in _df.columns:
                             _df['stem'] = _df['filename'].astype(str).str.replace(r"\.pdf$", "", regex=True)
                             _phase = _df['phase_recommended'].astype(str) == '2A' if 'phase_recommended' in _df.columns else ((_df['filename'] == _df['filename']) & False)
-                            _ft = (_df['formula_total'].fillna(0).astype('float') > 0) if 'formula_total' in _df.columns else ((_df['filename'] == _df['filename']) & False)
-                            _med = (_df['math_equations_detected'].fillna(0).astype('float') > 0) if 'math_equations_detected' in _df.columns else ((_df['filename'] == _df['filename']) & False)
+                            _ft = (
+                                _pd.to_numeric(_df['formula_total'], errors='coerce') > 0
+                            ) if 'formula_total' in _df.columns else ((_df['filename'] == _df['filename']) & False)
+                            _med = (
+                                _pd.to_numeric(_df['math_equations_detected'], errors='coerce') > 0
+                            ) if 'math_equations_detected' in _df.columns else ((_df['filename'] == _df['filename']) & False)
                             _mask = _phase | _ft | _med
                             _parq_stems = set(_df.loc[_mask, 'stem'].dropna().astype(str).tolist())
                             if _parq_stems:
@@ -814,8 +889,12 @@ class OcrMathPhaseMixin:
                 _df['stem'] = _df['filename'].astype(str).str.replace(r"\.pdf$", "", regex=True)
                 # prefer explicit phase or any formula signal (formula_total or math_equations_detected)
                 _phase = _df['phase_recommended'].astype(str) == '2A' if 'phase_recommended' in _df.columns else ((_df['filename'] == _df['filename']) & False)
-                _ft = (_df['formula_total'].fillna(0).astype('float') > 0) if 'formula_total' in _df.columns else ((_df['filename'] == _df['filename']) & False)
-                _med = (_df['math_equations_detected'].fillna(0).astype('float') > 0) if 'math_equations_detected' in _df.columns else ((_df['filename'] == _df['filename']) & False)
+                _ft = (
+                    _pd.to_numeric(_df['formula_total'], errors='coerce') > 0
+                ) if 'formula_total' in _df.columns else ((_df['filename'] == _df['filename']) & False)
+                _med = (
+                    _pd.to_numeric(_df['math_equations_detected'], errors='coerce') > 0
+                ) if 'math_equations_detected' in _df.columns else ((_df['filename'] == _df['filename']) & False)
                 mask = _phase | _ft | _med
                 parq_stems = _df.loc[mask, 'stem'].dropna().astype(str).tolist()
                 if parq_stems:
