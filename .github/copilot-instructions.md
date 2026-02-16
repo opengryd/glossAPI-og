@@ -78,7 +78,7 @@ glossAPI/
 ├── docs/                          # MkDocs source
 ├── samples/
 │   ├── lightweight_pdf_corpus/    # Synthetic PDFs + expected outputs (CI golden)
-│   └── eellak_test/               # EELLAK ground-truth test data
+│   └── eellak/                    # EELLAK ground-truth test data
 ├── dependency_setup/              # Environment provisioning scripts per profile
 ├── artifacts/                     # Pipeline output directories (gitignored runs)
 └── Greek_variety_classification/  # Ancillary: Greek text classifier notebooks

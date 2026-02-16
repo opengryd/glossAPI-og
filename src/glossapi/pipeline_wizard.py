@@ -34,7 +34,7 @@ PHASE_CHOICES = [
 
 PRESET_CHOICES = [
     "Lightweight PDF smoke test",
-    "MinerU demo (samples/eellak_test)",
+    "MinerU demo (samples/eellak)",
     "Custom",
 ]
 
@@ -369,7 +369,7 @@ def _run_pipeline(
 
 
 def _run_mineru_demo() -> None:
-    input_dir = Path("samples") / "eellak_test"
+    input_dir = Path("samples") / "eellak"
     ocr_dir = input_dir / "ocr"
     text_dir = input_dir / "text"
     ts = time.strftime("%Y%m%d_%H%M%S")
@@ -478,7 +478,7 @@ def _run_wizard(
     console.print(f"[dim]Detected OS: {_detect_os_label()}[/dim]")
     preset = _ask_preset()
 
-    if preset == "MinerU demo (samples/eellak_test)":
+    if preset == "MinerU demo (samples/eellak)":
         _run_mineru_demo()
         return
 
@@ -545,6 +545,13 @@ def _run_wizard(
                 extract_kwargs["phase1_backend"] = "safe"
                 clean_kwargs["drop_bad"] = False
                 device = "mps" if platform.system() == "Darwin" else "cpu"
+                ocr_kwargs.update({"device": device})
+            if backend == "olmocr":
+                extract_kwargs["phase1_backend"] = "safe"
+                clean_kwargs["drop_bad"] = False
+                device = "mps" if platform.system() == "Darwin" else "cuda"
+                if accel_mode == "CPU":
+                    device = "cpu"
                 ocr_kwargs.update({"device": device})
             if backend == "rapidocr" and accel_mode == "CPU":
                 ocr_kwargs.update({"fix_bad": True})
