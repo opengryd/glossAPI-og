@@ -14,7 +14,7 @@ cat <<'EOF'
 
 	Welcome to GlossAPI CLI
 	Unified setup + pipeline launcher for the academic PDF processing toolkit.
-	Profiles: vanilla, RapidOCR, MinerU, DeepSeek, DeepSeek OCR v2
+	Profiles: vanilla, RapidOCR, MinerU, DeepSeek, DeepSeek OCR v2, OlmOCR-2
 
 EOF
 PYTHON_BIN="${PYTHON:-}"
@@ -265,6 +265,7 @@ run_setup_wizard_interactive() {
 		"mineru (External magic-pdf CLI + models)"
 		"deepseek (DeepSeek OCR; heaviest GPU stack)"
 		"deepseek-ocr-2 (DeepSeek OCR v2 MLX/MPS)"
+		"olmocr (OlmOCR-2 VLM OCR; CUDA or MLX/MPS)"
 	)
 	local default_idx=1
 	local i=1
@@ -312,23 +313,29 @@ run_setup_wizard_interactive() {
 
 	local download_deepseek=0
 	local download_deepseek_ocr2=0
+	local download_olmocr=0
 	local download_mineru=0
 	local run_tests=0
 	local smoke_test=0
-	local weights_dir=""
-	local weights_dir_ocr2=""
+	local weights_root=""
 	local detectron2_auto_install=0
 	local detectron2_wheel_url=""
 
 	if [[ "${selected_mode}" == "deepseek" ]]; then
 		gum_confirm "Download DeepSeek weights now?" 0 && download_deepseek=1 || download_deepseek=0
-		if [[ "${download_deepseek}" == "1" ]]; then
-			weights_dir="$(gum_input "Weights dir" "${ROOT_DIR}/deepseek-ocr")"
-		fi
 	fi
 
 	if [[ "${selected_mode}" == "deepseek-ocr-2" ]]; then
 		gum_confirm "Download DeepSeek OCR v2 weights now? (skip to auto-download at runtime)" 0 && download_deepseek_ocr2=1 || download_deepseek_ocr2=0
+	fi
+
+	if [[ "${selected_mode}" == "olmocr" ]]; then
+		gum_confirm "Download OlmOCR-2 weights now? (skip to auto-download at runtime)" 0 && download_olmocr=1 || download_olmocr=0
+	fi
+
+	# Prompt for a shared weights root when any download is requested
+	if [[ "${download_deepseek}" == "1" || "${download_deepseek_ocr2}" == "1" || "${download_olmocr}" == "1" ]]; then
+		weights_root="$(gum_input "Model weights root dir" "${ROOT_DIR}/model_weights")"
 	fi
 
 	if [[ "${selected_mode}" == "mineru" ]]; then
@@ -345,17 +352,17 @@ run_setup_wizard_interactive() {
 	fi
 
 	local args=("--mode" "${selected_mode}" "--venv" "${selected_venv}" "--python" "${selected_python}")
+	if [[ -n "${weights_root}" ]]; then
+		args+=("--weights-root" "${weights_root}")
+	fi
 	if [[ "${download_deepseek}" == "1" ]]; then
 		args+=("--download-deepseek")
-	fi
-	if [[ -n "${weights_dir}" ]]; then
-		args+=("--weights-dir" "${weights_dir}")
 	fi
 	if [[ "${download_deepseek_ocr2}" == "1" ]]; then
 		args+=("--download-deepseek-ocr2")
 	fi
-	if [[ -n "${weights_dir_ocr2}" ]]; then
-		args+=("--weights-dir-ocr2" "${weights_dir_ocr2}")
+	if [[ "${download_olmocr}" == "1" ]]; then
+		args+=("--download-olmocr")
 	fi
 	if [[ "${download_mineru}" == "1" ]]; then
 		args+=("--download-mineru-models")
@@ -418,7 +425,7 @@ PY
 }
 
 run_setup_flow() {
-	if [[ -z "${MODE}" && -z "${VENV_DIR}" && -z "${DOWNLOAD_MINERU_MODELS}" && -z "${DOWNLOAD_DEEPSEEK}" && -z "${DOWNLOAD_DEEPSEEK_OCR2}" && -z "${WEIGHTS_DIR}" && -z "${WEIGHTS_DIR_OCR2}" && -z "${RUN_TESTS}" && -z "${SMOKE_TEST}" ]]; then
+	if [[ -z "${MODE}" && -z "${VENV_DIR}" && -z "${DOWNLOAD_MINERU_MODELS}" && -z "${DOWNLOAD_DEEPSEEK}" && -z "${DOWNLOAD_DEEPSEEK_OCR2}" && -z "${DOWNLOAD_OLMOCR}" && -z "${WEIGHTS_ROOT}" && -z "${RUN_TESTS}" && -z "${SMOKE_TEST}" ]]; then
 		if ! have_gum; then
 			echo "gum is required for the interactive setup. Install it and re-run." >&2
 			exit 1
@@ -446,20 +453,20 @@ run_setup_flow() {
 
 		args=("--mode" "${MODE}" "--venv" "${VENV_DIR}")
 
-		if [[ "${MODE}" == "deepseek" && "${DOWNLOAD_DEEPSEEK}" == "1" ]]; then
-			args+=("--download-deepseek")
+		if [[ -n "${WEIGHTS_ROOT}" ]]; then
+			args+=("--weights-root" "${WEIGHTS_ROOT}")
 		fi
 
-		if [[ -n "${WEIGHTS_DIR}" ]]; then
-			args+=("--weights-dir" "${WEIGHTS_DIR}")
+		if [[ "${MODE}" == "deepseek" && "${DOWNLOAD_DEEPSEEK}" == "1" ]]; then
+			args+=("--download-deepseek")
 		fi
 
 		if [[ "${MODE}" == "deepseek-ocr-2" && "${DOWNLOAD_DEEPSEEK_OCR2}" == "1" ]]; then
 			args+=("--download-deepseek-ocr2")
 		fi
 
-		if [[ -n "${WEIGHTS_DIR_OCR2}" ]]; then
-			args+=("--weights-dir-ocr2" "${WEIGHTS_DIR_OCR2}")
+		if [[ "${MODE}" == "olmocr" && "${DOWNLOAD_OLMOCR}" == "1" ]]; then
+			args+=("--download-olmocr")
 		fi
 
 		if [[ "${MODE}" == "mineru" && "${DOWNLOAD_MINERU_MODELS}" == "1" ]]; then
@@ -484,8 +491,8 @@ VENV_DIR="${VENV_DIR:-}"
 DOWNLOAD_MINERU_MODELS="${DOWNLOAD_MINERU_MODELS:-}"
 DOWNLOAD_DEEPSEEK="${DOWNLOAD_DEEPSEEK:-}"
 DOWNLOAD_DEEPSEEK_OCR2="${DOWNLOAD_DEEPSEEK_OCR2:-}"
-WEIGHTS_DIR="${WEIGHTS_DIR:-}"
-WEIGHTS_DIR_OCR2="${WEIGHTS_DIR_OCR2:-}"
+DOWNLOAD_OLMOCR="${DOWNLOAD_OLMOCR:-}"
+WEIGHTS_ROOT="${WEIGHTS_ROOT:-${GLOSSAPI_WEIGHTS_ROOT:-}}"
 RUN_TESTS="${RUN_TESTS:-}"
 SMOKE_TEST="${SMOKE_TEST:-}"
 VENV_SETUP_REQUESTED=0
@@ -593,6 +600,15 @@ if [[ "${WANT_PIPELINE}" -eq 1 ]]; then
 		else
 			# shellcheck disable=SC1091
 			source "${ROOT_DIR}/dependency_setup/.env_mineru"
+		fi
+	fi
+
+	if [[ "${MODE}" == "olmocr" && -f "${ROOT_DIR}/dependency_setup/.env_olmocr" ]]; then
+		if ! bash -n "${ROOT_DIR}/dependency_setup/.env_olmocr" >/dev/null 2>&1; then
+			echo "[warn] OlmOCR env file has syntax errors; re-run setup to regenerate it." >&2
+		else
+			# shellcheck disable=SC1091
+			source "${ROOT_DIR}/dependency_setup/.env_olmocr"
 		fi
 	fi
 

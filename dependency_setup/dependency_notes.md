@@ -18,7 +18,7 @@ Each profile is installed through `dependency_setup/setup_glossapi.sh`:
 ```
 
 Key flags:
-- `--download-deepseek` optionally fetches DeepSeek weights (skipped by default; set `--weights-dir` if they live elsewhere).
+- `--download-deepseek` optionally fetches DeepSeek weights (skipped by default; set `--weights-root` to control where they are stored).
 - `--smoke-test` (DeepSeek only) runs `dependency_setup/deepseek_gpu_smoke.py`.
 
 ## Test Segmentation
@@ -50,7 +50,7 @@ All three completed successfully after the following adjustments:
 4. **DeepSeek stack** – updated nightly vLLM pin (`0.11.1rc5.dev58+g60f76baa6.cu129`) and removed `xformers` to resolve Torch 2.9 dependency conflicts.
 
 ## Known Follow-ups
-- **DeepSeek weights** – installer warns if weights are absent. Set `--download-deepseek` or populate `${DEEPSEEK_ROOT}/DeepSeek-OCR` before running the real CLI tests (`GLOSSAPI_RUN_DEEPSEEK_CLI=1`).
+- **DeepSeek weights** – installer warns if weights are absent. Set `--download-deepseek` or populate `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr` before running the real CLI tests (`GLOSSAPI_RUN_DEEPSEEK_CLI=1`).
 - **xformers kernels** – removed pending compatible Torch 2.9 wheels. Reintroduce once upstream publishes matching builds.
 - **Patchelf warnings** – maturin emits rpath hints if `patchelf` is missing; they are benign but install `patchelf` if cleaner logs are desired.
 - **Deprecation noise** – Docling emits future warnings (Pydantic) and RapidOCR font deprecation notices; currently harmless but worth tracking for future upgrades.
