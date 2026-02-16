@@ -1,0 +1,8 @@
+# OlmOCR-2 profile (macOS MLX/MPS)
+# mlx-vlm is installed via setup_glossapi.sh with --no-deps to avoid transformers conflicts.
+
+-r requirements-glossapi-vanilla-macos.txt
+
+# OlmOCR MLX CLI deps
+pypdfium2
+Pillow

@@ -1,0 +1,9 @@
+# OlmOCR-2 profile (non-macOS / CUDA)
+# On Linux with CUDA, install olmocr[gpu] in a separate venv.
+# This base file tracks vanilla requirements plus OlmOCR CLI deps.
+
+-r requirements-glossapi-vanilla.txt
+
+# OlmOCR CLI deps
+pypdfium2
+Pillow
