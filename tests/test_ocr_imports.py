@@ -9,21 +9,26 @@ def test_import_ocr_package_is_lightweight():
 
     assert hasattr(ocr, "deepseek")
     assert hasattr(ocr, "mineru")
+    assert hasattr(ocr, "olmocr")
     assert hasattr(ocr, "rapidocr")
 
     # New subpackages remain importable lazily
     import glossapi.ocr.deepseek.runner as deepseek_runner
     import glossapi.ocr.mineru.runner as mineru_runner
+    import glossapi.ocr.olmocr.runner as olmocr_runner
     import glossapi.ocr.rapidocr.dispatch as rapid_dispatch
 
     assert ocr.deepseek.runner is deepseek_runner
     assert ocr.mineru.runner is mineru_runner
+    assert ocr.olmocr.runner is olmocr_runner
     assert ocr.rapidocr.dispatch is rapid_dispatch
     assert ocr.deepseek_runner is deepseek_runner
     assert ocr.mineru_runner is mineru_runner
+    assert ocr.olmocr_runner is olmocr_runner
     assert ocr.rapidocr_dispatch is rapid_dispatch
     assert hasattr(deepseek_runner, "run_for_files")
     assert hasattr(mineru_runner, "run_for_files")
+    assert hasattr(olmocr_runner, "run_for_files")
     assert hasattr(rapid_dispatch, "run_via_extract")
 
     # Utilities module always available (pure Python)
