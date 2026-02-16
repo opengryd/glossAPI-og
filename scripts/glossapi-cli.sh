@@ -282,8 +282,10 @@ run_setup_wizard_interactive() {
 	selected_mode="$(gum_select "Environment profile" "${modes[@]}")"
 	selected_mode="${selected_mode%% *}"
 
-	local py_versions
-	mapfile -t py_versions < <(available_python_versions)
+	local py_versions=()
+	while IFS= read -r _line; do
+		[[ -n "${_line}" ]] && py_versions+=("${_line}")
+	done < <(available_python_versions)
 	if [[ "${#py_versions[@]}" -eq 0 ]]; then
 		echo "Python 3.11–3.13 not found on PATH. Install one (recommended 3.12) and retry." >&2
 		exit 1
@@ -544,7 +546,10 @@ if [[ "${WANT_PIPELINE}" -eq 1 ]]; then
 	fi
 
 	if [[ ! -f "${VENV_DIR}/bin/activate" ]]; then
-		mapfile -t FOUND_VENVS < <(find_available_venvs)
+		FOUND_VENVS=()
+		while IFS= read -r _line; do
+			[[ -n "${_line}" ]] && FOUND_VENVS+=("${_line}")
+		done < <(find_available_venvs)
 		if [[ "${#FOUND_VENVS[@]}" -gt 0 ]]; then
 			SELECTED_VENV=""
 			select_existing_venv "${FOUND_VENVS[@]}" || true
