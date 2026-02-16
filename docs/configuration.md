@@ -9,6 +9,22 @@ This page lists the main knobs you can use to tune GlossAPI.
 - `GLOSSAPI_GPU_BATCH_SIZE`: batch size for GPU extraction workers (multi-GPU mode).
 - macOS (Metal): use `accel_type='MPS'` or set `GLOSSAPI_DOCLING_DEVICE=mps` when forcing a device.
 
+## Model Weights
+
+All model weights are stored under a single root directory controlled by `GLOSSAPI_WEIGHTS_ROOT`:
+
+- `GLOSSAPI_WEIGHTS_ROOT`: root directory for all model weights (default: `<repo>/model_weights`). Each backend stores weights in a subdirectory:
+
+```
+model_weights/              # $GLOSSAPI_WEIGHTS_ROOT
+├── deepseek-ocr/           # DeepSeek CUDA weights
+├── deepseek-ocr-mlx/       # DeepSeek OCR v2 MLX weights
+├── olmocr-mlx/             # OlmOCR-2 MLX weights
+└── mineru/                 # MinerU PDF-Extract-Kit models
+```
+
+Individual backend directories can be overridden with their respective env vars (e.g. `GLOSSAPI_DEEPSEEK_MODEL_DIR`, `GLOSSAPI_DEEPSEEK2_MODEL_DIR`, `GLOSSAPI_OLMOCR_MLX_MODEL_DIR`) for advanced use cases. When set, they take precedence over the weights root convention. In most setups only `GLOSSAPI_WEIGHTS_ROOT` is needed.
+
 ## OCR & Parsing
 
 - `GLOSSAPI_IMAGES_SCALE`: image scale hint for OCR/layout (default ~1.1–1.25).
@@ -80,6 +96,42 @@ Run the preflight checker to validate your CLI, config, device, and model paths:
 
 ```bash
 python -m glossapi.ocr.mineru.preflight
+```
+
+### OlmOCR-2 runtime controls
+
+#### CUDA / vLLM
+
+- `GLOSSAPI_OLMOCR_ALLOW_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
+- `GLOSSAPI_OLMOCR_ALLOW_CLI` (`0` by default): flip to `1` to run the real OlmOCR pipeline.
+- `GLOSSAPI_OLMOCR_PYTHON`: Python executable for the OlmOCR venv.
+- `GLOSSAPI_OLMOCR_MODEL`: HuggingFace model identifier (default `allenai/olmOCR-2-7B-1025-FP8`).
+- `GLOSSAPI_OLMOCR_MODEL_DIR`: local model weights directory (takes precedence over HF model ID).
+- `GLOSSAPI_OLMOCR_SERVER`: URL of an external vLLM server (skips spawning a local vLLM instance).
+- `GLOSSAPI_OLMOCR_API_KEY`: API key for external vLLM server.
+- `GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION`: fraction of VRAM vLLM may pre-allocate for KV-cache.
+- `GLOSSAPI_OLMOCR_MAX_MODEL_LEN`: upper bound (tokens) vLLM will allocate KV-cache for.
+- `GLOSSAPI_OLMOCR_TENSOR_PARALLEL_SIZE`: tensor parallel size for vLLM.
+- `GLOSSAPI_OLMOCR_TARGET_IMAGE_DIM`: dimension on longest side used for rendering PDF pages.
+- `GLOSSAPI_OLMOCR_WORKERS`: number of OlmOCR pipeline workers.
+- `GLOSSAPI_OLMOCR_PAGES_PER_GROUP`: number of PDF pages per work item group.
+
+#### MPS / MLX (macOS Apple Silicon)
+
+- `GLOSSAPI_OLMOCR_MLX_MODEL`: HuggingFace MLX model identifier (default `mlx-community/olmOCR-2-7B-1025-4bit`).
+- `GLOSSAPI_OLMOCR_MLX_MODEL_DIR`: local MLX-formatted model weights directory.
+- `GLOSSAPI_OLMOCR_MLX_SCRIPT`: path to the MLX CLI inference script for subprocess execution.
+- `GLOSSAPI_OLMOCR_DEVICE`: device override (`cuda`, `mps`, `cpu`); auto-detected if unset.
+
+On macOS, the runner tries in-process MLX first (if `mlx_vlm` is importable), then
+the MLX CLI subprocess, then the OlmOCR CUDA CLI, then the stub.
+
+#### OlmOCR doctor checks
+
+Run the preflight checker to validate your environment:
+
+```bash
+python -m glossapi.ocr.olmocr.preflight
 ```
 
 ## Math Enrichment (Phase‑2)

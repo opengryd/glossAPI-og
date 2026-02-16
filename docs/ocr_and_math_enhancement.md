@@ -12,6 +12,7 @@ Backends
 - `backend='deepseek'`: DeepSeek‑OCR; equations are included inline in OCR output, so Phase‑2 math is not required and is treated as a no‑op.
 - `backend='deepseek-ocr-2'`: DeepSeek OCR v2 (MLX/MPS); equations are included inline in OCR output, so Phase-2 math is not required and is treated as a no-op.
 - `backend='mineru'`: MinerU (magic-pdf) OCR; equations are included inline in OCR output, so Phase‑2 math is not required and is treated as a no‑op.
+- `backend='olmocr'`: OlmOCR-2 (vLLM / MLX) OCR; equations are included inline in OCR output, so Phase‑2 math is not required and is treated as a no‑op. Supports CUDA (via vLLM) and macOS Apple Silicon (via MLX).
 
 Policy: never OCR and math on the same file
 - If a file needs OCR, GlossAPI runs OCR only (no Phase‑2 on that file in the same pass).
@@ -22,6 +23,7 @@ Policy: never OCR and math on the same file
 - DeepSeek entry point: `glossapi.ocr.deepseek.runner.run_for_files(...)`
 - DeepSeek OCR v2 entry point: `glossapi.ocr.deepseek_ocr2.runner.run_for_files(...)`
 - MinerU entry point: `glossapi.ocr.mineru.runner.run_for_files(...)`
+- OlmOCR-2 entry point: `glossapi.ocr.olmocr.runner.run_for_files(...)`
 - RapidOCR dispatcher: `glossapi.ocr.rapidocr.dispatch.run_via_extract(...)`
 - Math enrichment: `glossapi.ocr.math.enrich.enrich_from_docling_json(...)`
 - Utility helpers (Docling JSON / cleaning): `glossapi.ocr.utils.*`
@@ -32,6 +34,8 @@ Policy: never OCR and math on the same file
 - DeepSeek CLI stack (in a dedicated venv recommended): `pip install '.[deepseek]'`
 - DeepSeek OCR v2 MLX stack (macOS): install `mlx` and the MLX model assets for your weights.
 - MinerU CLI: ensure `magic-pdf` is available on PATH (or set `GLOSSAPI_MINERU_COMMAND`).
+- OlmOCR-2 (CUDA): `pip install 'olmocr[gpu]'` in a dedicated venv; requires NVIDIA GPU with ≥12 GB VRAM, and `poppler-utils` on PATH.
+- OlmOCR-2 (macOS MLX): install `mlx-vlm`, `pypdfium2`, and `Pillow`; MLX-formatted weights are auto-downloaded from `mlx-community/olmOCR-2-7B-1025-4bit` (or set `GLOSSAPI_OLMOCR_MLX_MODEL_DIR`).
 - macOS MinerU GPU: install `mineru[all]` in a Python 3.10–3.13 venv so Torch MPS is available.
 - ONNXRuntime GPU installed (no CPU ORT): `onnxruntime-gpu==1.18.1` (Linux/Windows)
 - macOS: `onnxruntime==1.18.1` with CoreMLExecutionProvider (Metal)
@@ -148,7 +152,7 @@ Recommended macOS GPU settings:
 ```bash
 export GLOSSAPI_MINERU_BACKEND="hybrid-auto-engine"
 export GLOSSAPI_MINERU_DEVICE_MODE="mps"
-export MINERU_TOOLS_CONFIG_JSON="/path/to/dependency_setup/mineru/magic-pdf.json"
+export MINERU_TOOLS_CONFIG_JSON="$GLOSSAPI_WEIGHTS_ROOT/mineru/magic-pdf.json"
 python -m glossapi.ocr.mineru.preflight
 ```
 

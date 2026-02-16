@@ -84,8 +84,6 @@ clean(
   drop_bad: bool = True,
   *,
   write_cleaned_files: bool = True,
-  ocr_model_dir: str | Path | None = None,       # deprecated
-  force_ocr_fallback: bool = False,                # deprecated
   empty_char_threshold: int = 0,
   empty_min_pages: int = 0,
 ) -> None
@@ -94,7 +92,6 @@ clean(
 - Runs the Rust cleaner/noise metrics and populates parquet with badness; sets `good_files` and points `markdown_dir` to cleaned files for downstream.
 - `write_cleaned_files`: if `True` (default), writes cleaned Markdown to `clean_markdown/`.
 - `empty_char_threshold` / `empty_min_pages`: control near-empty document detection thresholds.
-- `ocr_model_dir` and `force_ocr_fallback` are **deprecated** — use `ocr()` instead.
 
 ## ocr()
 

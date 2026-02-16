@@ -221,10 +221,11 @@ the Rust extensions to ensure they integrate properly with the Python package.
 | **DeepSeek** | `ocr.deepseek` | CUDA (vLLM) | Inline (no Phase-2) | High-accuracy OCR with CUDA GPU |
 | **DeepSeek v2** | `ocr.deepseek_ocr2` | MPS (MLX) | Inline (no Phase-2) | macOS Apple Silicon |
 | **MinerU** | `ocr.mineru` | CUDA / MPS / CPU | Inline (no Phase-2) | External `magic-pdf` CLI |
+| **OlmOCR-2** | `ocr.olmocr` | CUDA (vLLM) / MPS (MLX) | Inline (no Phase-2) | High-accuracy VLM-based OCR with CUDA or Apple Silicon GPU |
 
 **Critical policies:**
 - Never OCR and math-enrich the same file in the same pass.
-- DeepSeek/MinerU backends inline equations — Phase-2 math enrichment is a no-op.
+- DeepSeek/MinerU/OlmOCR backends inline equations — Phase-2 math enrichment is a no-op.
 - RapidOCR dispatches through `Corpus.extract()` with `force_ocr=True`,
   `phase1_backend="docling"`.
 - Stub runners are **allowed by default** (`*_ALLOW_STUB=1`). To force real OCR,
@@ -275,6 +276,12 @@ categories:
 | `GLOSSAPI_DOCLING_DEVICE` | Docling device override (`cuda`, `mps`, `cpu`) |
 | `GLOSSAPI_GPU_BATCH_SIZE` | Batch size for GPU extraction workers |
 
+### Model Weights
+
+| Variable | Purpose |
+|---|---|
+| `GLOSSAPI_WEIGHTS_ROOT` | Root directory for all model weights (default: `<repo>/model_weights/`). Per-backend subdirectories are derived automatically (`deepseek-ocr/`, `deepseek-ocr-mlx/`, `olmocr-mlx/`, `mineru/`). |
+
 ### OCR Control
 
 | Variable | Purpose |
@@ -292,7 +299,7 @@ categories:
 | `GLOSSAPI_DEEPSEEK_ALLOW_CLI` | Enable real CLI runner |
 | `GLOSSAPI_DEEPSEEK_ALLOW_STUB` | Allow stub fallback |
 | `GLOSSAPI_DEEPSEEK_VLLM_SCRIPT` | Path to `run_pdf_ocr_vllm.py` |
-| `GLOSSAPI_DEEPSEEK_MODEL_DIR` | Model weights directory |
+| `GLOSSAPI_DEEPSEEK_MODEL_DIR` | Optional override for model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr`) |
 | `GLOSSAPI_DEEPSEEK_TEST_PYTHON` | Python binary for DeepSeek venv |
 | `GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH` | Library path for libjpeg-turbo etc. |
 | `GLOSSAPI_DEEPSEEK_GPU_MEMORY_UTILIZATION` | VRAM fraction (0.5–0.9) |
@@ -305,7 +312,7 @@ categories:
 | `GLOSSAPI_DEEPSEEK2_ALLOW_CLI` | Enable real MLX CLI runner |
 | `GLOSSAPI_DEEPSEEK2_ALLOW_STUB` | Allow stub fallback (default `1`) |
 | `GLOSSAPI_DEEPSEEK2_MLX_SCRIPT` | Path to MLX inference script |
-| `GLOSSAPI_DEEPSEEK2_MODEL_DIR` | Local MLX-formatted model weights directory |
+| `GLOSSAPI_DEEPSEEK2_MODEL_DIR` | Optional override for MLX model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr-mlx`) |
 | `GLOSSAPI_DEEPSEEK2_PYTHON` | Python binary for DeepSeek v2 venv |
 | `GLOSSAPI_DEEPSEEK2_DEVICE` | Device override (`mps` default) |
 
@@ -319,6 +326,28 @@ categories:
 | `GLOSSAPI_MINERU_MODE` | `auto` / `fast` / `accurate` |
 | `GLOSSAPI_MINERU_BACKEND` | Override MinerU internal backend selection |
 | `GLOSSAPI_MINERU_DEVICE_MODE` | Force device: `cuda` / `mps` / `cpu` (alias: `GLOSSAPI_MINERU_DEVICE`) |
+
+### OlmOCR-2
+
+| Variable | Purpose |
+|---|---|
+| `GLOSSAPI_OLMOCR_ALLOW_CLI` | Enable real OlmOCR pipeline |
+| `GLOSSAPI_OLMOCR_ALLOW_STUB` | Allow stub fallback |
+| `GLOSSAPI_OLMOCR_PYTHON` | Python binary for OlmOCR venv |
+| `GLOSSAPI_OLMOCR_MODEL` | HuggingFace model identifier (default `allenai/olmOCR-2-7B-1025-FP8`) |
+| `GLOSSAPI_OLMOCR_MODEL_DIR` | Optional override for model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/olmocr`) |
+| `GLOSSAPI_OLMOCR_SERVER` | URL of external vLLM server |
+| `GLOSSAPI_OLMOCR_API_KEY` | API key for external vLLM server |
+| `GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION` | VRAM fraction for vLLM KV-cache |
+| `GLOSSAPI_OLMOCR_MAX_MODEL_LEN` | Upper bound (tokens) for KV-cache allocation |
+| `GLOSSAPI_OLMOCR_TENSOR_PARALLEL_SIZE` | Tensor parallel size for vLLM |
+| `GLOSSAPI_OLMOCR_TARGET_IMAGE_DIM` | Longest-side dimension for PDF page rendering |
+| `GLOSSAPI_OLMOCR_WORKERS` | Number of OlmOCR pipeline workers |
+| `GLOSSAPI_OLMOCR_PAGES_PER_GROUP` | PDF pages per work item group |
+| `GLOSSAPI_OLMOCR_MLX_MODEL` | HuggingFace MLX model identifier (default `mlx-community/olmOCR-2-7B-1025-4bit`) |
+| `GLOSSAPI_OLMOCR_MLX_MODEL_DIR` | Optional override for MLX model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/olmocr-mlx`) |
+| `GLOSSAPI_OLMOCR_MLX_SCRIPT` | Path to MLX inference script for subprocess execution |
+| `GLOSSAPI_OLMOCR_DEVICE` | Device override (`cuda`, `mps`, `cpu`) |
 
 ### LaTeX Policy — Early Stop (during decoding)
 

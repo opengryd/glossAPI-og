@@ -23,15 +23,15 @@ Use `dependency_setup/setup_glossapi.sh` to build an isolated virtualenv with th
 # RapidOCR GPU stack
 ./dependency_setup/setup_glossapi.sh --mode rapidocr --venv dependency_setup/.venvs/rapidocr --run-tests
 
-# DeepSeek OCR on GPU (expects weights under /path/to/deepseek-ocr/DeepSeek-OCR)
+# DeepSeek OCR on GPU (weights stored under $GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr)
 ./dependency_setup/setup_glossapi.sh \
   --mode deepseek \
   --venv dependency_setup/.venvs/deepseek \
-  --weights-dir /path/to/deepseek-ocr \
+  --weights-root /path/to/model_weights \
   --run-tests --smoke-test
 ```
 
-Add `--download-deepseek` if you need the script to fetch weights via Hugging Face; otherwise it searches `${REPO_ROOT}/deepseek-ocr/DeepSeek-OCR` unless you override `--weights-dir`. Inspect `dependency_setup/dependency_notes.md` for the latest pins, caveats, and validation runs. The script auto-detects Python (preferring 3.12 → 3.11 → 3.13) and installs GlossAPI with its Rust crates in editable mode so source changes are picked up immediately.
+Add `--download-deepseek` if you need the script to fetch weights via Hugging Face; otherwise set `GLOSSAPI_WEIGHTS_ROOT` so the pipeline finds weights at `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr`. Inspect `dependency_setup/dependency_notes.md` for the latest pins, caveats, and validation runs. The script auto-detects Python (preferring 3.12 → 3.11 → 3.13) and installs GlossAPI with its Rust crates in editable mode so source changes are picked up immediately.
 
 ### DeepSeek OCR v2 (MLX/MPS) setup
 
@@ -39,7 +39,6 @@ Add `--download-deepseek` if you need the script to fetch weights via Hugging Fa
 ./dependency_setup/setup_glossapi.sh \
   --mode deepseek-ocr-2 \
   --venv dependency_setup/.venvs/deepseek-ocr-2 \
-  --weights-dir-ocr2 /path/to/deepseek-ocr-2 \
   --download-deepseek-ocr2 \
   --run-tests
 ```

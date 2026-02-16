@@ -137,18 +137,17 @@ Use `dependency_setup/setup_glossapi.sh` to provision a virtualenv with the righ
 # Docling + RapidOCR mode
 ./dependency_setup/setup_glossapi.sh --mode rapidocr --venv dependency_setup/.venvs/rapidocr --run-tests
 
-# DeepSeek OCR mode (requires weights under /path/to/deepseek-ocr/DeepSeek-OCR)
+# DeepSeek OCR mode (requires weights under $GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr)
 ./dependency_setup/setup_glossapi.sh \
   --mode deepseek \
   --venv dependency_setup/.venvs/deepseek \
-  --weights-dir /path/to/deepseek-ocr \
+  --weights-root /path/to/model_weights \
   --run-tests --smoke-test
 
 # DeepSeek OCR v2 mode (MLX/MPS, macOS)
 ./dependency_setup/setup_glossapi.sh \
   --mode deepseek-ocr-2 \
   --venv dependency_setup/.venvs/deepseek-ocr-2 \
-  --weights-dir-ocr2 /path/to/deepseek-ocr-2 \
   --download-deepseek-ocr2 \
   --run-tests
 
@@ -162,9 +161,9 @@ Use `dependency_setup/setup_glossapi.sh` to provision a virtualenv with the righ
 
 The setup script auto-detects Python (preferring 3.12 → 3.11 → 3.13), installs Rust extensions in editable mode, and supports `--run-tests` / `--smoke-test` for post-install validation. Check `dependency_setup/dependency_notes.md` for the latest pins and caveats.
 
-Pass `--download-deepseek` to fetch DeepSeek weights automatically; otherwise the script looks for `${REPO_ROOT}/deepseek-ocr/DeepSeek-OCR` unless you override `--weights-dir`.
+Pass `--download-deepseek` to fetch DeepSeek weights automatically; otherwise set `GLOSSAPI_WEIGHTS_ROOT` so the pipeline finds weights at `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr`.
 
-Pass `--download-deepseek-ocr2` to fetch DeepSeek OCR v2 weights from `mlx-community/DeepSeek-OCR-2-8bit`; otherwise the script looks for `${REPO_ROOT}/deepseek-ocr-2/DeepSeek-OCR-MLX` unless you override `--weights-dir-ocr2`.
+Pass `--download-deepseek-ocr2` to fetch DeepSeek OCR v2 weights from `mlx-community/DeepSeek-OCR-2-8bit` into `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr-mlx`.
 
 <details>
 <summary><strong>DeepSeek runtime checklist</strong></summary>
@@ -175,7 +174,7 @@ Pass `--download-deepseek-ocr2` to fetch DeepSeek OCR v2 weights from `mlx-commu
   - `GLOSSAPI_DEEPSEEK_ALLOW_STUB=0`
   - `GLOSSAPI_DEEPSEEK_VLLM_SCRIPT=/path/to/deepseek-ocr/run_pdf_ocr_vllm.py`
   - `GLOSSAPI_DEEPSEEK_TEST_PYTHON=/path/to/deepseek/venv/bin/python`
-  - `GLOSSAPI_DEEPSEEK_MODEL_DIR=/path/to/deepseek-ocr/DeepSeek-OCR`
+  - `GLOSSAPI_DEEPSEEK_MODEL_DIR=/path/to/model_weights/deepseek-ocr` (or set `GLOSSAPI_WEIGHTS_ROOT`)
   - `GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH=/path/to/libjpeg-turbo/lib`
 - CUDA toolkit with `nvcc` available (FlashInfer/vLLM JIT falls back poorly without it); set `CUDA_HOME` and prepend `$CUDA_HOME/bin` to `PATH`.
 - If FlashInfer is problematic, disable with `VLLM_USE_FLASHINFER=0` and `FLASHINFER_DISABLE=1`.
