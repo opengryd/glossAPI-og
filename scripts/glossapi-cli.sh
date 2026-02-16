@@ -59,7 +59,7 @@ available_python_versions() {
 			versions+=("${cmd}")
 		fi
 	done
-	printf "%s\n" "${versions[@]}"
+	[[ "${#versions[@]}" -gt 0 ]] && printf "%s\n" "${versions[@]}"
 }
 
 python_version_tag() {
@@ -171,7 +171,7 @@ find_available_venvs() {
 	if [[ -f "${ROOT_DIR}/.venv/bin/activate" ]]; then
 		venvs+=("${ROOT_DIR}/.venv")
 	fi
-	printf "%s\n" "${venvs[@]}"
+	[[ "${#venvs[@]}" -gt 0 ]] && printf "%s\n" "${venvs[@]}"
 }
 
 select_existing_venv() {
@@ -384,7 +384,11 @@ run_setup_wizard_interactive() {
 		env_args+=("DETECTRON2_AUTO_INSTALL=1")
 	fi
 
-	env "${env_args[@]}" bash "${ROOT_DIR}/dependency_setup/setup_glossapi.sh" "${args[@]}"
+	if [[ "${#env_args[@]}" -gt 0 ]]; then
+		env "${env_args[@]}" bash "${ROOT_DIR}/dependency_setup/setup_glossapi.sh" "${args[@]}"
+	else
+		bash "${ROOT_DIR}/dependency_setup/setup_glossapi.sh" "${args[@]}"
+	fi
 
 	MODE="${selected_mode}"
 	VENV_DIR="${selected_venv}"
