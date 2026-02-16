@@ -152,7 +152,6 @@ class Corpus(
         self.output_dir = Path(output_dir)
         self.downloads_dir = self.output_dir / "downloads"
         self.markdown_dir = self.output_dir / "markdown"
-        self.ocr_model_dir = None  # Will use default discovery or user-specified path
         self.sections_dir = self.output_dir / "sections"
         # Directory that will hold cleaned markdown after Rust-powered cleaning
         self.cleaned_markdown_dir = self.output_dir / "clean_markdown"
