@@ -110,7 +110,7 @@ glossapi            # No subcommand → launches the pipeline wizard
 For a single command that does setup + env activation + pipeline launch:
 
 ```bash
-./scripts/glossapi.sh
+./scripts/glossapi-cli.sh
 ```
 
 This script provisions the selected profile, sources the virtualenv, and launches `glossapi pipeline`. It prompts for the profile interactively unless you set `MODE=rapidocr` (or another mode) beforehand.
@@ -253,7 +253,7 @@ output_dir/
 | `tests/` | pytest suite — `test_pipeline_smoke.py` for quick checks, plus per-feature tests. |
 | `docs/` | MkDocs Material site — onboarding, pipeline recipes, configuration, troubleshooting. |
 | `dependency_setup/` | Environment provisioning scripts and notes per mode. |
-| `scripts/glossapi.sh` | One-command setup + pipeline launcher with interactive profile selection. |
+| `scripts/glossapi-cli.sh` | One-command setup + pipeline launcher with interactive profile selection. |
 
 ## Contributing
 

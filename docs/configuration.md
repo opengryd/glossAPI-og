@@ -6,12 +6,15 @@ This page lists the main knobs you can use to tune GlossAPI.
 
 - `CUDA_VISIBLE_DEVICES`: restrict/assign visible GPUs, e.g. `export CUDA_VISIBLE_DEVICES=0,1`.
 - `GLOSSAPI_DOCLING_DEVICE`: preferred device for Docling (inside a worker), e.g. `cuda:0`.
+- `GLOSSAPI_GPU_BATCH_SIZE`: batch size for GPU extraction workers (multi-GPU mode).
 - macOS (Metal): use `accel_type='MPS'` or set `GLOSSAPI_DOCLING_DEVICE=mps` when forcing a device.
 
 ## OCR & Parsing
 
 - `GLOSSAPI_IMAGES_SCALE`: image scale hint for OCR/layout (default ~1.1–1.25).
 - `GLOSSAPI_FORMULA_BATCH`: inline CodeFormula batch size (default `16`).
+- `GLOSSAPI_OCR_LANGS`: override OCR language list (comma-separated).
+- `GLOSSAPI_SKIP_DOCLING_BOOT`: set to `1` to skip Docling/RapidOCR patching at import time (useful in environments without Docling).
 
 ### Batch Policy & PDF Backend
 
@@ -44,19 +47,23 @@ When using `backend='mineru'`, equations are included inline in the OCR output; 
 
 - `GLOSSAPI_DEEPSEEK_ALLOW_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
 - `GLOSSAPI_DEEPSEEK_ALLOW_CLI` (`0` by default): flip to `1` to force the real vLLM CLI even when the stub is allowed.
-- `GLOSSAPI_DEEPSEEK_PYTHON`: absolute path to the Python interpreter that runs `run_pdf_ocr_vllm.py` (defaults to the current interpreter).
+- `GLOSSAPI_DEEPSEEK_PYTHON` / `GLOSSAPI_DEEPSEEK_TEST_PYTHON`: absolute path to the Python interpreter that runs `run_pdf_ocr_vllm.py` (defaults to the current interpreter).
 - `GLOSSAPI_DEEPSEEK_VLLM_SCRIPT`: override path to the DeepSeek CLI script (defaults to `deepseek-ocr/run_pdf_ocr_vllm.py` under the repo).
+- `GLOSSAPI_DEEPSEEK_MODEL_DIR`: path to DeepSeek model weights (must contain `config.json` + safetensors).
 - `GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH`: prepend extra library search paths (e.g., for `libjpeg-turbo`) when launching the CLI.
+- `GLOSSAPI_DEEPSEEK_GPU_MEMORY_UTILIZATION`: VRAM fraction (0.5–0.9) for vLLM.
+- `GLOSSAPI_DEEPSEEK_NO_FP8_KV`: set to `1` to disable FP8 KV cache (propagates `--no-fp8-kv`).
 
 ### DeepSeek OCR v2 (MLX/MPS) runtime controls
 
 The runner tries three strategies in order: **in-process** (fast, model stays loaded), **CLI subprocess**, then **stub**.
 
 - `GLOSSAPI_DEEPSEEK2_ALLOW_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
+- `GLOSSAPI_DEEPSEEK2_ALLOW_CLI` (`0` by default): flip to `1` to force the CLI subprocess strategy.
 - `GLOSSAPI_DEEPSEEK2_MODEL_DIR`: model directory containing MLX-formatted weights and config. If unset, models are auto-downloaded from `mlx-community/DeepSeek-OCR-2-8bit` on HuggingFace.
 - `GLOSSAPI_DEEPSEEK2_DEVICE`: device override (`mps` or `cpu`, default `mps`).
 - `GLOSSAPI_DEEPSEEK2_MLX_SCRIPT`: override path to an external MLX CLI script. Only needed when using a separate venv or custom script. By default the package-shipped script is used.
-- `GLOSSAPI_DEEPSEEK2_PYTHON`: absolute path to the Python interpreter for CLI subprocess mode (defaults to the current interpreter).
+- `GLOSSAPI_DEEPSEEK2_PYTHON` / `GLOSSAPI_DEEPSEEK2_TEST_PYTHON`: absolute path to the Python interpreter for CLI subprocess mode (defaults to the current interpreter).
 
 ### MinerU runtime controls
 
@@ -114,3 +121,8 @@ All LaTeX policy knobs are loaded via `glossapi.text_sanitize.load_latex_policy(
   - Parquet updates: `download_results/download_results.parquet` (adds/updates rows)
 - Default recommendation policy: enrich if `formula_total > 0` (skip only no‑math docs).
 - Legacy heuristic (p90/pages thresholds) can be enabled with `GLOSSAPI_TRIAGE_HEURISTIC=1`.
+
+## Skiplist
+
+- `GLOSSAPI_SKIPLIST_PATH`: override the path to the fatal skip-list file (defaults to `<output_dir>/skiplists/fatal_skip.txt`).
+- Files on the skip-list are never retried. Remove entries manually or use `reprocess_completed=True` to force reprocessing of non-fatal stems.

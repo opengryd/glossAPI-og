@@ -78,9 +78,54 @@ c.clean()                            # compute quality; filter badness
 c.ocr()                              # re‑extract bad ones and enrich math/code
 c.section()                          # to parquet
 c.annotate()                         # classify/annotate sections
+c.jsonl_sharded(                     # export to zstd-compressed JSONL shards
+    'OUT/export',
+    compression='zstd',
+)
 ```
 
-See ocr_and_math_enhancement.md for GPU details, batch sizes, and artifact locations.
+See [OCR & Math Enrichment](ocr_and_math_enhancement.md) for GPU details, batch sizes, and artifact locations.
+
+### Convenience shortcut
+
+`process_all()` chains `extract → section → annotate` in one call (skips `clean()` and `ocr()`):
+
+```python
+from glossapi import Corpus
+c = Corpus('IN', 'OUT')
+c.process_all(input_format='pdf', download_first=False, annotation_type='auto')
+```
+
+### JSONL Export
+
+```python
+from glossapi import Corpus
+c = Corpus('IN', 'OUT')
+
+# Single JSONL file
+c.jsonl('OUT/export/output.jsonl', text_key='text')
+
+# Sharded JSONL with metadata
+c.jsonl_sharded(
+    'OUT/export',
+    shard_size_bytes=500 * 1024 * 1024,
+    shard_prefix='train',
+    compression='zstd',
+    text_key='document',
+    metadata_key='pipeline_metadata',
+    metadata_fields=['filter', 'greek_badness_score', 'needs_ocr'],
+    source_metadata_path='OUT/source_metadata.parquet',
+    source_metadata_key='source_metadata',
+    source_metadata_fields=['filename', 'language', 'handle_url'],
+)
+```
+
+Resulting `.jsonl.zst` shards are streamable with HuggingFace Datasets:
+
+```python
+from datasets import load_dataset
+ds = load_dataset("json", data_files="OUT/export/train-*.jsonl.zst", streaming=True)["train"]
+```
 
 ### DeepSeek OCR
 

@@ -210,14 +210,24 @@ The policy is centralized in `glossapi.text_sanitize`. Phase‑2 enrichment and 
 ```
 OUT/
 ├── markdown/
-│   └── <stem>.md                     # enriched Markdown (canonical)
+│   └── <stem>.md                     # enriched Markdown (canonical — overwrites Phase-1)
 ├── json/
-│   ├── <stem>.docling.json(.zst)
-│   ├── <stem>.formula_index.jsonl
-│   ├── <stem>.latex_map.jsonl
-│   └── metrics/
-│       ├── <stem>.metrics.json
-│       └── <stem>.per_page.metrics.json
+│   ├── <stem>.docling.json(.zst)     # Docling layout JSON
+│   ├── <stem>.formula_index.jsonl    # Formula/code item index (Phase-1)
+│   ├── <stem>.latex_map.jsonl        # LaTeX strings + acceptance (Phase-2)
+│   ├── metrics/
+│   │   ├── <stem>.metrics.json       # Document-level metrics
+│   │   └── <stem>.per_page.metrics.json  # Per-page timing + formula counts
+│   └── problematic_math/            # Quarantined artifacts (respawn cap exceeded)
+├── clean_markdown/                   # Rust-cleaned Markdown (from corpus.clean())
+├── sidecars/
+│   ├── extract/                      # Per-file extraction metadata
+│   ├── triage/                       # Formula density / OCR routing decisions
+│   └── math/                         # Math enrichment metadata
+├── downloads/
+│   └── problematic_math/            # Quarantined PDFs
+└── download_results/
+    └── download_results.parquet      # Canonical metadata store (updated by all phases)
 ```
 
 ## Troubleshooting

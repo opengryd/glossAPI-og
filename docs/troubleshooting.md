@@ -38,7 +38,33 @@
 - When a GPU crashes repeatedly, the controller stops respawning it after `GLOSSAPI_MATH_RESPAWN_CAP` attempts. Any pending stems are added to the skip‑list and their inputs are copied to `downloads/problematic_math/` (PDFs) and `json/problematic_math/` (Docling artifacts); inspect those folders, address the issue, then rerun `Corpus.ocr(..., reprocess_completed=True)` or move the quarantined files back into `downloads/`.
 - Check the corresponding worker log under `logs/math_workers/` (or the directory set via `GLOSSAPI_WORKER_LOG_DIR`) for stack traces and the active stem list stored in `gpu<N>.current`.
 
+## DeepSeek OCR v2 (MLX/macOS) issues
+
+- **`mlx` import error on non-Apple Silicon:** DeepSeek OCR v2 requires Apple Silicon (M1+) and the MLX framework. It won't work on Intel Macs or Linux.
+- **Model not found:** Set `GLOSSAPI_DEEPSEEK2_MODEL_DIR` to point to your local MLX-formatted weights, or let it auto-download from HuggingFace.
+- **Wrong Python:** If the MLX venv differs from the main venv, set `GLOSSAPI_DEEPSEEK2_PYTHON` to the correct binary.
+- **MPS device error:** Ensure `GLOSSAPI_DEEPSEEK2_DEVICE=mps` (default). Check `torch.backends.mps.is_available()`.
+
+## MinerU backend / device issues
+
+- **Backend selection:** Set `GLOSSAPI_MINERU_BACKEND` to override auto-detection. Set `GLOSSAPI_MINERU_DEVICE_MODE` (or `GLOSSAPI_MINERU_DEVICE`) to force `cuda`, `mps`, or `cpu`.
+- **`magic-pdf` not found:** Ensure MinerU is installed and `magic-pdf` is on `PATH`, or set `GLOSSAPI_MINERU_COMMAND` to its absolute path.
+
+## Stub runners producing empty output
+
+- By default, DeepSeek and MinerU allow stub fallback (`*_ALLOW_STUB=1`). This means OCR may silently produce placeholder output instead of real results.
+- To force real OCR, set `GLOSSAPI_DEEPSEEK_ALLOW_STUB=0` (or `GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0`, `GLOSSAPI_MINERU_ALLOW_STUB=0`) **and** enable the CLI runner with `*_ALLOW_CLI=1`.
+
+## Docling import slow or crashes at startup
+
+- `import glossapi` patches Docling at boot time. Set `GLOSSAPI_SKIP_DOCLING_BOOT=1` to skip this when you don't need Docling (e.g., running export-only or section-only phases).
+
 ## Where are my files?
 
-- Enriched Markdown overwrites `markdown/<stem>.md`.
-- JSON/indices/latex maps: `json/`. Metrics: `json/metrics/`.
+- Enriched Markdown overwrites `markdown/<stem>.md` — there is never a second copy.
+- Cleaned Markdown: `clean_markdown/`.
+- JSON / indices / LaTeX maps: `json/`. Metrics: `json/metrics/`.
+- Per-file sidecars: `sidecars/extract/`, `sidecars/triage/`, `sidecars/math/`.
+- Quarantined files: `downloads/problematic_math/`, `json/problematic_math/`.
+- JSONL exports: `export/`.
+- Download metadata: `download_results/download_results.parquet`.
