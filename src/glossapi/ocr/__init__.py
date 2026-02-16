@@ -14,20 +14,23 @@ __all__ = [
     "deepseek",
     "deepseek_ocr2",
     "mineru",
+    "olmocr",
     "rapidocr",
     "math",
     "utils",
     "deepseek_runner",
     "deepseek_ocr2_runner",
     "mineru_runner",
+    "olmocr_runner",
     "rapidocr_dispatch",
 ]
 
-_SUBPACKAGES = {"deepseek", "deepseek_ocr2", "mineru", "rapidocr", "math", "utils"}
+_SUBPACKAGES = {"deepseek", "deepseek_ocr2", "mineru", "olmocr", "rapidocr", "math", "utils"}
 _ALIASES = {
     "deepseek_runner": "glossapi.ocr.deepseek.runner",
     "deepseek_ocr2_runner": "glossapi.ocr.deepseek_ocr2.runner",
     "mineru_runner": "glossapi.ocr.mineru.runner",
+    "olmocr_runner": "glossapi.ocr.olmocr.runner",
     "rapidocr_dispatch": "glossapi.ocr.rapidocr.dispatch",
 }
 
