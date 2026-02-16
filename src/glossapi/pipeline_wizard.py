@@ -208,7 +208,7 @@ def _ask_ocr_backend() -> str:
     default_backend = "mineru" if platform.system() == "Darwin" else "rapidocr"
     choice = _gum_choose(
         "OCR backend",
-        ["none", "rapidocr", "mineru", "deepseek", "deepseek-ocr-2"],
+        ["none", "rapidocr", "mineru", "deepseek", "deepseek-ocr-2", "olmocr"],
         default=default_backend,
     )
     return choice[0]
