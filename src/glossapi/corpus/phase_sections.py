@@ -95,11 +95,14 @@ class SectionPhaseMixin:
         if good_filenames:
             self.logger.info(f"Good filenames: {good_filenames}")
 
+        # Prefer cleaned markdown if available; otherwise fall back to raw markdown.
+        markdown_root = self.cleaned_markdown_dir if self.cleaned_markdown_dir.exists() else self.markdown_dir
+
         if not good_filenames:
             self.logger.warning("No files marked as 'good' – falling back to processing all extracted markdown files.")
             good_filenames = [
                 os.path.splitext(p.name)[0]
-                for p in Path(self.markdown_dir).glob("*.md")
+                for p in Path(markdown_root).glob("*.md")
             ]
             if not good_filenames:
                 self.logger.warning(
@@ -111,9 +114,9 @@ class SectionPhaseMixin:
         # We will pass the original markdown directory and the list of good filenames 
         # rather than creating a separate directory
         self.sectioner.to_parquet(
-            input_dir=str(self.markdown_dir),  # Use the markdown directory directly
+            input_dir=str(markdown_root),  # Prefer cleaned markdown when present
             output_dir=str(self.sections_dir),
-            filenames_to_process=good_filenames  # Pass the list of good filenames
+            filenames_to_process=good_filenames,
         )
 
         self.logger.info(f"Finished sectioning {len(good_filenames)} good quality files")

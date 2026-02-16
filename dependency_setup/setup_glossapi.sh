@@ -8,7 +8,9 @@ MODE="vanilla"
 PYTHON_BIN="${PYTHON:-}"
 VENV_PATH="${GLOSSAPI_VENV:-}"
 DOWNLOAD_DEEPSEEK=0
+DOWNLOAD_DEEPSEEK_OCR2=0
 DEEPSEEK_ROOT="${DEEPSEEK_ROOT:-${REPO_ROOT}/deepseek-ocr}"
+DEEPSEEK2_ROOT="${DEEPSEEK2_ROOT:-${REPO_ROOT}/deepseek-ocr-2}"
 MINERU_COMMAND="${GLOSSAPI_MINERU_COMMAND:-}"
 DOWNLOAD_MINERU_MODELS=0
 MINERU_MODELS_REPO="${MINERU_MODELS_REPO:-opendatalab/PDF-Extract-Kit-1.0}"
@@ -20,11 +22,15 @@ usage() {
 Usage: setup_glossapi.sh [options]
 
 Options:
-  --mode MODE            Environment profile: vanilla, rapidocr, deepseek, mineru (default: vanilla)
+  --mode MODE            Environment profile: vanilla, rapidocr, deepseek, deepseek-ocr-2, mineru (default: vanilla)
   --venv PATH            Target virtual environment path
   --python PATH          Python executable to use when creating the venv
   --download-deepseek    Fetch DeepSeek-OCR weights (only meaningful for --mode deepseek)
   --weights-dir PATH     Destination directory for DeepSeek weights (default: $REPO_ROOT/deepseek-ocr)
+  --download-deepseek-ocr2
+                         Fetch DeepSeek OCR v2 weights (only meaningful for --mode deepseek-ocr-2)
+  --weights-dir-ocr2 PATH
+                         Base directory for DeepSeek OCR v2 assets (default: $REPO_ROOT/deepseek-ocr-2)
   --download-mineru-models
                          Download MinerU model bundle into dependency_setup/mineru
   --mineru-command PATH  Path to magic-pdf binary (optional; stored in GLOSSAPI_MINERU_COMMAND)
@@ -60,12 +66,19 @@ while (( "$#" )); do
     --download-deepseek)
       DOWNLOAD_DEEPSEEK=1
       ;;
+    --download-deepseek-ocr2)
+      DOWNLOAD_DEEPSEEK_OCR2=1
+      ;;
     --weights-dir)
       shift || { echo "--weights-dir requires a path" >&2; exit 1; }
       DEEPSEEK_ROOT="${1:-}"
       ;;
     --download-mineru-models)
       DOWNLOAD_MINERU_MODELS=1
+      ;;
+    --weights-dir-ocr2)
+      shift || { echo "--weights-dir-ocr2 requires a path" >&2; exit 1; }
+      DEEPSEEK2_ROOT="${1:-}"
       ;;
     --mineru-command)
       shift || { echo "--mineru-command requires a path" >&2; exit 1; }
@@ -91,9 +104,9 @@ while (( "$#" )); do
 done
 
 case "${MODE}" in
-  vanilla|rapidocr|deepseek|mineru) ;;
+  vanilla|rapidocr|deepseek|deepseek-ocr-2|mineru) ;;
   *)
-    echo "Invalid mode '${MODE}'. Expected vanilla, rapidocr, deepseek, or mineru." >&2
+    echo "Invalid mode '${MODE}'. Expected vanilla, rapidocr, deepseek, deepseek-ocr-2, or mineru." >&2
     exit 1
     ;;
 esac
@@ -122,6 +135,18 @@ if [[ "${MODE}" == "deepseek" ]]; then
     if [[ -f "${MAC_REQUIREMENTS_FILE}" ]]; then
       REQUIREMENTS_FILE="${MAC_REQUIREMENTS_FILE}"
     fi
+  fi
+fi
+
+if [[ "${MODE}" == "deepseek-ocr-2" ]]; then
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    MAC_REQUIREMENTS_FILE="${SCRIPT_DIR}/macos/requirements-glossapi-deepseek-ocr-2-macos.txt"
+    if [[ -f "${MAC_REQUIREMENTS_FILE}" ]]; then
+      REQUIREMENTS_FILE="${MAC_REQUIREMENTS_FILE}"
+    fi
+  else
+    warn "deepseek-ocr-2 is macOS-only; falling back to vanilla requirements."
+    REQUIREMENTS_FILE="${SCRIPT_DIR}/base/requirements-glossapi-deepseek-ocr-2.txt"
   fi
 fi
 
@@ -438,6 +463,43 @@ download_deepseek_weights() {
   fi
 }
 
+download_deepseek_ocr2_weights() {
+  local root="$1"
+  local target="${root}/DeepSeek-OCR-MLX"
+
+  if [[ -d "${target}" ]]; then
+    info "DeepSeek OCR v2 weights already present at ${target}"
+    return 0
+  fi
+
+  mkdir -p "${root}"
+  if command -v huggingface-cli >/dev/null 2>&1; then
+    info "Downloading DeepSeek OCR v2 weights with huggingface-cli (this may take a while)"
+    huggingface-cli download mlx-community/DeepSeek-OCR-2-8bit \
+      --repo-type model \
+      --local-dir "${target}" \
+      --local-dir-use-symlinks False || warn "huggingface-cli download failed; falling back to git-lfs"
+  fi
+
+  if [[ ! -d "${target}" ]]; then
+    if command -v git >/dev/null 2>&1; then
+      if ! command -v git-lfs >/dev/null 2>&1; then
+        warn "git-lfs not available; install git-lfs to clone DeepSeek OCR v2 weights via git."
+      else
+        info "Cloning DeepSeek OCR v2 weights via git-lfs"
+        git lfs install --skip-repo >/dev/null 2>&1 || true
+        git clone https://huggingface.co/mlx-community/DeepSeek-OCR-2-8bit "${target}"
+      fi
+    else
+      warn "Neither huggingface-cli nor git found; skipping DeepSeek OCR v2 weight download."
+    fi
+  fi
+
+  if [[ ! -d "${target}" ]]; then
+    warn "DeepSeek OCR v2 weights were not downloaded. Set DEEPSEEK2_ROOT manually once acquired."
+  fi
+}
+
 download_mineru_models() {
   local target_dir="$1"
   info "Downloading MinerU models from ${MINERU_MODELS_REPO} to ${target_dir} (this may take a while)"
@@ -509,6 +571,25 @@ if [[ "${MODE}" == "deepseek" ]]; then
   fi
 fi
 
+if [[ "${MODE}" == "deepseek-ocr-2" ]]; then
+  info "Installing mlx-vlm without dependencies to avoid transformers conflicts"
+  pip_run install --no-deps "mlx-vlm==0.3.10" || warn "mlx-vlm install failed; DeepSeek OCR v2 in-process mode will be unavailable."
+  # The MLX CLI script is now shipped inside the glossapi package.
+  # GLOSSAPI_DEEPSEEK2_MLX_SCRIPT is only needed to override to an external script.
+  export GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0
+  export GLOSSAPI_DEEPSEEK2_DEVICE="mps"
+
+  if [[ "${DOWNLOAD_DEEPSEEK_OCR2}" -eq 1 ]]; then
+    download_deepseek_ocr2_weights "${DEEPSEEK2_ROOT}"
+    if [[ -d "${DEEPSEEK2_ROOT}/DeepSeek-OCR-MLX" ]]; then
+      export GLOSSAPI_DEEPSEEK2_MODEL_DIR="${DEEPSEEK2_ROOT}/DeepSeek-OCR-MLX"
+      info "DeepSeek OCR v2 model dir set to ${GLOSSAPI_DEEPSEEK2_MODEL_DIR}"
+    fi
+  else
+    info "DeepSeek OCR v2 weights not pre-downloaded; model will auto-download from HuggingFace at first run."
+  fi
+fi
+
 if [[ "${MODE}" == "mineru" ]]; then
   info "Patching Unimernet for transformers cache_position compatibility"
   patch_mineru_unimernet_cache_position || warn "Unimernet patch failed; math formula recognition may error on newer transformers."
@@ -566,6 +647,9 @@ if [[ "${RUN_TESTS}" -eq 1 ]]; then
     deepseek)
       pytest_args+=("-m" "not rapidocr")
       ;;
+    deepseek-ocr-2)
+      pytest_args+=("-m" "not rapidocr and not deepseek")
+      ;;
   esac
 
   info "Running pytest ${pytest_args[*]} tests"
@@ -604,6 +688,28 @@ export GLOSSAPI_DEEPSEEK_ALLOW_CLI=1
 export LD_LIBRARY_PATH="\$GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH:\${LD_LIBRARY_PATH:-}"
 EOF
   info "Wrote DeepSeek env exports to ${ENV_FILE} (source it before running OCR)."
+fi
+
+if [[ "${MODE}" == "deepseek-ocr-2" ]]; then
+  cat <<EOF
+DeepSeek OCR v2 (MLX/MPS) exports (add to your shell before running glossapi):
+  export GLOSSAPI_DEEPSEEK2_PYTHON="${VENV_PATH}/bin/python"
+  export GLOSSAPI_DEEPSEEK2_MLX_SCRIPT="${DEEPSEEK2_ROOT}/run_pdf_ocr_mlx.py"
+  export GLOSSAPI_DEEPSEEK2_MODEL_DIR="${DEEPSEEK2_ROOT}/DeepSeek-OCR-MLX"
+  export GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0
+  export GLOSSAPI_DEEPSEEK2_ALLOW_CLI=1
+  export GLOSSAPI_DEEPSEEK2_DEVICE="mps"
+EOF
+  ENV_FILE="${SCRIPT_DIR}/.env_deepseek_ocr2"
+  cat <<EOF > "${ENV_FILE}"
+export GLOSSAPI_DEEPSEEK2_PYTHON="${VENV_PATH}/bin/python"
+export GLOSSAPI_DEEPSEEK2_MLX_SCRIPT="${DEEPSEEK2_ROOT}/run_pdf_ocr_mlx.py"
+export GLOSSAPI_DEEPSEEK2_MODEL_DIR="${DEEPSEEK2_ROOT}/DeepSeek-OCR-MLX"
+export GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0
+export GLOSSAPI_DEEPSEEK2_ALLOW_CLI=1
+export GLOSSAPI_DEEPSEEK2_DEVICE="mps"
+EOF
+  info "Wrote DeepSeek OCR v2 env exports to ${ENV_FILE} (source it before running OCR)."
 fi
 
 if [[ "${MODE}" == "mineru" ]]; then

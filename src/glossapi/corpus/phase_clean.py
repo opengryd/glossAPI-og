@@ -704,9 +704,8 @@ class CleanPhaseMixin:
         else:
             self.good_files = []
 
-        # After cleaning, point markdown_dir to cleaned files for downstream stages
-        if write_cleaned_files:
-            self.markdown_dir = self.cleaned_markdown_dir
+        # Keep markdown_dir pointing at raw markdown; downstream stages should
+        # explicitly use cleaned_markdown_dir when available.
 
     def filter(self, *args, **kwargs):  # type: ignore[override]
         """Deprecated: use :py:meth:`clean` instead.  Retained for one release."""

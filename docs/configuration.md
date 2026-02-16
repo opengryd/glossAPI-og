@@ -36,6 +36,8 @@ pip install -r deepseek-ocr/requirements-deepseek.txt
 
 When using `backend='deepseek'`, equations are included inline in the OCR output; Phase‑2 math flags are accepted but skipped.
 
+When using `backend='deepseek-ocr-2'`, equations are included inline in the OCR output; Phase-2 math flags are accepted but skipped.
+
 When using `backend='mineru'`, equations are included inline in the OCR output; Phase‑2 math flags are accepted but skipped.
 
 ### DeepSeek runtime controls
@@ -45,6 +47,16 @@ When using `backend='mineru'`, equations are included inline in the OCR output; 
 - `GLOSSAPI_DEEPSEEK_PYTHON`: absolute path to the Python interpreter that runs `run_pdf_ocr_vllm.py` (defaults to the current interpreter).
 - `GLOSSAPI_DEEPSEEK_VLLM_SCRIPT`: override path to the DeepSeek CLI script (defaults to `deepseek-ocr/run_pdf_ocr_vllm.py` under the repo).
 - `GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH`: prepend extra library search paths (e.g., for `libjpeg-turbo`) when launching the CLI.
+
+### DeepSeek OCR v2 (MLX/MPS) runtime controls
+
+The runner tries three strategies in order: **in-process** (fast, model stays loaded), **CLI subprocess**, then **stub**.
+
+- `GLOSSAPI_DEEPSEEK2_ALLOW_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
+- `GLOSSAPI_DEEPSEEK2_MODEL_DIR`: model directory containing MLX-formatted weights and config. If unset, models are auto-downloaded from `mlx-community/DeepSeek-OCR-2-8bit` on HuggingFace.
+- `GLOSSAPI_DEEPSEEK2_DEVICE`: device override (`mps` or `cpu`, default `mps`).
+- `GLOSSAPI_DEEPSEEK2_MLX_SCRIPT`: override path to an external MLX CLI script. Only needed when using a separate venv or custom script. By default the package-shipped script is used.
+- `GLOSSAPI_DEEPSEEK2_PYTHON`: absolute path to the Python interpreter for CLI subprocess mode (defaults to the current interpreter).
 
 ### MinerU runtime controls
 

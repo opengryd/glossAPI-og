@@ -14,7 +14,7 @@ cat <<'EOF'
 
 	Welcome to GlossAPI
 	Unified setup + pipeline launcher for the academic PDF processing toolkit.
-	Profiles: vanilla, RapidOCR, MinerU, DeepSeek
+	Profiles: vanilla, RapidOCR, MinerU, DeepSeek, DeepSeek OCR v2
 
 EOF
 PYTHON_BIN="${PYTHON:-}"
@@ -264,6 +264,7 @@ run_setup_wizard_interactive() {
 		"rapidocr (Docling + RapidOCR GPU stack)"
 		"mineru (External magic-pdf CLI + models)"
 		"deepseek (DeepSeek OCR; heaviest GPU stack)"
+		"deepseek-ocr-2 (DeepSeek OCR v2 MLX/MPS)"
 	)
 	local default_idx=1
 	local i=1
@@ -310,10 +311,12 @@ run_setup_wizard_interactive() {
 	selected_venv="$(gum_input "Virtualenv path" "${default_venv}")"
 
 	local download_deepseek=0
+	local download_deepseek_ocr2=0
 	local download_mineru=0
 	local run_tests=0
 	local smoke_test=0
 	local weights_dir=""
+	local weights_dir_ocr2=""
 	local detectron2_auto_install=0
 	local detectron2_wheel_url=""
 
@@ -322,6 +325,10 @@ run_setup_wizard_interactive() {
 		if [[ "${download_deepseek}" == "1" ]]; then
 			weights_dir="$(gum_input "Weights dir" "${ROOT_DIR}/deepseek-ocr")"
 		fi
+	fi
+
+	if [[ "${selected_mode}" == "deepseek-ocr-2" ]]; then
+		gum_confirm "Download DeepSeek OCR v2 weights now? (skip to auto-download at runtime)" 0 && download_deepseek_ocr2=1 || download_deepseek_ocr2=0
 	fi
 
 	if [[ "${selected_mode}" == "mineru" ]]; then
@@ -343,6 +350,12 @@ run_setup_wizard_interactive() {
 	fi
 	if [[ -n "${weights_dir}" ]]; then
 		args+=("--weights-dir" "${weights_dir}")
+	fi
+	if [[ "${download_deepseek_ocr2}" == "1" ]]; then
+		args+=("--download-deepseek-ocr2")
+	fi
+	if [[ -n "${weights_dir_ocr2}" ]]; then
+		args+=("--weights-dir-ocr2" "${weights_dir_ocr2}")
 	fi
 	if [[ "${download_mineru}" == "1" ]]; then
 		args+=("--download-mineru-models")
@@ -405,7 +418,7 @@ PY
 }
 
 run_setup_flow() {
-	if [[ -z "${MODE}" && -z "${VENV_DIR}" && -z "${DOWNLOAD_MINERU_MODELS}" && -z "${DOWNLOAD_DEEPSEEK}" && -z "${WEIGHTS_DIR}" && -z "${RUN_TESTS}" && -z "${SMOKE_TEST}" ]]; then
+	if [[ -z "${MODE}" && -z "${VENV_DIR}" && -z "${DOWNLOAD_MINERU_MODELS}" && -z "${DOWNLOAD_DEEPSEEK}" && -z "${DOWNLOAD_DEEPSEEK_OCR2}" && -z "${WEIGHTS_DIR}" && -z "${WEIGHTS_DIR_OCR2}" && -z "${RUN_TESTS}" && -z "${SMOKE_TEST}" ]]; then
 		if ! have_gum; then
 			echo "gum is required for the interactive setup. Install it and re-run." >&2
 			exit 1
@@ -441,6 +454,14 @@ run_setup_flow() {
 			args+=("--weights-dir" "${WEIGHTS_DIR}")
 		fi
 
+		if [[ "${MODE}" == "deepseek-ocr-2" && "${DOWNLOAD_DEEPSEEK_OCR2}" == "1" ]]; then
+			args+=("--download-deepseek-ocr2")
+		fi
+
+		if [[ -n "${WEIGHTS_DIR_OCR2}" ]]; then
+			args+=("--weights-dir-ocr2" "${WEIGHTS_DIR_OCR2}")
+		fi
+
 		if [[ "${MODE}" == "mineru" && "${DOWNLOAD_MINERU_MODELS}" == "1" ]]; then
 			args+=("--download-mineru-models")
 		fi
@@ -462,7 +483,9 @@ MODE="${MODE:-}"
 VENV_DIR="${VENV_DIR:-}"
 DOWNLOAD_MINERU_MODELS="${DOWNLOAD_MINERU_MODELS:-}"
 DOWNLOAD_DEEPSEEK="${DOWNLOAD_DEEPSEEK:-}"
+DOWNLOAD_DEEPSEEK_OCR2="${DOWNLOAD_DEEPSEEK_OCR2:-}"
 WEIGHTS_DIR="${WEIGHTS_DIR:-}"
+WEIGHTS_DIR_OCR2="${WEIGHTS_DIR_OCR2:-}"
 RUN_TESTS="${RUN_TESTS:-}"
 SMOKE_TEST="${SMOKE_TEST:-}"
 VENV_SETUP_REQUESTED=0
@@ -573,5 +596,6 @@ if [[ "${WANT_PIPELINE}" -eq 1 ]]; then
 		fi
 	fi
 
+	cd "${ROOT_DIR}"
 	exec glossapi pipeline
 fi

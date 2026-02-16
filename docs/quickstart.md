@@ -103,6 +103,27 @@ export GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH=/path/to/libjpeg-turbo/lib
 python -m glossapi.ocr.deepseek.preflight  # optional: validates env without running OCR
 ```
 
+### DeepSeek OCR v2 (MLX/MPS)
+
+DeepSeek OCR v2 uses Apple's MLX runtime and Metal/MPS on macOS. Equations are included inline in the OCR output, so Phase-2 math is not required and any math flags are ignored.
+
+```python
+from glossapi import Corpus
+c = Corpus('IN','OUT')
+c.ocr(backend='deepseek-ocr-2', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
+# → OCR only for bad files; math is included inline in the Markdown
+```
+
+To avoid stub output, set `GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0`.  The runner tries in-process MLX first (fastest), then CLI subprocess, then stub.  Model weights are auto-downloaded from HuggingFace if not present locally:
+
+```bash
+export GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0
+export GLOSSAPI_DEEPSEEK2_DEVICE=mps
+# Optional: point to local weights to skip the auto-download
+# export GLOSSAPI_DEEPSEEK2_MODEL_DIR=/path/to/DeepSeek-OCR-MLX
+python -m glossapi.ocr.deepseek_ocr2.preflight  # optional: validates env without running OCR
+```
+
 ### MinerU OCR
 
 MinerU (magic-pdf) can be used as an OCR backend; equations are included inline in the OCR output, so Phase‑2 math is not required and any math flags are ignored.

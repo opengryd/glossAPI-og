@@ -105,22 +105,18 @@ class Corpus(
         self.output_dir = Path(output_dir)
         self._metadata_parquet_path: Optional[Path] = None
         
-        # Package directory for default models
-        package_dir = Path(__file__).parent
-        
-        # Handle section classifier model path
+        # Models live under src/glossapi/models/, one level above corpus/
+        models_dir = Path(__file__).resolve().parent.parent / "models"
         if section_classifier_model_path:
             self.section_classifier_model_path = Path(section_classifier_model_path)
         else:
-            # Use default model path in the package
-            self.section_classifier_model_path = package_dir / "models" / "section_classifier.joblib"
+            self.section_classifier_model_path = models_dir / "section_classifier.joblib"
         
         # Handle extraction model path
         if extraction_model_path:
             self.extraction_model_path = Path(extraction_model_path)
         else:
-            # Use default model path in the package
-            self.extraction_model_path = package_dir / "models" / "kmeans_weights.joblib"
+            self.extraction_model_path = models_dir / "kmeans_weights.joblib"
             
         self.metadata_path = Path(metadata_path) if metadata_path else None
         if self.metadata_path is not None:

@@ -10,6 +10,7 @@ This document summarizes how GlossAPI uses the GPU for OCR and formula/code enri
 Backends
 - `backend='rapidocr'` (default): Docling + RapidOCR; Phase‑2 math runs from Docling JSON.
 - `backend='deepseek'`: DeepSeek‑OCR; equations are included inline in OCR output, so Phase‑2 math is not required and is treated as a no‑op.
+- `backend='deepseek-ocr-2'`: DeepSeek OCR v2 (MLX/MPS); equations are included inline in OCR output, so Phase-2 math is not required and is treated as a no-op.
 - `backend='mineru'`: MinerU (magic-pdf) OCR; equations are included inline in OCR output, so Phase‑2 math is not required and is treated as a no‑op.
 
 Policy: never OCR and math on the same file
@@ -19,6 +20,7 @@ Policy: never OCR and math on the same file
 ### Python API layout
 
 - DeepSeek entry point: `glossapi.ocr.deepseek.runner.run_for_files(...)`
+- DeepSeek OCR v2 entry point: `glossapi.ocr.deepseek_ocr2.runner.run_for_files(...)`
 - MinerU entry point: `glossapi.ocr.mineru.runner.run_for_files(...)`
 - RapidOCR dispatcher: `glossapi.ocr.rapidocr.dispatch.run_via_extract(...)`
 - Math enrichment: `glossapi.ocr.math.enrich.enrich_from_docling_json(...)`
@@ -28,6 +30,7 @@ Policy: never OCR and math on the same file
 
 - RapidOCR/Docling stack: `pip install '.[rapidocr]'`
 - DeepSeek CLI stack (in a dedicated venv recommended): `pip install '.[deepseek]'`
+- DeepSeek OCR v2 MLX stack (macOS): install `mlx` and the MLX model assets for your weights.
 - MinerU CLI: ensure `magic-pdf` is available on PATH (or set `GLOSSAPI_MINERU_COMMAND`).
 - macOS MinerU GPU: install `mineru[all]` in a Python 3.10–3.13 venv so Torch MPS is available.
 - ONNXRuntime GPU installed (no CPU ORT): `onnxruntime-gpu==1.18.1` (Linux/Windows)
@@ -96,8 +99,31 @@ Run OCR for files flagged by the cleaner as needing OCR (math flags are ignored 
 from glossapi import Corpus
 c = Corpus('IN','OUT')
 c.ocr(backend='deepseek', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
+# → runs OCR only for bad files; equations are included inline; Phase-2 is skipped
+```
+
+## DeepSeek OCR v2 (MLX/MPS) usage
+
+Run OCR for files flagged by the cleaner as needing OCR (math flags are ignored for DeepSeek OCR v2):
+
+```python
+from glossapi import Corpus
+c = Corpus('IN','OUT')
+c.ocr(backend='deepseek-ocr-2', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
 # → runs OCR only for bad files; equations are included inline; Phase‑2 is skipped
 ```
+
+The runner first tries **in-process MLX** (fast — model stays loaded across files),
+then falls back to **CLI subprocess**, then **stub**.  Minimal env setup:
+
+```bash
+export GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0
+export GLOSSAPI_DEEPSEEK2_DEVICE=mps
+# Optional: point to local weights (otherwise auto-downloaded from HuggingFace)
+# export GLOSSAPI_DEEPSEEK2_MODEL_DIR=/path/to/DeepSeek-OCR-MLX
+python -m glossapi.ocr.deepseek_ocr2.preflight
+```
+
 
 If you need Phase‑2 math on files that do not require OCR, use RapidOCR/Docling and math‑only (expects Docling JSON from Phase‑1):
 
