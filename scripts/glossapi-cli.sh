@@ -132,7 +132,7 @@ prompt_confirm() {
 	while true; do
 		tty_write "${label} [Y/n] (default ${default_char}): "
 		answer="$(tty_read)"
-		answer="${answer,,}"
+		answer="$(printf '%s' "${answer}" | tr '[:upper:]' '[:lower:]')"
 		if [[ -z "${answer}" ]]; then
 			[[ "${default}" == "1" ]] && echo "1" || echo "0"
 			return 0
@@ -191,7 +191,8 @@ select_existing_venv() {
 }
 
 normalize_action() {
-	local value="${1,,}"
+	local value
+	value="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
 	value="${value%% *}"
 	case "${value}" in
 		setup|s) echo "setup" ;;
