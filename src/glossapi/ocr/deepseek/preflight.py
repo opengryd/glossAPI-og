@@ -9,8 +9,9 @@ import sys
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
+from glossapi.ocr.utils.weights import resolve_weights_dir
+
 DEFAULT_SCRIPT = Path.cwd() / "deepseek-ocr" / "run_pdf_ocr_vllm.py"
-DEFAULT_MODEL_DIR = Path.cwd() / "deepseek-ocr" / "DeepSeek-OCR"
 DEFAULT_LIB_DIR = Path.cwd() / "deepseek-ocr" / "libjpeg-turbo" / "lib"
 
 
@@ -92,12 +93,26 @@ def check_deepseek_env(
     python_bin = Path(env.get("GLOSSAPI_DEEPSEEK_TEST_PYTHON") or sys.executable)
     _ensure_path(python_bin, "deepseek_python", errors)
 
-    model_dir = Path(
+    raw_model_dir = (
         env.get("GLOSSAPI_DEEPSEEK_TEST_MODEL_DIR")
         or env.get("GLOSSAPI_DEEPSEEK_MODEL_DIR")
-        or DEFAULT_MODEL_DIR
-    )
-    model_dir = _ensure_path(model_dir, "model_dir", errors)
+        or ""
+    ).strip()
+    if not raw_model_dir:
+        resolved = resolve_weights_dir("deepseek-ocr", require_config_json=False)
+        if resolved:
+            raw_model_dir = str(resolved)
+    if raw_model_dir:
+        model_dir = _ensure_path(Path(raw_model_dir), "model_dir", errors)
+    else:
+        model_dir = None
+        errors.append(
+            CheckResult(
+                "model_dir",
+                False,
+                "No GLOSSAPI_DEEPSEEK_MODEL_DIR or GLOSSAPI_WEIGHTS_ROOT configured.",
+            )
+        )
     if model_dir:
         has_weights = any(model_dir.glob("*.safetensors")) or (model_dir / "model-00001-of-000001.safetensors").exists()
         has_config = (model_dir / "config.json").exists()

@@ -296,6 +296,10 @@ def run_for_files(
         python_bin = Path(env_python)
     if model_dir is None and env_model_dir:
         model_dir = Path(env_model_dir)
+    # Fallback: check GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr-mlx/
+    if model_dir is None:
+        from glossapi.ocr.utils.weights import resolve_weights_dir
+        model_dir = resolve_weights_dir("deepseek-ocr-mlx")
 
     device_to_use = device or env_device or ("mps" if platform.system() == "Darwin" else "cpu")
 

@@ -168,14 +168,16 @@ def load_model_and_processor(model_path: Path) -> tuple:
 
 
 def resolve_model_dir(model_dir: Optional[str] = None) -> Path:
-    """Resolve the model directory: env var > explicit arg > HuggingFace download.
+    """Resolve the model directory: env var > explicit arg > weights root > HuggingFace download.
 
     Priority:
     1. ``GLOSSAPI_DEEPSEEK2_MODEL_DIR`` environment variable
     2. *model_dir* argument (local path or HuggingFace repo id)
-    3. Auto-download from ``mlx-community/DeepSeek-OCR-2-8bit``
+    3. ``GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr-mlx/`` if present on disk
+    4. Auto-download from ``mlx-community/DeepSeek-OCR-2-8bit``
     """
     from huggingface_hub import snapshot_download
+    from glossapi.ocr.utils.weights import resolve_weights_dir
 
     env_dir = (os.getenv("GLOSSAPI_DEEPSEEK2_MODEL_DIR") or "").strip()
     if env_dir:
@@ -188,6 +190,10 @@ def resolve_model_dir(model_dir: Optional[str] = None) -> Path:
             return path
         model_id = str(model_dir)
     else:
+        # Check GLOSSAPI_WEIGHTS_ROOT fallback
+        resolved = resolve_weights_dir("deepseek-ocr-mlx")
+        if resolved is not None:
+            return resolved
         model_id = DEFAULT_MODEL_ID
 
     print(f"Downloading model: {model_id}")

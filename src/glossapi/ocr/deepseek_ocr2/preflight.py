@@ -104,19 +104,24 @@ def check_deepseek_ocr2_env(
     python_bin = Path(env.get("GLOSSAPI_DEEPSEEK2_TEST_PYTHON") or sys.executable)
     _ensure_path(python_bin, "deepseek2_python", errors)
 
-    # Model dir: env var wins; otherwise preflight only warns (auto-download at runtime)
+    # Model dir: env var wins, then GLOSSAPI_WEIGHTS_ROOT, otherwise warn (auto-download at runtime)
     model_dir_env = env.get("GLOSSAPI_DEEPSEEK2_MODEL_DIR", "").strip()
     model_dir: Optional[Path] = None
     if model_dir_env:
         model_dir = _ensure_path(Path(model_dir_env), "model_dir", errors)
     else:
-        infos.append(
-            CheckResult(
-                "model_dir",
-                True,
-                "No GLOSSAPI_DEEPSEEK2_MODEL_DIR set; model will be auto-downloaded from HuggingFace at runtime.",
+        from glossapi.ocr.utils.weights import resolve_weights_dir
+        resolved = resolve_weights_dir("deepseek-ocr-mlx")
+        if resolved is not None:
+            model_dir = resolved
+        else:
+            infos.append(
+                CheckResult(
+                    "model_dir",
+                    True,
+                    "No model dir found via GLOSSAPI_DEEPSEEK2_MODEL_DIR or GLOSSAPI_WEIGHTS_ROOT; model will be auto-downloaded from HuggingFace at runtime.",
+                )
             )
-        )
     if model_dir:
         has_config = (model_dir / "config.json").exists()
         has_weights = _has_mlx_weights(model_dir)
