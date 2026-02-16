@@ -10,6 +10,7 @@ __all__ = [
     "json_io",
     "page",
     "triage",
+    "weights",
 ]
 
 
