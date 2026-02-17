@@ -339,7 +339,13 @@ run_setup_wizard_interactive() {
 	fi
 
 	if [[ "${selected_mode}" == "olmocr" ]]; then
-		gum_confirm "Download OlmOCR-2 weights now? (skip to auto-download at runtime)" 0 && download_olmocr=1 || download_olmocr=0
+		local olmocr_weight_label="OlmOCR-2 weights"
+		if [[ "$(uname -s)" != "Darwin" ]]; then
+			olmocr_weight_label="OlmOCR-2 CUDA (FP8) weights"
+		else
+			olmocr_weight_label="OlmOCR-2 MLX weights"
+		fi
+		gum_confirm "Download ${olmocr_weight_label} now? (skip to auto-download at runtime)" 0 && download_olmocr=1 || download_olmocr=0
 	fi
 
 	# Prompt for a shared weights root when any download is requested
@@ -616,6 +622,24 @@ if [[ "${WANT_PIPELINE}" -eq 1 ]]; then
 	if ! command -v glossapi >/dev/null 2>&1; then
 		echo "GlossAPI CLI not found. Run setup first." >&2
 		exit 1
+	fi
+
+	if [[ "${MODE}" == "deepseek" && -f "${ROOT_DIR}/dependency_setup/.env_deepseek" ]]; then
+		if ! bash -n "${ROOT_DIR}/dependency_setup/.env_deepseek" >/dev/null 2>&1; then
+			echo "[warn] DeepSeek env file has syntax errors; re-run setup to regenerate it." >&2
+		else
+			# shellcheck disable=SC1091
+			source "${ROOT_DIR}/dependency_setup/.env_deepseek"
+		fi
+	fi
+
+	if [[ "${MODE}" == "deepseek-ocr-2" && -f "${ROOT_DIR}/dependency_setup/.env_deepseek_ocr2" ]]; then
+		if ! bash -n "${ROOT_DIR}/dependency_setup/.env_deepseek_ocr2" >/dev/null 2>&1; then
+			echo "[warn] DeepSeek OCR v2 env file has syntax errors; re-run setup to regenerate it." >&2
+		else
+			# shellcheck disable=SC1091
+			source "${ROOT_DIR}/dependency_setup/.env_deepseek_ocr2"
+		fi
 	fi
 
 	if [[ "${MODE}" == "mineru" && -f "${ROOT_DIR}/dependency_setup/.env_mineru" ]]; then

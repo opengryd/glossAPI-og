@@ -403,6 +403,19 @@ def _run_vllm_cli(
     env = os.environ.copy()
     # Clamp OMP threads to prevent thread explosion with vLLM
     env.setdefault("OMP_NUM_THREADS", "1")
+    # FlashInfer JIT (via vLLM) needs a C++ toolchain; add a known
+    # cc1plus location if missing.
+    if shutil.which("cc1plus", path=env.get("PATH", "")) is None:
+        for candidate in sorted(
+            Path("/usr/lib/gcc/x86_64-linux-gnu").glob("*/cc1plus")
+        ):
+            env["PATH"] = f"{candidate.parent}:{env.get('PATH', '')}"
+            break
+    # Propagate CUDA runtime library path for subprocess venvs that can't
+    # find libcudart on their own (mirrors GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH).
+    ld_path = env.get("GLOSSAPI_OLMOCR_LD_LIBRARY_PATH", "").strip()
+    if ld_path:
+        env["LD_LIBRARY_PATH"] = f"{ld_path}:{env.get('LD_LIBRARY_PATH', '')}"
     LOGGER.info("Running OlmOCR vLLM CLI: %s", " ".join(cmd))
     subprocess.run(cmd, check=True, env=env)  # nosec: controlled arguments
 
@@ -490,8 +503,20 @@ def _run_cli(
         workers=workers,
         pages_per_group=pages_per_group,
     )
+    run_env = env if env is not None else os.environ.copy()
+    # FlashInfer JIT (via vLLM inside olmocr.pipeline) needs a C++ toolchain.
+    if shutil.which("cc1plus", path=run_env.get("PATH", "")) is None:
+        for candidate in sorted(
+            Path("/usr/lib/gcc/x86_64-linux-gnu").glob("*/cc1plus")
+        ):
+            run_env["PATH"] = f"{candidate.parent}:{run_env.get('PATH', '')}"
+            break
+    # Propagate CUDA runtime library path for subprocess venvs.
+    ld_path = run_env.get("GLOSSAPI_OLMOCR_LD_LIBRARY_PATH", "").strip()
+    if ld_path:
+        run_env["LD_LIBRARY_PATH"] = f"{ld_path}:{run_env.get('LD_LIBRARY_PATH', '')}"
     LOGGER.info("Running OlmOCR CLI: %s", " ".join(cmd))
-    subprocess.run(cmd, check=True, env=env or os.environ.copy())  # nosec: controlled arguments
+    subprocess.run(cmd, check=True, env=run_env)  # nosec: controlled arguments
 
 
 def _collect_cli_results(

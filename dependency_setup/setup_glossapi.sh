@@ -636,6 +636,40 @@ if [[ "${MODE}" == "deepseek-ocr-2" ]]; then
   fi
 fi
 
+# ── Helper: locate the CUDA runtime library directory ───────────────────
+# Tries CUDA_HOME, common system paths, and ldconfig in that order.
+_detect_cuda_lib_path() {
+  # 1. CUDA_HOME / CUDA_PATH
+  for root in "${CUDA_HOME:-}" "${CUDA_PATH:-}"; do
+    if [[ -n "${root}" ]]; then
+      for sub in lib64 lib; do
+        if [[ -f "${root}/${sub}/libcudart.so" || -f "${root}/${sub}/libcudart.so.12" ]]; then
+          echo "${root}/${sub}"
+          return 0
+        fi
+      done
+    fi
+  done
+  # 2. Well-known system paths
+  for candidate in /usr/local/cuda/lib64 /usr/local/cuda/lib \
+                   /usr/lib/x86_64-linux-gnu /usr/lib64; do
+    if [[ -f "${candidate}/libcudart.so" || -f "${candidate}/libcudart.so.12" ]]; then
+      echo "${candidate}"
+      return 0
+    fi
+  done
+  # 3. ldconfig
+  if command -v ldconfig >/dev/null 2>&1; then
+    local libpath
+    libpath="$(ldconfig -p 2>/dev/null | grep -m1 'libcudart\.so' | sed 's/.*=> //' | xargs -r dirname 2>/dev/null)"
+    if [[ -n "${libpath}" ]]; then
+      echo "${libpath}"
+      return 0
+    fi
+  fi
+  echo ""
+}
+
 if [[ "${MODE}" == "olmocr" ]]; then
   if [[ "$(uname -s)" == "Darwin" ]]; then
     info "Installing mlx-vlm without dependencies to avoid transformers conflicts"
@@ -644,33 +678,68 @@ if [[ "${MODE}" == "olmocr" ]]; then
     export GLOSSAPI_OLMOCR_ALLOW_CLI=1
     export GLOSSAPI_OLMOCR_DEVICE="mps"
   else
-    info "OlmOCR on Linux/CUDA: installing vLLM for in-process CUDA execution"
+    # ── Linux / CUDA setup ──────────────────────────────────────────────
+    # 1. Install CUDA-enabled PyTorch FIRST so that vLLM and olmocr[gpu]
+    #    pick up the GPU build rather than pulling in CPU-only torch.
+    info "OlmOCR on Linux/CUDA: installing CUDA-enabled PyTorch"
+    pip_run install torch torchvision \
+      --index-url https://download.pytorch.org/whl/cu124 \
+      || warn "CUDA PyTorch install failed; falling back to default torch (may be CPU-only)."
+
+    # 2. Install vLLM for the built-in in-process/CLI CUDA runner.
+    info "Installing vLLM for in-process CUDA execution"
     pip_run install "vllm>=0.6.0" || warn "vLLM install failed; in-process CUDA mode will be unavailable."
+
+    # 3. Install olmocr[gpu] as fallback pipeline runner.
     info "Installing olmocr[gpu] as fallback CLI runner"
     pip_run install "olmocr[gpu]" || warn "olmocr[gpu] install failed; OlmOCR CLI fallback will be unavailable."
+
+    # 4. Detect CUDA runtime library path for subprocess LD_LIBRARY_PATH.
+    OLMOCR_CUDA_LIB_PATH="$(_detect_cuda_lib_path)"
+    if [[ -n "${OLMOCR_CUDA_LIB_PATH}" ]]; then
+      info "Detected CUDA runtime libs at ${OLMOCR_CUDA_LIB_PATH}"
+      export GLOSSAPI_OLMOCR_LD_LIBRARY_PATH="${OLMOCR_CUDA_LIB_PATH}"
+    else
+      warn "Could not auto-detect CUDA library path. If you hit 'libcudart.so.12 not found' errors, set GLOSSAPI_OLMOCR_LD_LIBRARY_PATH manually."
+    fi
+
     export GLOSSAPI_OLMOCR_ALLOW_STUB=0
     export GLOSSAPI_OLMOCR_ALLOW_CLI=1
     export GLOSSAPI_OLMOCR_DEVICE="cuda"
   fi
 
+  # Weight downloads: macOS → MLX weights, Linux → CUDA weights.
+  # The --download-olmocr flag is platform-aware.
   if [[ "${DOWNLOAD_OLMOCR}" -eq 1 ]]; then
-    download_olmocr_weights "${OLMOCR_WEIGHTS_DIR}"
-    if [[ -d "${OLMOCR_WEIGHTS_DIR}" && -f "${OLMOCR_WEIGHTS_DIR}/config.json" ]]; then
-      export GLOSSAPI_OLMOCR_MLX_MODEL_DIR="${OLMOCR_WEIGHTS_DIR}"
-      info "OlmOCR MLX model dir set to ${GLOSSAPI_OLMOCR_MLX_MODEL_DIR}"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      download_olmocr_weights "${OLMOCR_WEIGHTS_DIR}"
+      if [[ -d "${OLMOCR_WEIGHTS_DIR}" && -f "${OLMOCR_WEIGHTS_DIR}/config.json" ]]; then
+        export GLOSSAPI_OLMOCR_MLX_MODEL_DIR="${OLMOCR_WEIGHTS_DIR}"
+        info "OlmOCR MLX model dir set to ${GLOSSAPI_OLMOCR_MLX_MODEL_DIR}"
+      fi
+    else
+      # On Linux, --download-olmocr fetches CUDA/FP8 weights.
+      download_olmocr_cuda_weights "${OLMOCR_CUDA_WEIGHTS_DIR}"
+      if [[ -d "${OLMOCR_CUDA_WEIGHTS_DIR}" && -f "${OLMOCR_CUDA_WEIGHTS_DIR}/config.json" ]]; then
+        export GLOSSAPI_OLMOCR_MODEL_DIR="${OLMOCR_CUDA_WEIGHTS_DIR}"
+        info "OlmOCR CUDA model dir set to ${GLOSSAPI_OLMOCR_MODEL_DIR}"
+      fi
     fi
   else
-    info "OlmOCR MLX weights not pre-downloaded; model will auto-download from HuggingFace at first run."
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      info "OlmOCR MLX weights not pre-downloaded; model will auto-download from HuggingFace at first run."
+    else
+      info "OlmOCR CUDA weights not pre-downloaded; model will auto-download from HuggingFace at first run."
+    fi
   fi
 
+  # Explicit --download-olmocr-cuda always downloads CUDA weights regardless of platform.
   if [[ "${DOWNLOAD_OLMOCR_CUDA}" -eq 1 ]]; then
     download_olmocr_cuda_weights "${OLMOCR_CUDA_WEIGHTS_DIR}"
     if [[ -d "${OLMOCR_CUDA_WEIGHTS_DIR}" && -f "${OLMOCR_CUDA_WEIGHTS_DIR}/config.json" ]]; then
       export GLOSSAPI_OLMOCR_MODEL_DIR="${OLMOCR_CUDA_WEIGHTS_DIR}"
       info "OlmOCR CUDA model dir set to ${GLOSSAPI_OLMOCR_MODEL_DIR}"
     fi
-  else
-    info "OlmOCR CUDA weights not pre-downloaded; model will auto-download from HuggingFace at first run."
   fi
 fi
 
@@ -837,7 +906,15 @@ export GLOSSAPI_OLMOCR_ALLOW_STUB=0
 export GLOSSAPI_OLMOCR_ALLOW_CLI=1
 export GLOSSAPI_OLMOCR_DEVICE="mps"
 EOF
+    if [[ -n "${GLOSSAPI_OLMOCR_MLX_MODEL_DIR:-}" ]]; then
+      echo "export GLOSSAPI_OLMOCR_MLX_MODEL_DIR=\"${GLOSSAPI_OLMOCR_MLX_MODEL_DIR}\"" >> "${ENV_FILE}"
+    fi
   else
+    # Build LD_LIBRARY_PATH export line only if we detected a path.
+    OLMOCR_LD_LINE=""
+    if [[ -n "${GLOSSAPI_OLMOCR_LD_LIBRARY_PATH:-}" ]]; then
+      OLMOCR_LD_LINE="  export GLOSSAPI_OLMOCR_LD_LIBRARY_PATH=\"${GLOSSAPI_OLMOCR_LD_LIBRARY_PATH}\""
+    fi
     cat <<EOF
 OlmOCR-2 (CUDA/vLLM) exports (add to your shell before running glossapi):
   export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
@@ -846,6 +923,9 @@ OlmOCR-2 (CUDA/vLLM) exports (add to your shell before running glossapi):
   export GLOSSAPI_OLMOCR_ALLOW_CLI=1
   export GLOSSAPI_OLMOCR_DEVICE="cuda"
 EOF
+    if [[ -n "${OLMOCR_LD_LINE}" ]]; then
+      echo "${OLMOCR_LD_LINE}"
+    fi
     ENV_FILE="${SCRIPT_DIR}/.env_olmocr"
     cat <<EOF > "${ENV_FILE}"
 export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
@@ -854,6 +934,12 @@ export GLOSSAPI_OLMOCR_ALLOW_STUB=0
 export GLOSSAPI_OLMOCR_ALLOW_CLI=1
 export GLOSSAPI_OLMOCR_DEVICE="cuda"
 EOF
+    if [[ -n "${GLOSSAPI_OLMOCR_LD_LIBRARY_PATH:-}" ]]; then
+      echo "export GLOSSAPI_OLMOCR_LD_LIBRARY_PATH=\"${GLOSSAPI_OLMOCR_LD_LIBRARY_PATH}\"" >> "${ENV_FILE}"
+    fi
+    if [[ -n "${GLOSSAPI_OLMOCR_MODEL_DIR:-}" ]]; then
+      echo "export GLOSSAPI_OLMOCR_MODEL_DIR=\"${GLOSSAPI_OLMOCR_MODEL_DIR}\"" >> "${ENV_FILE}"
+    fi
   fi
   info "Wrote OlmOCR env exports to ${ENV_FILE} (source it before running OCR)."
 fi

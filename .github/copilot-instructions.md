@@ -359,6 +359,7 @@ categories:
 | `GLOSSAPI_OLMOCR_WORKERS` | Number of OlmOCR pipeline workers (OlmOCR CLI only) |
 | `GLOSSAPI_OLMOCR_PAGES_PER_GROUP` | PDF pages per work item group (OlmOCR CLI only) |
 | `GLOSSAPI_OLMOCR_VLLM_SCRIPT` | Path to vLLM CLI inference script for subprocess execution |
+| `GLOSSAPI_OLMOCR_LD_LIBRARY_PATH` | Extra library paths prepended to `LD_LIBRARY_PATH` for CLI subprocesses (e.g. `/usr/local/cuda/lib64`) |
 | `GLOSSAPI_OLMOCR_MLX_MODEL` | HuggingFace MLX model identifier (default `mlx-community/olmOCR-2-7B-1025-4bit`) |
 | `GLOSSAPI_OLMOCR_MLX_MODEL_DIR` | Optional override for MLX model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/olmocr-mlx`) |
 | `GLOSSAPI_OLMOCR_MLX_SCRIPT` | Path to MLX inference script for subprocess execution |

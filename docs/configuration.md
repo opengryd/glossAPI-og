@@ -140,6 +140,7 @@ python -m glossapi.ocr.glm_ocr.preflight
 - `GLOSSAPI_OLMOCR_WORKERS`: number of OlmOCR pipeline workers (OlmOCR CLI only).
 - `GLOSSAPI_OLMOCR_PAGES_PER_GROUP`: number of PDF pages per work item group (OlmOCR CLI only).
 - `GLOSSAPI_OLMOCR_VLLM_SCRIPT`: path to the vLLM CLI inference script for subprocess execution (default: package-embedded `vllm_cli.py`).
+- `GLOSSAPI_OLMOCR_LD_LIBRARY_PATH`: extra library paths prepended to `LD_LIBRARY_PATH` for vLLM/OlmOCR CLI subprocesses (e.g. `/usr/local/cuda/lib64`). Fixes `libcudart.so.12 not found` errors when the CUDA runtime lives outside the default search path.
 
 #### MPS / MLX (macOS Apple Silicon)
 
