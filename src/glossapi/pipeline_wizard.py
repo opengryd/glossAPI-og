@@ -220,6 +220,82 @@ def _maybe_confirm(phase: str, *, confirm_each: bool) -> bool:
     return _gum_confirm(f"Run phase: {phase}?", default=True)
 
 
+# Maps CUDA-dependent backend names to the env var that configures their
+# separate Python binary (if any).  When the env var is set, the wizard
+# probes that binary for ``torch.cuda.is_available()`` before launching
+# the pipeline.
+_CUDA_BACKEND_PYTHON_ENV: dict = {
+    "olmocr": "GLOSSAPI_OLMOCR_PYTHON",
+    "deepseek-ocr": "GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON",
+    # MinerU uses magic-pdf CLI, not a Python binary — checked separately.
+}
+
+# Human-readable labels for each backend.
+_BACKEND_LABELS: dict = {
+    "olmocr": "OlmOCR",
+    "deepseek-ocr": "DeepSeek-OCR",
+    "mineru": "MinerU",
+}
+
+
+def _cuda_preflight(backend: str) -> None:
+    """Pre-flight check: verify CUDA is available for a CUDA-dependent backend.
+
+    Checks three things in order:
+
+    1. If the backend has a configured subprocess Python binary (via its env
+       var), probe it with ``torch.cuda.is_available()``.
+    2. If no separate binary is configured, check the *current* process for
+       CUDA availability (in case the user runs everything in one venv).
+    3. If CUDA is not available, print actionable diagnostics and exit.
+    """
+    from glossapi.ocr.utils.cuda import probe_cuda
+
+    label = _BACKEND_LABELS.get(backend, backend)
+    env_var = _CUDA_BACKEND_PYTHON_ENV.get(backend)
+    stub_env = f"GLOSSAPI_{backend.upper().replace('-', '_')}_ALLOW_STUB"
+
+    # Determine the Python binary to probe.
+    env_python = os.environ.get(env_var, "").strip() if env_var else ""
+    if env_python:
+        python_bin = Path(env_python)
+        if not python_bin.exists():
+            console.print(f"[red]{label} Python binary not found: {python_bin}[/red]")
+            console.print(f"Check {env_var} and verify the path exists.")
+            raise typer.Exit(code=1)
+    else:
+        # No separate venv; probe current interpreter as a sanity check.
+        python_bin = Path(sys.executable)
+
+    cuda_ok = probe_cuda(python_bin)
+    if cuda_ok is True:
+        return
+    if cuda_ok is None:
+        # Could not determine — don't block; let the runner handle it.
+        return
+
+    # CUDA is explicitly False.
+    console.print(f"[red]CUDA is not available in the {label} Python environment.[/red]")
+    console.print(f"[dim]Python binary: {python_bin}[/dim]")
+    console.print("")
+    console.print("[bold]Troubleshooting:[/bold]")
+    console.print(f"  1. Verify CUDA in the {label} venv:")
+    console.print(f"       {python_bin} -c \"import torch; print(torch.cuda.is_available())\"")
+    console.print("  2. Install CUDA-enabled PyTorch if it reports False:")
+    console.print("       pip install torch --index-url https://download.pytorch.org/whl/cu121")
+    console.print("  3. Ensure CUDA runtime libraries are findable:")
+    if env_var:
+        ld_env = env_var.replace("_PYTHON", "_LD_LIBRARY_PATH").replace(
+            "_TEST_PYTHON", "_LD_LIBRARY_PATH"
+        )
+        console.print(f"       export {ld_env}=/usr/local/cuda/lib64")
+    else:
+        console.print("       export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH")
+    console.print(f"  4. To use placeholder output instead:")
+    console.print(f"       export {stub_env}=1")
+    raise typer.Exit(code=1)
+
+
 def _run_jsonl_export(corpus: Corpus, output_dir: Path, input_dir: Path) -> Optional[Path]:
     default_path = output_dir / "export" / "corpus.jsonl"
     response = _gum_input("JSONL output path", str(default_path))
@@ -345,6 +421,11 @@ def _run_pipeline(
                         else:
                             console.print("[yellow]Switching to RapidOCR (set GLOSSAPI_MINERU_MISSING_DETECTRON2=stub to keep MinerU).[/yellow]")
                             ocr_kwargs["backend"] = "rapidocr"
+            # CUDA pre-flight for any backend that needs a GPU.
+            backend_name = ocr_kwargs.get("backend", "")
+            device_name = ocr_kwargs.get("device", "")
+            if device_name == "cuda" and backend_name in _CUDA_BACKEND_PYTHON_ENV:
+                _cuda_preflight(backend_name)
             corpus.ocr(**ocr_kwargs)
             return
         corpus.ocr()
@@ -541,6 +622,10 @@ def _run_wizard(
             if backend == "deepseek-ocr":
                 extract_kwargs["phase1_backend"] = "safe"
                 clean_kwargs["drop_bad"] = False
+                device = "cuda"
+                if accel_mode == "CPU":
+                    device = "cpu"
+                ocr_kwargs.update({"device": device})
             if backend == "deepseek-ocr-2":
                 extract_kwargs["phase1_backend"] = "safe"
                 clean_kwargs["drop_bad"] = False

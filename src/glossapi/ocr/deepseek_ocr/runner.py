@@ -182,6 +182,15 @@ def run_for_files(
             return results
         except Exception as exc:
             if not use_stub:
+                # Detect CUDA-specific failures and provide targeted diagnostics.
+                from glossapi.ocr.utils.cuda import is_cuda_setup_error, raise_cuda_diagnosis
+                if is_cuda_setup_error(exc):
+                    python_exe = Path(python_bin) if python_bin else Path(sys.executable)
+                    raise_cuda_diagnosis(
+                        "deepseek-ocr",
+                        [("DeepSeek vLLM CLI", exc)],
+                        python_exe,
+                    )
                 raise
             LOGGER.warning("DeepSeek CLI failed (%s); falling back to stub output", exc)
 

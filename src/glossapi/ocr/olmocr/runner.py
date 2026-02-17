@@ -272,6 +272,20 @@ def _cuda_available() -> bool:
         return False
 
 
+from glossapi.ocr.utils.cuda import (
+    is_cuda_setup_error as _is_cuda_setup_error,
+    raise_cuda_diagnosis as _raise_cuda_diagnosis_generic,
+)
+
+
+def _raise_cuda_diagnosis(
+    strategy_errors: List[Tuple[str, Exception]],
+    python_exe: Path,
+) -> None:
+    """Delegate to the shared CUDA diagnosis helper for OlmOCR."""
+    _raise_cuda_diagnosis_generic("olmocr", strategy_errors, python_exe)
+
+
 def _run_inproc_vllm(
     resolved_paths: List[Path],
     file_list: List[str],
@@ -758,6 +772,9 @@ def run_for_files(
             len(missing),
         )
 
+    # Accumulate strategy errors for diagnostics when all strategies fail.
+    _strategy_errors: List[Tuple[str, Exception]] = []
+
     # ----- Strategy 1: In-process MLX (macOS Apple Silicon) -----
     if (
         allow_inproc
@@ -777,6 +794,7 @@ def run_for_files(
                 content_debug=content_debug,
             )
         except Exception as exc:
+            _strategy_errors.append(("In-process MLX", exc))
             LOGGER.warning(
                 "OlmOCR in-process MLX execution failed (%s); trying next strategy",
                 exc,
@@ -827,6 +845,7 @@ def run_for_files(
                 results[stem] = {"page_count": page_count}
             return results
         except Exception as exc:
+            _strategy_errors.append(("MLX CLI", exc))
             if not use_cli and not use_stub and not allow_inproc_vllm and not allow_vllm_cli:
                 raise
             LOGGER.warning(
@@ -857,6 +876,7 @@ def run_for_files(
                 max_model_len=effective_max_model_len,
             )
         except Exception as exc:
+            _strategy_errors.append(("In-process vLLM", exc))
             LOGGER.warning(
                 "OlmOCR in-process vLLM execution failed (%s); trying next strategy",
                 exc,
@@ -914,6 +934,7 @@ def run_for_files(
                 results[stem] = {"page_count": page_count}
             return results
         except Exception as exc:
+            _strategy_errors.append(("vLLM CLI", exc))
             if not use_cli and not use_stub:
                 raise
             LOGGER.warning(
@@ -954,11 +975,19 @@ def run_for_files(
                     metrics_dir,
                 )
             except Exception as exc:
+                _strategy_errors.append(("OlmOCR CLI", exc))
                 if not use_stub:
+                    # Detect CUDA-specific failures and provide targeted diagnostics.
+                    if any(_is_cuda_setup_error(e) for _, e in _strategy_errors):
+                        _raise_cuda_diagnosis(_strategy_errors, python_exe)
                     raise
                 LOGGER.warning("OlmOCR CLI failed (%s); falling back to stub output", exc)
 
     elif not use_stub:
+        if _strategy_errors and any(
+            _is_cuda_setup_error(e) for _, e in _strategy_errors
+        ):
+            _raise_cuda_diagnosis(_strategy_errors, python_exe)
         raise RuntimeError(
             "OlmOCR: no execution strategy available "
             "(in-process MLX, MLX CLI, in-process vLLM, vLLM CLI, OlmOCR CLI, "
