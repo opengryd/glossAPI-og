@@ -10,11 +10,13 @@ VENV_PATH="${GLOSSAPI_VENV:-}"
 DOWNLOAD_DEEPSEEK=0
 DOWNLOAD_DEEPSEEK_OCR2=0
 DOWNLOAD_OLMOCR=0
+DOWNLOAD_OLMOCR_CUDA=0
 DOWNLOAD_GLMOCR=0
 GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT:-${REPO_ROOT}/model_weights}"
 DEEPSEEK_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/deepseek-ocr"
 DEEPSEEK2_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/deepseek-ocr-mlx"
 OLMOCR_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/olmocr-mlx"
+OLMOCR_CUDA_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/olmocr"
 GLMOCR_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/glm-ocr-mlx"
 MINERU_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/mineru"
 MINERU_COMMAND="${GLOSSAPI_MINERU_COMMAND:-}"
@@ -35,7 +37,8 @@ Options:
   --download-deepseek    Fetch DeepSeek-OCR weights (only meaningful for --mode deepseek)
   --download-deepseek-ocr2
                          Fetch DeepSeek OCR v2 weights (only meaningful for --mode deepseek-ocr-2)
-  --download-olmocr      Fetch OlmOCR-2 MLX weights (only meaningful for --mode olmocr)
+  --download-olmocr      Fetch OlmOCR-2 MLX weights (only meaningful for --mode olmocr on macOS)
+  --download-olmocr-cuda Fetch OlmOCR-2 CUDA/FP8 weights (only meaningful for --mode olmocr on Linux)
   --download-glmocr      Fetch GLM-OCR MLX weights (only meaningful for --mode glm-ocr)
   --download-mineru-models
                          Download MinerU model bundle
@@ -81,11 +84,15 @@ while (( "$#" )); do
       DEEPSEEK_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/deepseek-ocr"
       DEEPSEEK2_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/deepseek-ocr-mlx"
       OLMOCR_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/olmocr-mlx"
+      OLMOCR_CUDA_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/olmocr"
       GLMOCR_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/glm-ocr-mlx"
       MINERU_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/mineru"
       ;;
     --download-olmocr)
       DOWNLOAD_OLMOCR=1
+      ;;
+    --download-olmocr-cuda)
+      DOWNLOAD_OLMOCR_CUDA=1
       ;;
     --download-glmocr)
       DOWNLOAD_GLMOCR=1
@@ -518,6 +525,10 @@ download_olmocr_weights() {
   download_hf_model "OlmOCR-2 MLX" "mlx-community/olmOCR-2-7B-1025-4bit" "$1" "--download-olmocr"
 }
 
+download_olmocr_cuda_weights() {
+  download_hf_model "OlmOCR-2 CUDA (FP8)" "allenai/olmOCR-2-7B-1025-FP8" "$1" "--download-olmocr-cuda"
+}
+
 download_glmocr_weights() {
   download_hf_model "GLM-OCR MLX" "mlx-community/GLM-OCR-4bit" "$1" "--download-glmocr"
 }
@@ -633,8 +644,10 @@ if [[ "${MODE}" == "olmocr" ]]; then
     export GLOSSAPI_OLMOCR_ALLOW_CLI=1
     export GLOSSAPI_OLMOCR_DEVICE="mps"
   else
-    info "OlmOCR on Linux/CUDA: install olmocr[gpu] in the venv for real OCR"
-    pip_run install "olmocr[gpu]" || warn "olmocr[gpu] install failed; set GLOSSAPI_OLMOCR_ALLOW_CLI=1 with a separate OlmOCR venv."
+    info "OlmOCR on Linux/CUDA: installing vLLM for in-process CUDA execution"
+    pip_run install "vllm>=0.6.0" || warn "vLLM install failed; in-process CUDA mode will be unavailable."
+    info "Installing olmocr[gpu] as fallback CLI runner"
+    pip_run install "olmocr[gpu]" || warn "olmocr[gpu] install failed; OlmOCR CLI fallback will be unavailable."
     export GLOSSAPI_OLMOCR_ALLOW_STUB=0
     export GLOSSAPI_OLMOCR_ALLOW_CLI=1
     export GLOSSAPI_OLMOCR_DEVICE="cuda"
@@ -647,7 +660,17 @@ if [[ "${MODE}" == "olmocr" ]]; then
       info "OlmOCR MLX model dir set to ${GLOSSAPI_OLMOCR_MLX_MODEL_DIR}"
     fi
   else
-    info "OlmOCR weights not pre-downloaded; model will auto-download from HuggingFace at first run."
+    info "OlmOCR MLX weights not pre-downloaded; model will auto-download from HuggingFace at first run."
+  fi
+
+  if [[ "${DOWNLOAD_OLMOCR_CUDA}" -eq 1 ]]; then
+    download_olmocr_cuda_weights "${OLMOCR_CUDA_WEIGHTS_DIR}"
+    if [[ -d "${OLMOCR_CUDA_WEIGHTS_DIR}" && -f "${OLMOCR_CUDA_WEIGHTS_DIR}/config.json" ]]; then
+      export GLOSSAPI_OLMOCR_MODEL_DIR="${OLMOCR_CUDA_WEIGHTS_DIR}"
+      info "OlmOCR CUDA model dir set to ${GLOSSAPI_OLMOCR_MODEL_DIR}"
+    fi
+  else
+    info "OlmOCR CUDA weights not pre-downloaded; model will auto-download from HuggingFace at first run."
   fi
 fi
 

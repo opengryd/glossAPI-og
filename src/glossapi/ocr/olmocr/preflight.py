@@ -138,6 +138,61 @@ def check_olmocr_env(
         except Exception as exc:
             errors.append(CheckResult("cuda", False, f"torch import / CUDA check failed: {exc}"))
 
+    # --- vLLM (CUDA in-process path) ---
+    if not is_macos:
+        try:
+            import vllm  # type: ignore
+
+            vllm_version = getattr(vllm, "__version__", "unknown")
+            infos.append(
+                CheckResult("vllm", True, f"vllm {vllm_version} import ok")
+            )
+        except Exception as exc:
+            warnings.append(
+                CheckResult(
+                    "vllm",
+                    False,
+                    f"vllm not available — in-process CUDA execution disabled: {exc}",
+                )
+            )
+
+    # --- CUDA model weights ---
+    cuda_model_dir = env.get("GLOSSAPI_OLMOCR_MODEL_DIR", "").strip()
+    if not cuda_model_dir:
+        from glossapi.ocr.utils.weights import resolve_weights_dir as _resolve_cuda_wdir
+        resolved_cuda = _resolve_cuda_wdir("olmocr", require_config_json=False)
+        if resolved_cuda is not None:
+            cuda_model_dir = str(resolved_cuda)
+    if cuda_model_dir:
+        cuda_md = Path(cuda_model_dir)
+        if not cuda_md.exists():
+            warnings.append(
+                CheckResult(
+                    "cuda_model_dir",
+                    False,
+                    f"CUDA model dir does not exist: {cuda_md}",
+                )
+            )
+        else:
+            has_config = (cuda_md / "config.json").exists()
+            has_weights = any(cuda_md.glob("*.safetensors"))
+            if not has_weights or not has_config:
+                warnings.append(
+                    CheckResult(
+                        "cuda_model_contents",
+                        False,
+                        f"CUDA model dir {cuda_md} is missing weights and/or config.json",
+                    )
+                )
+            else:
+                infos.append(
+                    CheckResult(
+                        "cuda_model_dir",
+                        True,
+                        f"Local CUDA model dir: {cuda_md}",
+                    )
+                )
+
     # --- MLX / MPS (macOS Apple Silicon) ---
     is_macos = platform.system() == "Darwin"
     if is_macos:

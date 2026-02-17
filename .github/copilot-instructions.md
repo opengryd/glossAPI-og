@@ -282,7 +282,7 @@ categories:
 
 | Variable | Purpose |
 |---|---|
-| `GLOSSAPI_WEIGHTS_ROOT` | Root directory for all model weights (default: `<repo>/model_weights/`). Per-backend subdirectories are derived automatically (`deepseek-ocr/`, `deepseek-ocr-mlx/`, `glm-ocr-mlx/`, `olmocr-mlx/`, `mineru/`). |
+| `GLOSSAPI_WEIGHTS_ROOT` | Root directory for all model weights (default: `<repo>/model_weights/`). Per-backend subdirectories are derived automatically (`deepseek-ocr/`, `deepseek-ocr-mlx/`, `glm-ocr-mlx/`, `olmocr/`, `olmocr-mlx/`, `mineru/`). |
 
 ### OCR Control
 
@@ -345,19 +345,20 @@ categories:
 
 | Variable | Purpose |
 |---|---|
-| `GLOSSAPI_OLMOCR_ALLOW_CLI` | Enable real OlmOCR pipeline |
+| `GLOSSAPI_OLMOCR_ALLOW_CLI` | Enable real OlmOCR pipeline (external `olmocr` package) |
 | `GLOSSAPI_OLMOCR_ALLOW_STUB` | Allow stub fallback |
 | `GLOSSAPI_OLMOCR_PYTHON` | Python binary for OlmOCR venv |
 | `GLOSSAPI_OLMOCR_MODEL` | HuggingFace model identifier (default `allenai/olmOCR-2-7B-1025-FP8`) |
-| `GLOSSAPI_OLMOCR_MODEL_DIR` | Optional override for model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/olmocr`) |
+| `GLOSSAPI_OLMOCR_MODEL_DIR` | Optional override for CUDA model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/olmocr`) |
 | `GLOSSAPI_OLMOCR_SERVER` | URL of external vLLM server |
 | `GLOSSAPI_OLMOCR_API_KEY` | API key for external vLLM server |
-| `GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION` | VRAM fraction for vLLM KV-cache |
-| `GLOSSAPI_OLMOCR_MAX_MODEL_LEN` | Upper bound (tokens) for KV-cache allocation |
-| `GLOSSAPI_OLMOCR_TENSOR_PARALLEL_SIZE` | Tensor parallel size for vLLM |
-| `GLOSSAPI_OLMOCR_TARGET_IMAGE_DIM` | Longest-side dimension for PDF page rendering |
-| `GLOSSAPI_OLMOCR_WORKERS` | Number of OlmOCR pipeline workers |
-| `GLOSSAPI_OLMOCR_PAGES_PER_GROUP` | PDF pages per work item group |
+| `GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION` | VRAM fraction for vLLM KV-cache (default `0.85`) |
+| `GLOSSAPI_OLMOCR_MAX_MODEL_LEN` | Upper bound (tokens) for KV-cache allocation (default `8192`) |
+| `GLOSSAPI_OLMOCR_TENSOR_PARALLEL_SIZE` | Tensor parallel size for vLLM (default `1`) |
+| `GLOSSAPI_OLMOCR_TARGET_IMAGE_DIM` | Longest-side dimension for PDF page rendering (OlmOCR CLI only) |
+| `GLOSSAPI_OLMOCR_WORKERS` | Number of OlmOCR pipeline workers (OlmOCR CLI only) |
+| `GLOSSAPI_OLMOCR_PAGES_PER_GROUP` | PDF pages per work item group (OlmOCR CLI only) |
+| `GLOSSAPI_OLMOCR_VLLM_SCRIPT` | Path to vLLM CLI inference script for subprocess execution |
 | `GLOSSAPI_OLMOCR_MLX_MODEL` | HuggingFace MLX model identifier (default `mlx-community/olmOCR-2-7B-1025-4bit`) |
 | `GLOSSAPI_OLMOCR_MLX_MODEL_DIR` | Optional override for MLX model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/olmocr-mlx`) |
 | `GLOSSAPI_OLMOCR_MLX_SCRIPT` | Path to MLX inference script for subprocess execution |

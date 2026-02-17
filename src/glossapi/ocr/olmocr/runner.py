@@ -1,4 +1,4 @@
-"""OlmOCR-2 runner with in-process MLX, CLI dispatch, and stub fallback.
+"""OlmOCR-2 runner with in-process MLX/vLLM, CLI dispatch, and stub fallback.
 
 OlmOCR-2 (https://github.com/allenai/olmocr) is a VLM-based OCR toolkit that
 converts PDFs into clean Markdown.  It uses a fine-tuned Qwen2.5-VL model and
@@ -17,12 +17,23 @@ The runner tries the following strategies in order:
    script via ``GLOSSAPI_OLMOCR_MLX_SCRIPT``).  Useful when the main venv lacks
    ``mlx-vlm`` but a separate venv does.
 
-3. **OlmOCR CLI subprocess** (``allow_cli=True``):
+3. **In-process vLLM** (``allow_inproc_vllm=True``, default on Linux when
+   ``vllm`` is importable and CUDA is available):
+   Load the model once via :pymod:`glossapi.ocr.olmocr.vllm_cli` and process
+   every PDF without spawning a subprocess.  This is the fast path on CUDA —
+   the model stays loaded in GPU memory across files.
+
+4. **vLLM CLI subprocess** (``allow_vllm_cli=True``):
+   Shell out to ``python -m glossapi.ocr.olmocr.vllm_cli`` (or a user-specified
+   script via ``GLOSSAPI_OLMOCR_VLLM_SCRIPT``).  Useful when the main venv
+   lacks ``vllm`` but a separate venv does.
+
+5. **OlmOCR CLI subprocess** (``allow_cli=True``):
    Shell out to ``python -m olmocr.pipeline <workspace> --markdown --pdfs ...``.
    The OlmOCR pipeline manages its own vLLM instance, renders PDF pages via
    poppler, and writes Markdown output.  Requires CUDA GPU.
 
-4. **Stub** (``allow_stub=True``):
+6. **Stub** (``allow_stub=True``):
    Emit placeholder markdown + metrics.  Useful for dry-runs and testing.
 
 OlmOCR inlines equations — Phase-2 math enrichment is not required.
@@ -49,8 +60,9 @@ LOGGER = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "allenai/olmOCR-2-7B-1025-FP8"
 
-# Resolve the embedded MLX CLI script shipped with the package.
+# Resolve the embedded CLI scripts shipped with the package.
 _PACKAGE_MLX_CLI_SCRIPT = Path(__file__).resolve().parent / "mlx_cli.py"
+_PACKAGE_VLLM_CLI_SCRIPT = Path(__file__).resolve().parent / "vllm_cli.py"
 
 
 def _page_count(pdf_path: Path) -> int:
@@ -238,7 +250,165 @@ def _run_mlx_cli(
 
 
 # ---------------------------------------------------------------------------
-# Strategy 3: OlmOCR CLI helpers (CUDA / vLLM)
+# Strategy 3: In-process vLLM execution (CUDA)
+# ---------------------------------------------------------------------------
+
+
+def _can_import_vllm() -> bool:
+    """Return True if vllm is importable in the current process."""
+    try:
+        import vllm  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _cuda_available() -> bool:
+    """Return True if CUDA is available via torch."""
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except Exception:
+        return False
+
+
+def _run_inproc_vllm(
+    resolved_paths: List[Path],
+    file_list: List[str],
+    out_root: Path,
+    md_dir: Path,
+    metrics_dir: Path,
+    *,
+    model_dir: Optional[Path],
+    model: Optional[str],
+    max_pages: Optional[int],
+    content_debug: bool,
+    gpu_memory_utilization: Optional[float],
+    tensor_parallel_size: Optional[int],
+    max_model_len: Optional[int],
+) -> Dict[str, Any]:
+    """Process PDFs in-process using vLLM on CUDA."""
+    from . import vllm_cli
+
+    model_path = vllm_cli.resolve_model_dir(
+        str(model_dir) if model_dir else (model or None)
+    )
+    LOGGER.info("Loading OlmOCR-2 vLLM model from %s", model_path)
+    llm = vllm_cli.load_model(
+        model_path,
+        gpu_memory_utilization=(
+            gpu_memory_utilization
+            or vllm_cli.DEFAULT_GPU_MEMORY_UTILIZATION
+        ),
+        tensor_parallel_size=(
+            tensor_parallel_size
+            or vllm_cli.DEFAULT_TENSOR_PARALLEL_SIZE
+        ),
+        max_model_len=(
+            max_model_len
+            or vllm_cli.DEFAULT_MAX_MODEL_LEN
+        ),
+    )
+
+    results: Dict[str, Any] = {}
+    total_files = len(file_list)
+    for file_idx, (name, pdf_path) in enumerate(zip(file_list, resolved_paths), 1):
+        stem = Path(name).stem
+        if not pdf_path.exists():
+            LOGGER.warning("OlmOCR vLLM: PDF not found: %s", pdf_path)
+            results[stem] = {"page_count": 0}
+            continue
+        LOGGER.info(
+            "OlmOCR vLLM: processing file %d/%d — %s",
+            file_idx, total_files, pdf_path.name,
+        )
+        try:
+            page_count = vllm_cli.process_pdf(
+                pdf_path,
+                out_root,
+                llm,
+                max_pages=max_pages,
+                content_debug=content_debug,
+            )
+            results[stem] = {"page_count": page_count}
+        except Exception as exc:
+            LOGGER.error(
+                "OlmOCR vLLM in-process failed for %s: %s", pdf_path.name, exc,
+            )
+            raise
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Strategy 4: vLLM CLI subprocess (CUDA, separate venv)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_vllm_cli_script() -> Path:
+    """Return the path to the vLLM CLI script to invoke as a subprocess.
+
+    Priority: ``GLOSSAPI_OLMOCR_VLLM_SCRIPT`` env var > package-embedded script.
+    """
+    env_script = os.environ.get("GLOSSAPI_OLMOCR_VLLM_SCRIPT", "").strip()
+    if env_script:
+        p = Path(env_script)
+        if p.exists():
+            return p
+        LOGGER.warning(
+            "GLOSSAPI_OLMOCR_VLLM_SCRIPT=%s does not exist; using package script",
+            env_script,
+        )
+    return _PACKAGE_VLLM_CLI_SCRIPT
+
+
+def _run_vllm_cli(
+    input_dir: Path,
+    output_dir: Path,
+    *,
+    python_bin: Optional[Path],
+    script: Path,
+    model_dir: Optional[Path],
+    model: Optional[str],
+    max_pages: Optional[int],
+    content_debug: bool,
+    gpu_memory_utilization: Optional[float],
+    tensor_parallel_size: Optional[int],
+    max_model_len: Optional[int],
+) -> None:
+    """Invoke the OlmOCR vLLM CLI as a subprocess."""
+    python_exe = Path(python_bin) if python_bin else Path(sys.executable)
+    cmd: List[str] = [
+        str(python_exe),
+        str(script),
+        "--input-dir",
+        str(input_dir),
+        "--output-dir",
+        str(output_dir),
+    ]
+    if model_dir is not None:
+        cmd += ["--model-dir", str(model_dir)]
+    elif model:
+        cmd += ["--model-dir", str(model)]
+    if max_pages is not None:
+        cmd += ["--max-pages", str(max_pages)]
+    if content_debug:
+        cmd.append("--content-debug")
+    if gpu_memory_utilization is not None:
+        cmd += ["--gpu-memory-utilization", str(gpu_memory_utilization)]
+    if tensor_parallel_size is not None:
+        cmd += ["--tensor-parallel-size", str(tensor_parallel_size)]
+    if max_model_len is not None:
+        cmd += ["--max-model-len", str(max_model_len)]
+
+    env = os.environ.copy()
+    # Clamp OMP threads to prevent thread explosion with vLLM
+    env.setdefault("OMP_NUM_THREADS", "1")
+    LOGGER.info("Running OlmOCR vLLM CLI: %s", " ".join(cmd))
+    subprocess.run(cmd, check=True, env=env)  # nosec: controlled arguments
+
+
+# ---------------------------------------------------------------------------
+# Strategy 5: OlmOCR CLI helpers (CUDA / vLLM — external olmocr package)
 # ---------------------------------------------------------------------------
 
 
@@ -419,6 +589,7 @@ def run_for_files(
     allow_mlx_cli: bool = True,
     python_bin: Optional["Path"] = None,
     mlx_script: Optional["Path"] = None,
+    vllm_script: Optional["Path"] = None,
     content_debug: bool = False,
     persist_engine: bool = True,  # placeholder for future session reuse
     precision: Optional[str] = None,  # reserved
@@ -431,6 +602,8 @@ def run_for_files(
     target_longest_image_dim: Optional[int] = None,
     workers: Optional[int] = None,
     pages_per_group: Optional[int] = None,
+    allow_inproc_vllm: bool = True,
+    allow_vllm_cli: bool = True,
     **_: Any,
 ) -> Dict[str, Any]:
     """Run OlmOCR-2 OCR for the provided files.
@@ -439,8 +612,10 @@ def run_for_files(
 
     1. In-process MLX if ``allow_inproc`` and ``mlx_vlm`` is importable (macOS).
     2. MLX CLI subprocess if ``allow_mlx_cli`` and the script exists (macOS).
-    3. OlmOCR CLI subprocess if ``allow_cli`` (or ``GLOSSAPI_OLMOCR_ALLOW_CLI=1``).
-    4. Stub output if ``allow_stub`` (and ``GLOSSAPI_OLMOCR_ALLOW_STUB=1``).
+    3. In-process vLLM if ``allow_inproc_vllm`` and ``vllm`` is importable (CUDA).
+    4. vLLM CLI subprocess if ``allow_vllm_cli`` and the script exists (CUDA).
+    5. OlmOCR CLI subprocess if ``allow_cli`` (or ``GLOSSAPI_OLMOCR_ALLOW_CLI=1``).
+    6. Stub output if ``allow_stub`` (and ``GLOSSAPI_OLMOCR_ALLOW_STUB=1``).
 
     Returns a mapping of ``stem -> {"page_count": int}``.
     """
@@ -581,7 +756,7 @@ def run_for_files(
                 "OlmOCR in-process MLX execution failed (%s); trying next strategy",
                 exc,
             )
-            if not allow_mlx_cli and not use_cli and not use_stub:
+            if not allow_mlx_cli and not allow_inproc_vllm and not allow_vllm_cli and not use_cli and not use_stub:
                 raise
 
     # ----- Strategy 2: MLX CLI subprocess (macOS, separate venv) -----
@@ -627,13 +802,100 @@ def run_for_files(
                 results[stem] = {"page_count": page_count}
             return results
         except Exception as exc:
-            if not use_cli and not use_stub:
+            if not use_cli and not use_stub and not allow_inproc_vllm and not allow_vllm_cli:
                 raise
             LOGGER.warning(
                 "OlmOCR MLX CLI failed (%s); trying next strategy", exc,
             )
 
-    # ----- Strategy 3: OlmOCR CLI subprocess (CUDA / vLLM) -----
+    # ----- Strategy 3: In-process vLLM (CUDA) -----
+    if (
+        allow_inproc_vllm
+        and platform.system() != "Darwin"
+        and _can_import_vllm()
+        and _cuda_available()
+    ):
+        try:
+            LOGGER.info("OlmOCR: using in-process vLLM execution (CUDA)")
+            return _run_inproc_vllm(
+                resolved_paths,
+                file_list,
+                out_root,
+                md_dir,
+                metrics_dir,
+                model_dir=model_dir,
+                model=effective_model,
+                max_pages=max_pages,
+                content_debug=content_debug,
+                gpu_memory_utilization=effective_gpu_mem,
+                tensor_parallel_size=effective_tp,
+                max_model_len=effective_max_model_len,
+            )
+        except Exception as exc:
+            LOGGER.warning(
+                "OlmOCR in-process vLLM execution failed (%s); trying next strategy",
+                exc,
+            )
+            if not allow_vllm_cli and not use_cli and not use_stub:
+                raise
+
+    # ----- Strategy 4: vLLM CLI subprocess (CUDA, separate venv) -----
+    vllm_script_path = (
+        _resolve_vllm_cli_script() if vllm_script is None else Path(vllm_script)
+    )
+    if (
+        allow_vllm_cli
+        and platform.system() != "Darwin"
+        and vllm_script_path.exists()
+    ):
+        cli_input_root = _pick_cli_input_root(
+            file_list, resolved_paths, candidate_roots
+        )
+        try:
+            _run_vllm_cli(
+                cli_input_root,
+                out_root,
+                python_bin=python_bin,
+                script=vllm_script_path,
+                model_dir=model_dir,
+                model=effective_model,
+                max_pages=max_pages,
+                content_debug=content_debug,
+                gpu_memory_utilization=effective_gpu_mem,
+                tensor_parallel_size=effective_tp,
+                max_model_len=effective_max_model_len,
+            )
+            # Collect results from vLLM CLI output
+            results: Dict[str, Any] = {}
+            for name, pdf_path in zip(file_list, resolved_paths):
+                stem = Path(name).stem
+                md_path = md_dir / f"{stem}.md"
+                metrics_path = metrics_dir / f"{stem}.metrics.json"
+                if not md_path.exists() or not md_path.read_text(encoding="utf-8").strip():
+                    placeholder = [
+                        f"# OlmOCR-2 — {pdf_path.name}",
+                        "",
+                        "[[Blank page]]",
+                    ]
+                    md_path.parent.mkdir(parents=True, exist_ok=True)
+                    md_path.write_text("\n".join(placeholder) + "\n", encoding="utf-8")
+                page_count = _page_count(pdf_path)
+                if not metrics_path.exists():
+                    metrics_path.parent.mkdir(parents=True, exist_ok=True)
+                    metrics_path.write_text(
+                        json.dumps({"page_count": page_count}, indent=2),
+                        encoding="utf-8",
+                    )
+                results[stem] = {"page_count": page_count}
+            return results
+        except Exception as exc:
+            if not use_cli and not use_stub:
+                raise
+            LOGGER.warning(
+                "OlmOCR vLLM CLI failed (%s); trying next strategy", exc,
+            )
+
+    # ----- Strategy 5: OlmOCR CLI subprocess (CUDA / vLLM) -----
     if use_cli:
         # OlmOCR uses its own workspace directory with a specific layout
         olmocr_workspace = out_root / "olmocr_workspace"
@@ -674,10 +936,11 @@ def run_for_files(
     elif not use_stub:
         raise RuntimeError(
             "OlmOCR: no execution strategy available "
-            "(in-process, MLX CLI, OlmOCR CLI, and stub are all disabled or failed)"
+            "(in-process MLX, MLX CLI, in-process vLLM, vLLM CLI, OlmOCR CLI, "
+            "and stub are all disabled or failed)"
         )
 
-    # ----- Strategy 4: Stub -----
+    # ----- Strategy 6: Stub -----
     results: Dict[str, Any] = {}
     for name, pdf_path in zip(file_list, resolved_paths):
         stem = Path(name).stem

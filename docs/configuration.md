@@ -127,18 +127,19 @@ python -m glossapi.ocr.glm_ocr.preflight
 #### CUDA / vLLM
 
 - `GLOSSAPI_OLMOCR_ALLOW_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
-- `GLOSSAPI_OLMOCR_ALLOW_CLI` (`0` by default): flip to `1` to run the real OlmOCR pipeline.
+- `GLOSSAPI_OLMOCR_ALLOW_CLI` (`0` by default): flip to `1` to run the real OlmOCR pipeline (external `olmocr` package).
 - `GLOSSAPI_OLMOCR_PYTHON`: Python executable for the OlmOCR venv.
 - `GLOSSAPI_OLMOCR_MODEL`: HuggingFace model identifier (default `allenai/olmOCR-2-7B-1025-FP8`).
-- `GLOSSAPI_OLMOCR_MODEL_DIR`: local model weights directory (takes precedence over HF model ID).
+- `GLOSSAPI_OLMOCR_MODEL_DIR`: local CUDA model weights directory (takes precedence over HF model ID).
 - `GLOSSAPI_OLMOCR_SERVER`: URL of an external vLLM server (skips spawning a local vLLM instance).
 - `GLOSSAPI_OLMOCR_API_KEY`: API key for external vLLM server.
-- `GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION`: fraction of VRAM vLLM may pre-allocate for KV-cache.
-- `GLOSSAPI_OLMOCR_MAX_MODEL_LEN`: upper bound (tokens) vLLM will allocate KV-cache for.
-- `GLOSSAPI_OLMOCR_TENSOR_PARALLEL_SIZE`: tensor parallel size for vLLM.
-- `GLOSSAPI_OLMOCR_TARGET_IMAGE_DIM`: dimension on longest side used for rendering PDF pages.
-- `GLOSSAPI_OLMOCR_WORKERS`: number of OlmOCR pipeline workers.
-- `GLOSSAPI_OLMOCR_PAGES_PER_GROUP`: number of PDF pages per work item group.
+- `GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION`: fraction of VRAM vLLM may pre-allocate for KV-cache (default `0.85`).
+- `GLOSSAPI_OLMOCR_MAX_MODEL_LEN`: upper bound (tokens) vLLM will allocate KV-cache for (default `8192`).
+- `GLOSSAPI_OLMOCR_TENSOR_PARALLEL_SIZE`: tensor parallel size for vLLM (default `1`).
+- `GLOSSAPI_OLMOCR_TARGET_IMAGE_DIM`: dimension on longest side used for rendering PDF pages (OlmOCR CLI only).
+- `GLOSSAPI_OLMOCR_WORKERS`: number of OlmOCR pipeline workers (OlmOCR CLI only).
+- `GLOSSAPI_OLMOCR_PAGES_PER_GROUP`: number of PDF pages per work item group (OlmOCR CLI only).
+- `GLOSSAPI_OLMOCR_VLLM_SCRIPT`: path to the vLLM CLI inference script for subprocess execution (default: package-embedded `vllm_cli.py`).
 
 #### MPS / MLX (macOS Apple Silicon)
 
@@ -147,8 +148,18 @@ python -m glossapi.ocr.glm_ocr.preflight
 - `GLOSSAPI_OLMOCR_MLX_SCRIPT`: path to the MLX CLI inference script for subprocess execution.
 - `GLOSSAPI_OLMOCR_DEVICE`: device override (`cuda`, `mps`, `cpu`); auto-detected if unset.
 
-On macOS, the runner tries in-process MLX first (if `mlx_vlm` is importable), then
-the MLX CLI subprocess, then the OlmOCR CUDA CLI, then the stub.
+#### Strategy cascade
+
+The runner tries strategies in this order:
+
+1. **In-process MLX** (macOS only, if `mlx_vlm` is importable)
+2. **MLX CLI subprocess** (macOS only)
+3. **In-process vLLM** (Linux/CUDA only, if `vllm` is importable and CUDA is available)
+4. **vLLM CLI subprocess** (Linux/CUDA only)
+5. **OlmOCR CLI subprocess** (requires `olmocr` package and `GLOSSAPI_OLMOCR_ALLOW_CLI=1`)
+6. **Stub** (default fallback for testing)
+
+On macOS, strategies 3–4 are skipped. On Linux, strategies 1–2 are skipped.
 
 #### OlmOCR doctor checks
 

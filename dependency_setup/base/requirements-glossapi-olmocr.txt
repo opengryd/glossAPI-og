@@ -1,9 +1,16 @@
 # OlmOCR-2 profile (non-macOS / CUDA)
-# On Linux with CUDA, install olmocr[gpu] in a separate venv.
-# This base file tracks vanilla requirements plus OlmOCR CLI deps.
+# On Linux with CUDA, install olmocr[gpu] in a separate venv
+# or use the built-in vLLM runner for direct model inference.
+# This base file tracks vanilla requirements plus OlmOCR deps.
 
 -r requirements-glossapi-vanilla.txt
 
-# OlmOCR CLI deps
+# OlmOCR CLI / vLLM deps
 pypdfium2
 Pillow
+
+# vLLM for native CUDA inference (Strategy 3/4 in the runner cascade).
+# Uncomment the lines below if using the built-in vLLM runner instead of
+# the external olmocr[gpu] package.
+# vllm>=0.6.0
+# torch>=2.4.0
