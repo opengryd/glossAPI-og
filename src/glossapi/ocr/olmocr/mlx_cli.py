@@ -58,8 +58,8 @@ DEFAULT_PROMPT = (
     "Do not add any new information."
 )
 
-DEFAULT_DPI = 200
-DEFAULT_MAX_TOKENS = 4096
+DEFAULT_DPI = 150
+DEFAULT_MAX_TOKENS = 2048
 DEFAULT_MODEL_ID = "mlx-community/olmOCR-2-7B-1025-4bit"
 
 
