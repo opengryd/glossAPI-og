@@ -73,7 +73,7 @@ corpus.jsonl_sharded(                        # Phase 6 — Export
 | Download | `corpus.download()` | Fetch PDFs from a URL parquet (resume-aware, parallel scheduler grouping). |
 | Extract | `corpus.extract()` | Convert documents to Markdown. Backends: `"safe"` (PyPDFium), `"docling"`, or `"auto"`. Supports PDF, DOCX, HTML, XML/JATS, PPTX, CSV, MD. |
 | Clean | `corpus.clean()` | Rust-powered cleaning and mojibake detection. Sets `needs_ocr` flag in metadata. |
-| OCR / Math | `corpus.ocr()` | Re-OCR bad documents and/or enrich math. Backends: `"rapidocr"`, `"deepseek"`, `"deepseek-ocr-2"`, `"glm-ocr"`, `"olmocr"`, `"mineru"`. |
+| OCR / Math | `corpus.ocr()` | Re-OCR bad documents and/or enrich math. Backends: `"rapidocr"`, `"deepseek-ocr"`, `"deepseek-ocr-2"`, `"glm-ocr"`, `"olmocr"`, `"mineru"`. |
 | Section | `corpus.section()` | Extract sections from Markdown into a structured Parquet. |
 | Annotate | `corpus.annotate()` | Classify sections with a pre-trained model. Modes: `"text"`, `"chapter"`, `"auto"`. |
 | Export | `corpus.jsonl()` / `corpus.jsonl_sharded()` | Produce JSONL (optionally zstd-compressed shards) with merged metadata. |
@@ -85,7 +85,7 @@ A convenience method `corpus.process_all()` chains extract → section → annot
 | Backend | Flag | GPU | Math handling | Notes |
 | --- | --- | --- | --- | --- |
 | **RapidOCR** | `backend="rapidocr"` | CUDA / MPS / CPU | Separate math enrichment from Docling JSON | Default. Docling + RapidOCR ONNX stack. |
-| **DeepSeek** | `backend="deepseek"` | CUDA (vLLM) | Inline (equations embedded in OCR output) | Requires DeepSeek-OCR weights + vLLM. |
+| **DeepSeek-OCR** | `backend="deepseek-ocr"` | CUDA (vLLM) | Inline (equations embedded in OCR output) | Requires DeepSeek-OCR weights + vLLM. |
 | **DeepSeek v2** | `backend="deepseek-ocr-2"` | MPS (MLX) | Inline (equations embedded in OCR output) | Requires MLX-formatted DeepSeek-OCR v2 weights. |
 | **GLM-OCR** | `backend="glm-ocr"` | MPS (MLX) | Inline (equations embedded in OCR output) | Lightweight 0.5B VLM on Apple Silicon. |
 | **OlmOCR-2** | `backend="olmocr"` | CUDA (vLLM) / MPS (MLX) | Inline (equations embedded in OCR output) | High-accuracy VLM-based OCR. |
@@ -103,7 +103,7 @@ glossapi            # No subcommand → launches the pipeline wizard
 
 **Pipeline wizard** — Arrow-key driven phase selection with checkboxes, per-phase confirmation, optional JSONL export. Preset profiles: "Lightweight PDF smoke test", "MinerU demo", "Custom".
 
-**Setup wizard** — Detects OS and available Python versions, prompts for mode (vanilla / rapidocr / mineru / deepseek / deepseek-ocr-2 / glm-ocr / olmocr), virtualenv path, optional model downloads, and post-install tests.
+**Setup wizard** — Detects OS and available Python versions, prompts for mode (vanilla / rapidocr / mineru / deepseek-ocr / deepseek-ocr-2 / glm-ocr / olmocr), virtualenv path, optional model downloads, and post-install tests.
 
 **Prerequisite:** Install [gum](https://github.com/charmbracelet/gum) for the interactive prompts (the CLI falls back to plain TTY prompts if gum is unavailable).
 
@@ -122,9 +122,9 @@ This script provisions the selected profile, sources the virtualenv, and launche
 | Scenario | Commands | Notes |
 | --- | --- | --- |
 | Pip users | `pip install glossapi` | Fast vanilla evaluation with minimal dependencies. |
-| Mode automation (recommended) | `./dependency_setup/setup_glossapi.sh --mode {vanilla\|rapidocr\|deepseek\|deepseek-ocr-2\|glm-ocr\|olmocr\|mineru}` | Creates an isolated venv per mode, installs Rust crates, and can run the relevant pytest subset. |
+| Mode automation (recommended) | `./dependency_setup/setup_glossapi.sh --mode {vanilla\|rapidocr\|deepseek-ocr\|deepseek-ocr-2\|glm-ocr\|olmocr\|mineru}` | Creates an isolated venv per mode, installs Rust crates, and can run the relevant pytest subset. |
 | Manual editable install | `pip install -e .` after cloning | Keep this if you prefer to manage dependencies by hand. |
-| Optional extras | `pip install glossapi[rapidocr]` / `[cuda]` / `[deepseek]` / `[docs]` | Install specific optional dependency groups only. |
+| Optional extras | `pip install glossapi[rapidocr]` / `[cuda]` / `[deepseek-ocr]` / `[docs]` | Install specific optional dependency groups only. |
 
 See `docs/index.md` for detailed environment notes, CUDA/ORT combinations, and troubleshooting tips.
 
@@ -139,10 +139,10 @@ Use `dependency_setup/setup_glossapi.sh` to provision a virtualenv with the righ
 # Docling + RapidOCR mode
 ./dependency_setup/setup_glossapi.sh --mode rapidocr --venv dependency_setup/.venvs/rapidocr --run-tests
 
-# DeepSeek OCR mode (requires weights under $GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr)
+# DeepSeek-OCR mode (requires weights under $GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr)
 ./dependency_setup/setup_glossapi.sh \
-  --mode deepseek \
-  --venv dependency_setup/.venvs/deepseek \
+  --mode deepseek-ocr \
+  --venv dependency_setup/.venvs/deepseek-ocr \
   --weights-root /path/to/model_weights \
   --run-tests --smoke-test
 
@@ -177,7 +177,7 @@ Use `dependency_setup/setup_glossapi.sh` to provision a virtualenv with the righ
 
 The setup script auto-detects Python (preferring 3.12 → 3.11 → 3.13), installs Rust extensions in editable mode, and supports `--run-tests` / `--smoke-test` for post-install validation. Check `dependency_setup/dependency_notes.md` for the latest pins and caveats.
 
-Pass `--download-deepseek` to fetch DeepSeek weights automatically; otherwise set `GLOSSAPI_WEIGHTS_ROOT` so the pipeline finds weights at `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr`.
+Pass `--download-deepseek-ocr` to fetch DeepSeek-OCR weights automatically; otherwise set `GLOSSAPI_WEIGHTS_ROOT` so the pipeline finds weights at `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr`.
 
 Pass `--download-deepseek-ocr2` to fetch DeepSeek OCR v2 weights from `mlx-community/DeepSeek-OCR-2-8bit` into `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr-mlx`.
 
@@ -186,20 +186,20 @@ Pass `--download-glmocr` to fetch GLM-OCR MLX weights from `mlx-community/GLM-OC
 Pass `--download-olmocr` to fetch OlmOCR weights into `$GLOSSAPI_WEIGHTS_ROOT/olmocr`.
 
 <details>
-<summary><strong>DeepSeek runtime checklist</strong></summary>
+<summary><strong>DeepSeek-OCR runtime checklist</strong></summary>
 
-- Run `python -m glossapi.ocr.deepseek.preflight` (from your DeepSeek venv) to fail fast if the CLI would fall back to the stub.
+- Run `python -m glossapi.ocr.deepseek_ocr.preflight` (from your DeepSeek-OCR venv) to fail fast if the CLI would fall back to the stub.
 - Export these to force the real CLI and avoid silent stub output:
-  - `GLOSSAPI_DEEPSEEK_ALLOW_CLI=1`
-  - `GLOSSAPI_DEEPSEEK_ALLOW_STUB=0`
-  - `GLOSSAPI_DEEPSEEK_VLLM_SCRIPT=/path/to/deepseek-ocr/run_pdf_ocr_vllm.py`
-  - `GLOSSAPI_DEEPSEEK_TEST_PYTHON=/path/to/deepseek/venv/bin/python`
-  - `GLOSSAPI_DEEPSEEK_MODEL_DIR=/path/to/model_weights/deepseek-ocr` (or set `GLOSSAPI_WEIGHTS_ROOT`)
-  - `GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH=/path/to/libjpeg-turbo/lib`
+  - `GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI=1`
+  - `GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0`
+  - `GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT=/path/to/deepseek-ocr/run_pdf_ocr_vllm.py`
+  - `GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON=/path/to/deepseek-ocr/venv/bin/python`
+  - `GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR=/path/to/model_weights/deepseek-ocr` (or set `GLOSSAPI_WEIGHTS_ROOT`)
+  - `GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH=/path/to/libjpeg-turbo/lib`
 - CUDA toolkit with `nvcc` available (FlashInfer/vLLM JIT falls back poorly without it); set `CUDA_HOME` and prepend `$CUDA_HOME/bin` to `PATH`.
 - If FlashInfer is problematic, disable with `VLLM_USE_FLASHINFER=0` and `FLASHINFER_DISABLE=1`.
-- To avoid FP8 KV cache issues, export `GLOSSAPI_DEEPSEEK_NO_FP8_KV=1` (propagates `--no-fp8-kv`).
-- Tune VRAM use via `GLOSSAPI_DEEPSEEK_GPU_MEMORY_UTILIZATION=<0.5–0.9>`.
+- To avoid FP8 KV cache issues, export `GLOSSAPI_DEEPSEEK_OCR_NO_FP8_KV=1` (propagates `--no-fp8-kv`).
+- Tune VRAM use via `GLOSSAPI_DEEPSEEK_OCR_GPU_MEMORY_UTILIZATION=<0.5–0.9>`.
 
 </details>
 
@@ -266,7 +266,7 @@ output_dir/
 | --- | --- |
 | `src/glossapi/` | Core library — Corpus orchestrator, phase mixins, OCR backends, Docling integration. |
 | `src/glossapi/corpus/` | Phase implementations: `phase_download.py`, `phase_extract.py`, `phase_clean.py`, `phase_ocr_math.py`, `phase_sections.py`, `phase_annotate.py`, `phase_export.py`. |
-| `src/glossapi/ocr/` | OCR backend wrappers: `rapidocr/`, `deepseek/`, `deepseek_ocr2/`, `glm_ocr/`, `olmocr/`, `mineru/`, `math/`, `utils/`. |
+| `src/glossapi/ocr/` | OCR backend wrappers: `rapidocr/`, `deepseek_ocr/`, `deepseek_ocr2/`, `glm_ocr/`, `olmocr/`, `mineru/`, `math/`, `utils/`. |
 | `rust/` | Rust crates: `glossapi_rs_cleaner`, `glossapi_rs_noise`. |
 | `samples/lightweight_pdf_corpus/` | Synthetic PDFs with manifest + expected outputs for smoke tests. |
 | `tests/` | pytest suite — `test_pipeline_smoke.py` for quick checks, plus per-feature tests. |

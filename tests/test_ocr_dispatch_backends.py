@@ -29,7 +29,7 @@ def test_deepseek_backend_ignores_math_flags_and_runs_ocr_only(tmp_path, monkeyp
     (corpus.input_dir / fname).write_bytes(b"%PDF-1.4\n%stub\n")
 
     # Capture deepseek runner calls and assert math is not invoked
-    from glossapi.ocr.deepseek import runner
+    from glossapi.ocr.deepseek_ocr import runner
 
     calls = {}
 
@@ -46,7 +46,7 @@ def test_deepseek_backend_ignores_math_flags_and_runs_ocr_only(tmp_path, monkeyp
     monkeypatch.setattr(corpus, "formula_enrich_from_json", fail_math)
 
     # Run with math flags present — should still just OCR the bad file
-    corpus.ocr(backend="deepseek", fix_bad=True, math_enhance=True, mode="ocr_bad_then_math")
+    corpus.ocr(backend="deepseek-ocr", fix_bad=True, math_enhance=True, mode="ocr_bad_then_math")
 
     assert calls.get("files") == [fname]
 

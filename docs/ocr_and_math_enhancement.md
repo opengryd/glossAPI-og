@@ -9,7 +9,7 @@ This document summarizes how GlossAPI uses the GPU for OCR and formula/code enri
 
 Backends
 - `backend='rapidocr'` (default): Docling + RapidOCR; Phase‑2 math runs from Docling JSON.
-- `backend='deepseek'`: DeepSeek‑OCR; equations are included inline in OCR output, so Phase‑2 math is not required and is treated as a no‑op.
+- `backend='deepseek-ocr'`: DeepSeek‑OCR; equations are included inline in OCR output, so Phase‑2 math is not required and is treated as a no‑op.
 - `backend='deepseek-ocr-2'`: DeepSeek OCR v2 (MLX/MPS); equations are included inline in OCR output, so Phase-2 math is not required and is treated as a no-op.
 - `backend='mineru'`: MinerU (magic-pdf) OCR; equations are included inline in OCR output, so Phase‑2 math is not required and is treated as a no‑op.
 - `backend='glm-ocr'`: GLM-OCR (0.5B VLM, MLX/MPS); equations are included inline in OCR output, so Phase‑2 math is not required and is treated as a no‑op. Runs on macOS Apple Silicon.
@@ -21,7 +21,7 @@ Policy: never OCR and math on the same file
 
 ### Python API layout
 
-- DeepSeek entry point: `glossapi.ocr.deepseek.runner.run_for_files(...)`
+- DeepSeek-OCR entry point: `glossapi.ocr.deepseek_ocr.runner.run_for_files(...)`
 - DeepSeek OCR v2 entry point: `glossapi.ocr.deepseek_ocr2.runner.run_for_files(...)`
 - MinerU entry point: `glossapi.ocr.mineru.runner.run_for_files(...)`
 - GLM-OCR entry point: `glossapi.ocr.glm_ocr.runner.run_for_files(...)`
@@ -33,7 +33,7 @@ Policy: never OCR and math on the same file
 ## Prerequisites
 
 - RapidOCR/Docling stack: `pip install '.[rapidocr]'`
-- DeepSeek CLI stack (in a dedicated venv recommended): `pip install '.[deepseek]'`
+- DeepSeek-OCR CLI stack (in a dedicated venv recommended): `pip install '.[deepseek-ocr]'`
 - DeepSeek OCR v2 MLX stack (macOS): install `mlx` and the MLX model assets for your weights.
 - MinerU CLI: ensure `magic-pdf` is available on PATH (or set `GLOSSAPI_MINERU_COMMAND`).
 - OlmOCR-2 (CUDA): `pip install 'olmocr[gpu]'` in a dedicated venv; requires NVIDIA GPU with ≥12 GB VRAM, and `poppler-utils` on PATH.
@@ -97,14 +97,14 @@ Outputs:
 - `markdown/<stem>.md` — enriched Markdown overwrites the plain MD
 - `json/<stem>.latex_map.jsonl` — LaTeX strings + acceptance/metrics per item
 
-## DeepSeek usage
+## DeepSeek-OCR usage
 
-Run OCR for files flagged by the cleaner as needing OCR (math flags are ignored for DeepSeek):
+Run OCR for files flagged by the cleaner as needing OCR (math flags are ignored for DeepSeek-OCR):
 
 ```python
 from glossapi import Corpus
 c = Corpus('IN','OUT')
-c.ocr(backend='deepseek', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
+c.ocr(backend='deepseek-ocr', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
 # → runs OCR only for bad files; equations are included inline; Phase-2 is skipped
 ```
 

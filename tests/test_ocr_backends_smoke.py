@@ -28,8 +28,8 @@ def test_cross_backend_smoke_with_stubs(tmp_path, monkeypatch):
     parquet_path = dl_dir / "download_results.parquet"
     df.to_parquet(parquet_path, index=False)
 
-    # DeepSeek stub for OCR
-    from glossapi.ocr.deepseek import runner
+    # DeepSeek OCR stub for OCR
+    from glossapi.ocr.deepseek_ocr import runner
 
     def fake_run_for_files(self_ref, files, **kwargs):
         for f in files:
@@ -43,7 +43,7 @@ def test_cross_backend_smoke_with_stubs(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "run_for_files", fake_run_for_files)
 
     # Run DeepSeek OCR for bad files
-    corpus.ocr(backend="deepseek", fix_bad=True, math_enhance=True, mode="ocr_bad_then_math")
+    corpus.ocr(backend="deepseek-ocr", fix_bad=True, math_enhance=True, mode="ocr_bad_then_math")
 
     # RapidOCR math-only pass: ensure JSON for clean.pdf and run math
     json_dir = corpus.output_dir / "json"

@@ -61,8 +61,8 @@
 
 ## Stub runners producing empty output
 
-- By default, DeepSeek, GLM-OCR, MinerU, and OlmOCR allow stub fallback (`*_ALLOW_STUB=1`). This means OCR may silently produce placeholder output instead of real results.
-- To force real OCR, set `GLOSSAPI_DEEPSEEK_ALLOW_STUB=0` (or `GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0`, `GLOSSAPI_GLMOCR_ALLOW_STUB=0`, `GLOSSAPI_OLMOCR_ALLOW_STUB=0`, `GLOSSAPI_MINERU_ALLOW_STUB=0`) **and** enable the CLI runner with `*_ALLOW_CLI=1`.
+- By default, DeepSeek-OCR, GLM-OCR, MinerU, and OlmOCR allow stub fallback (`*_ALLOW_STUB=1`). This means OCR may silently produce placeholder output instead of real results.
+- To force real OCR, set `GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0` (or `GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0`, `GLOSSAPI_GLMOCR_ALLOW_STUB=0`, `GLOSSAPI_OLMOCR_ALLOW_STUB=0`, `GLOSSAPI_MINERU_ALLOW_STUB=0`) **and** enable the CLI runner with `*_ALLOW_CLI=1`.
 
 ## Docling import slow or crashes at startup
 

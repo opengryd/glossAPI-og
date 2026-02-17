@@ -28,7 +28,7 @@ def test_deepseek_backend_stub_runs_and_updates_parquet(tmp_path, monkeypatch):
     (corpus.input_dir / fname).write_bytes(b"%PDF-1.4\n%stub\n")
 
     # Monkeypatch the runner internal to avoid heavy imports
-    from glossapi.ocr.deepseek import runner
+    from glossapi.ocr.deepseek_ocr import runner
 
     def fake_run_one(pdf_path, md_out, metrics_out, cfg):
         md_out.parent.mkdir(parents=True, exist_ok=True)
@@ -40,7 +40,7 @@ def test_deepseek_backend_stub_runs_and_updates_parquet(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "_run_one_pdf", fake_run_one)
 
     # Run OCR via dispatcher
-    corpus.ocr(backend="deepseek", fix_bad=True, math_enhance=False)
+    corpus.ocr(backend="deepseek-ocr", fix_bad=True, math_enhance=False)
 
     # Artifacts exist
     stem = "doc"
@@ -56,4 +56,4 @@ def test_deepseek_backend_stub_runs_and_updates_parquet(tmp_path, monkeypatch):
     assert bool(row["needs_ocr"]) is False
     # extraction_mode is optional; if present assert value
     if "extraction_mode" in updated.columns:
-        assert updated.loc[fname, "extraction_mode"] == "deepseek"
+        assert updated.loc[fname, "extraction_mode"] == "deepseek-ocr"

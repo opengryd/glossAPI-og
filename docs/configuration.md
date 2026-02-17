@@ -24,7 +24,7 @@ model_weights/              # $GLOSSAPI_WEIGHTS_ROOT
 └── mineru/                 # MinerU PDF-Extract-Kit models
 ```
 
-Individual backend directories can be overridden with their respective env vars (e.g. `GLOSSAPI_DEEPSEEK_MODEL_DIR`, `GLOSSAPI_DEEPSEEK2_MODEL_DIR`, `GLOSSAPI_GLMOCR_MODEL_DIR`, `GLOSSAPI_OLMOCR_MLX_MODEL_DIR`) for advanced use cases. When set, they take precedence over the weights root convention. In most setups only `GLOSSAPI_WEIGHTS_ROOT` is needed.
+Individual backend directories can be overridden with their respective env vars (e.g. `GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR`, `GLOSSAPI_DEEPSEEK2_MODEL_DIR`, `GLOSSAPI_GLMOCR_MODEL_DIR`, `GLOSSAPI_OLMOCR_MLX_MODEL_DIR`) for advanced use cases. When set, they take precedence over the weights root convention. In most setups only `GLOSSAPI_WEIGHTS_ROOT` is needed.
 
 ## OCR & Parsing
 
@@ -39,37 +39,37 @@ GlossAPI exposes two Phase‑1 profiles. Use `Corpus.extract(..., phase1_backend
 
 Regardless of backend, the extractor clamps OMP/OpenBLAS/MKL pools to one thread per worker so multi‑GPU runs do not explode thread counts.
 
-### DeepSeek optional dependencies
+### DeepSeek-OCR optional dependencies
 
-Install DeepSeek backend extras to enable the DeepSeek OCR path (imports remain lazy, so the package is optional). Use the CUDA 12.1 wheels for both vLLM and Torch:
+Install DeepSeek-OCR backend extras to enable the DeepSeek-OCR path (imports remain lazy, so the package is optional). Use the CUDA 12.1 wheels for both vLLM and Torch:
 
 ```bash
-pip install '.[deepseek]'
+pip install '.[deepseek-ocr]'
 
-# Install Torch CUDA 12.1 wheels (required by the DeepSeek script)
+# Install Torch CUDA 12.1 wheels (required by the DeepSeek-OCR script)
 pip install --extra-index-url https://download.pytorch.org/whl/cu121 \
   'torch==2.5.1+cu121' 'torchvision==0.20.1+cu121'
 
 # Alternatively, use the requirements file (edit to uncomment torch lines):
-pip install -r deepseek-ocr/requirements-deepseek.txt
+pip install -r deepseek-ocr/requirements-deepseek-ocr.txt
 ```
 
-When using `backend='deepseek'`, equations are included inline in the OCR output; Phase‑2 math flags are accepted but skipped.
+When using `backend='deepseek-ocr'`, equations are included inline in the OCR output; Phase‑2 math flags are accepted but skipped.
 
 When using `backend='deepseek-ocr-2'`, equations are included inline in the OCR output; Phase-2 math flags are accepted but skipped.
 
 When using `backend='mineru'`, equations are included inline in the OCR output; Phase‑2 math flags are accepted but skipped.
 
-### DeepSeek runtime controls
+### DeepSeek-OCR runtime controls
 
-- `GLOSSAPI_DEEPSEEK_ALLOW_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
-- `GLOSSAPI_DEEPSEEK_ALLOW_CLI` (`0` by default): flip to `1` to force the real vLLM CLI even when the stub is allowed.
-- `GLOSSAPI_DEEPSEEK_PYTHON` / `GLOSSAPI_DEEPSEEK_TEST_PYTHON`: absolute path to the Python interpreter that runs `run_pdf_ocr_vllm.py` (defaults to the current interpreter).
-- `GLOSSAPI_DEEPSEEK_VLLM_SCRIPT`: override path to the DeepSeek CLI script (defaults to `deepseek-ocr/run_pdf_ocr_vllm.py` under the repo).
-- `GLOSSAPI_DEEPSEEK_MODEL_DIR`: path to DeepSeek model weights (must contain `config.json` + safetensors).
-- `GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH`: prepend extra library search paths (e.g., for `libjpeg-turbo`) when launching the CLI.
-- `GLOSSAPI_DEEPSEEK_GPU_MEMORY_UTILIZATION`: VRAM fraction (0.5–0.9) for vLLM.
-- `GLOSSAPI_DEEPSEEK_NO_FP8_KV`: set to `1` to disable FP8 KV cache (propagates `--no-fp8-kv`).
+- `GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
+- `GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI` (`0` by default): flip to `1` to force the real vLLM CLI even when the stub is allowed.
+- `GLOSSAPI_DEEPSEEK_OCR_PYTHON` / `GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON`: absolute path to the Python interpreter that runs `run_pdf_ocr_vllm.py` (defaults to the current interpreter).
+- `GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT`: override path to the DeepSeek-OCR CLI script (defaults to `deepseek-ocr/run_pdf_ocr_vllm.py` under the repo).
+- `GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR`: path to DeepSeek-OCR model weights (must contain `config.json` + safetensors).
+- `GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH`: prepend extra library search paths (e.g., for `libjpeg-turbo`) when launching the CLI.
+- `GLOSSAPI_DEEPSEEK_OCR_GPU_MEMORY_UTILIZATION`: VRAM fraction (0.5–0.9) for vLLM.
+- `GLOSSAPI_DEEPSEEK_OCR_NO_FP8_KV`: set to `1` to disable FP8 KV cache (propagates `--no-fp8-kv`).
 
 ### DeepSeek OCR v2 (MLX/MPS) runtime controls
 

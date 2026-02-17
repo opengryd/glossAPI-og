@@ -8,7 +8,7 @@ import torch
 pytest.importorskip("docling")
 pytest.importorskip("glossapi_rs_cleaner")
 pytest.importorskip(
-    "onnxruntime", reason="RapidOCR/DeepSeek end-to-end tests require onnxruntime"
+    "onnxruntime", reason="RapidOCR/DeepSeek OCR end-to-end tests require onnxruntime"
 )
 import onnxruntime as ort  # noqa: E402
 
@@ -374,48 +374,48 @@ def test_clean_skips_files_with_successful_ocr(tmp_path, monkeypatch):
     assert "non_greek_text" in str(df_after.loc["consonants.pdf", "filter"])
 
 
-@pytest.mark.deepseek
-def test_deepseek_cli_pipeline_with_synthetic_pdfs(tmp_path, monkeypatch):
-    """Optional DeepSeek integration smoke test that exercises the real CLI."""
-    if os.getenv("GLOSSAPI_RUN_DEEPSEEK_CLI") != "1":
-        pytest.skip("Set GLOSSAPI_RUN_DEEPSEEK_CLI=1 to enable DeepSeek CLI smoke test")
+@pytest.mark.deepseek_ocr
+def test_deepseek_ocr_cli_pipeline_with_synthetic_pdfs(tmp_path, monkeypatch):
+    """Optional DeepSeek OCR integration smoke test that exercises the real CLI."""
+    if os.getenv("GLOSSAPI_RUN_DEEPSEEK_OCR_CLI") != "1":
+        pytest.skip("Set GLOSSAPI_RUN_DEEPSEEK_OCR_CLI=1 to enable DeepSeek OCR CLI smoke test")
 
-    assert torch.cuda.is_available(), "CUDA GPU expected for DeepSeek pipeline test"
+    assert torch.cuda.is_available(), "CUDA GPU expected for DeepSeek OCR pipeline test"
 
     script = Path(
         os.environ.get(
-            "GLOSSAPI_DEEPSEEK_VLLM_SCRIPT",
+            "GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT",
             Path.cwd() / "deepseek-ocr" / "run_pdf_ocr_vllm.py",
         )
     )
     if not script.exists():
-        pytest.skip(f"DeepSeek CLI script missing: {script}")
+        pytest.skip(f"DeepSeek OCR CLI script missing: {script}")
 
     python_bin = Path(
         os.environ.get(
-            "GLOSSAPI_DEEPSEEK_TEST_PYTHON",
+            "GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON",
             Path("/mnt/data/glossAPI/deepseek_venv/bin/python"),
         )
     )
     if not python_bin.exists():
-        pytest.skip(f"DeepSeek Python interpreter missing: {python_bin}")
+        pytest.skip(f"DeepSeek OCR Python interpreter missing: {python_bin}")
 
-    model_dir_env = os.environ.get("GLOSSAPI_DEEPSEEK_TEST_MODEL_DIR") or os.environ.get(
-        "GLOSSAPI_DEEPSEEK_MODEL_DIR"
+    model_dir_env = os.environ.get("GLOSSAPI_DEEPSEEK_OCR_TEST_MODEL_DIR") or os.environ.get(
+        "GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR"
     )
     if not model_dir_env:
-        pytest.skip("Set GLOSSAPI_DEEPSEEK_TEST_MODEL_DIR (or GLOSSAPI_DEEPSEEK_MODEL_DIR) to run DeepSeek CLI test")
+        pytest.skip("Set GLOSSAPI_DEEPSEEK_OCR_TEST_MODEL_DIR (or GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR) to run DeepSeek OCR CLI test")
     model_dir = Path(model_dir_env)
     if not model_dir.exists():
-        pytest.skip(f"DeepSeek model directory missing: {model_dir}")
+        pytest.skip(f"DeepSeek OCR model directory missing: {model_dir}")
 
-    lib_path = os.environ.get("GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH")
+    lib_path = os.environ.get("GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH")
     if not lib_path:
         candidate = Path.cwd() / "deepseek-ocr" / "libjpeg-turbo" / "lib"
         if candidate.exists():
             lib_path = str(candidate)
     if not lib_path or not Path(lib_path).exists():
-        pytest.skip("Set GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH to the libjpeg-turbo library directory")
+        pytest.skip("Set GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH to the libjpeg-turbo library directory")
 
     providers = ort.get_available_providers()
     assert "CUDAExecutionProvider" in providers, f"CUDAExecutionProvider missing: {providers}"
@@ -426,11 +426,11 @@ def test_deepseek_cli_pipeline_with_synthetic_pdfs(tmp_path, monkeypatch):
 
     # Force the CLI path (no stub fallback) and point to the desired interpreter/script.
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_ALLOW_STUB", "0")
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_ALLOW_CLI", "1")
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_PYTHON", str(python_bin))
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_VLLM_SCRIPT", str(script))
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH", lib_path)
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "0")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI", "1")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_PYTHON", str(python_bin))
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT", str(script))
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH", lib_path)
     monkeypatch.setenv("VLLM_ALLOW_REMOTE_CODE", "1")
     existing_py_path = os.environ.get("PYTHONPATH", "")
     src_path = str(Path.cwd() / "src")
@@ -439,19 +439,19 @@ def test_deepseek_cli_pipeline_with_synthetic_pdfs(tmp_path, monkeypatch):
     else:
         monkeypatch.setenv("PYTHONPATH", src_path)
 
-    import glossapi.ocr.deepseek.runner as deepseek_runner
+    import glossapi.ocr.deepseek_ocr.runner as deepseek_ocr_runner
 
     def _raise_if_stub(*_args, **_kwargs):
-        raise AssertionError("DeepSeek fallback stub should not run in CLI smoke test")
+        raise AssertionError("DeepSeek OCR fallback stub should not run in CLI smoke test")
 
-    monkeypatch.setattr(deepseek_runner, "_run_one_pdf", _raise_if_stub)
+    monkeypatch.setattr(deepseek_ocr_runner, "_run_one_pdf", _raise_if_stub)
 
     corpus_dir = tmp_path / "corpus"
     corpus_dir.mkdir()
 
     text_pdf = corpus_dir / "text.pdf"
     blank_pdf = corpus_dir / "blank.pdf"
-    _write_pdf(text_pdf, "A short synthetic document for DeepSeek CLI testing")
+    _write_pdf(text_pdf, "A short synthetic document for DeepSeek OCR CLI testing")
     _write_pdf(blank_pdf, None)
 
     corpus = Corpus(input_dir=corpus_dir, output_dir=corpus_dir)
@@ -473,7 +473,7 @@ def test_deepseek_cli_pipeline_with_synthetic_pdfs(tmp_path, monkeypatch):
 
     corpus.ocr(
         mode="ocr_bad",
-        backend="deepseek",
+        backend="deepseek-ocr",
         math_enhance=False,
         use_gpus="single",
         devices=[device_idx],
@@ -482,11 +482,11 @@ def test_deepseek_cli_pipeline_with_synthetic_pdfs(tmp_path, monkeypatch):
 
     markdown_dir = corpus_dir / "markdown"
     blank_md = markdown_dir / "blank.md"
-    assert blank_md.exists(), "DeepSeek CLI should produce markdown for blank.pdf"
-    assert blank_md.read_text(encoding="utf-8").strip(), "DeepSeek output markdown should not be empty"
+    assert blank_md.exists(), "DeepSeek OCR CLI should produce markdown for blank.pdf"
+    assert blank_md.read_text(encoding="utf-8").strip(), "DeepSeek OCR output markdown should not be empty"
 
     df_after = pd.read_parquet(parquet_path).set_index("filename")
     blank_row = df_after.loc["blank.pdf"]
-    assert bool(blank_row.get("ocr_success", False)), "DeepSeek CLI should set ocr_success=True"
-    assert not bool(blank_row.get("needs_ocr", True)), "DeepSeek CLI should clear needs_ocr flag"
-    assert blank_row.get("extraction_mode") == "deepseek", "DeepSeek CLI should set extraction_mode='deepseek'"
+    assert bool(blank_row.get("ocr_success", False)), "DeepSeek OCR CLI should set ocr_success=True"
+    assert not bool(blank_row.get("needs_ocr", True)), "DeepSeek OCR CLI should clear needs_ocr flag"
+    assert blank_row.get("extraction_mode") == "deepseek-ocr", "DeepSeek OCR CLI should set extraction_mode='deepseek-ocr'"

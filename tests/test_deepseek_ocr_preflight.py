@@ -1,22 +1,22 @@
 import sys
 from pathlib import Path
 
-from glossapi.ocr.deepseek.preflight import check_deepseek_env
+from glossapi.ocr.deepseek_ocr.preflight import check_deepseek_ocr_env
 
 
 def test_preflight_reports_missing_components(tmp_path):
     env = {
-        "GLOSSAPI_DEEPSEEK_ALLOW_CLI": "0",
-        "GLOSSAPI_DEEPSEEK_ALLOW_STUB": "1",
-        "GLOSSAPI_DEEPSEEK_TEST_PYTHON": str(tmp_path / "missing_python"),
-        "GLOSSAPI_DEEPSEEK_VLLM_SCRIPT": str(tmp_path / "missing_script.py"),
-        "GLOSSAPI_DEEPSEEK_MODEL_DIR": str(tmp_path / "missing_model"),
-        "GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH": str(tmp_path / "missing_lib"),
+        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI": "0",
+        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB": "1",
+        "GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON": str(tmp_path / "missing_python"),
+        "GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT": str(tmp_path / "missing_script.py"),
+        "GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR": str(tmp_path / "missing_model"),
+        "GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH": str(tmp_path / "missing_lib"),
         "PATH": str(tmp_path),  # no cc1plus here
     }
-    report = check_deepseek_env(env, check_flashinfer=False)
+    report = check_deepseek_ocr_env(env, check_flashinfer=False)
     names = {c.name for c in report.errors}
-    assert "deepseek_python" in names
+    assert "deepseek_ocr_python" in names
     assert "vllm_script" in names
     assert "model_dir" in names
     assert "ld_library_path" in names
@@ -40,14 +40,14 @@ def test_preflight_passes_with_complete_env(tmp_path):
     cc1plus.chmod(0o755)
 
     env = {
-        "GLOSSAPI_DEEPSEEK_ALLOW_CLI": "1",
-        "GLOSSAPI_DEEPSEEK_ALLOW_STUB": "0",
-        "GLOSSAPI_DEEPSEEK_TEST_PYTHON": sys.executable,
-        "GLOSSAPI_DEEPSEEK_VLLM_SCRIPT": str(script),
-        "GLOSSAPI_DEEPSEEK_MODEL_DIR": str(model_dir),
-        "GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH": str(lib_dir),
+        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI": "1",
+        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB": "0",
+        "GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON": sys.executable,
+        "GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT": str(script),
+        "GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR": str(model_dir),
+        "GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH": str(lib_dir),
         "PATH": str(fake_bin),
     }
-    report = check_deepseek_env(env, check_flashinfer=False)
+    report = check_deepseek_ocr_env(env, check_flashinfer=False)
     assert report.ok
     assert not report.errors

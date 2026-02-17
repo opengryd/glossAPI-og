@@ -127,25 +127,25 @@ from datasets import load_dataset
 ds = load_dataset("json", data_files="OUT/export/train-*.jsonl.zst", streaming=True)["train"]
 ```
 
-### DeepSeek OCR
+### DeepSeek-OCR
 
-DeepSeek can be used as an OCR backend; equations are included inline in the OCR output, so Phase‑2 math is not required and any math flags are ignored.
+DeepSeek-OCR can be used as an OCR backend; equations are included inline in the OCR output, so Phase‑2 math is not required and any math flags are ignored.
 
 ```python
 from glossapi import Corpus
 c = Corpus('IN','OUT')
-c.ocr(backend='deepseek', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
+c.ocr(backend='deepseek-ocr', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
 # → OCR only for bad files; math is included inline in the Markdown
 ```
 
-To avoid stub output, set `GLOSSAPI_DEEPSEEK_ALLOW_CLI=1` and `GLOSSAPI_DEEPSEEK_ALLOW_STUB=0`, and ensure the CLI bits are reachable:
+To avoid stub output, set `GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI=1` and `GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0`, and ensure the CLI bits are reachable:
 
 ```bash
-export GLOSSAPI_DEEPSEEK_VLLM_SCRIPT=/path/to/deepseek-ocr/run_pdf_ocr_vllm.py
-export GLOSSAPI_DEEPSEEK_TEST_PYTHON=/path/to/deepseek-venv/bin/python
-export GLOSSAPI_DEEPSEEK_MODEL_DIR=/path/to/deepseek-ocr/DeepSeek-OCR
-export GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH=/path/to/libjpeg-turbo/lib
-python -m glossapi.ocr.deepseek.preflight  # optional: validates env without running OCR
+export GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT=/path/to/deepseek-ocr/run_pdf_ocr_vllm.py
+export GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON=/path/to/deepseek-ocr-venv/bin/python
+export GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR=/path/to/deepseek-ocr/DeepSeek-OCR
+export GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH=/path/to/libjpeg-turbo/lib
+python -m glossapi.ocr.deepseek_ocr.preflight  # optional: validates env without running OCR
 ```
 
 ### DeepSeek OCR v2 (MLX/MPS)

@@ -63,7 +63,7 @@ glossAPI/
 │   │   │   └── phase_export.py          # ExportPhaseMixin
 │   │   ├── ocr/                   # OCR backend wrappers
 │   │   │   ├── rapidocr/          # Docling + RapidOCR ONNX (default backend)
-│   │   │   ├── deepseek/          # DeepSeek-OCR via vLLM (CUDA)
+│   │   │   ├── deepseek_ocr/      # DeepSeek-OCR via vLLM (CUDA)
 │   │   │   ├── deepseek_ocr2/     # DeepSeek-OCR v2 via MLX (MPS/macOS)
 │   │   │   ├── glm_ocr/           # GLM-OCR via MLX (MPS/macOS)
 │   │   │   ├── mineru/            # MinerU / magic-pdf CLI wrapper
@@ -219,7 +219,7 @@ the Rust extensions to ensure they integrate properly with the Python package.
 | Backend | Module path | GPU | Math handling | When to use |
 |---|---|---|---|---|
 | **RapidOCR** (default) | `ocr.rapidocr` | CUDA / MPS / CPU | Separate Phase-2 enrichment from Docling JSON | Default; Docling + RapidOCR ONNX |
-| **DeepSeek** | `ocr.deepseek` | CUDA (vLLM) | Inline (no Phase-2) | High-accuracy OCR with CUDA GPU |
+| **DeepSeek-OCR** | `ocr.deepseek_ocr` | CUDA (vLLM) | Inline (no Phase-2) | High-accuracy OCR with CUDA GPU |
 | **DeepSeek v2** | `ocr.deepseek_ocr2` | MPS (MLX) | Inline (no Phase-2) | macOS Apple Silicon |
 | **GLM-OCR** | `ocr.glm_ocr` | MPS (MLX) | Inline (no Phase-2) | Lightweight 0.5B VLM OCR on macOS Apple Silicon |
 | **MinerU** | `ocr.mineru` | CUDA / MPS / CPU | Inline (no Phase-2) | External `magic-pdf` CLI |
@@ -227,7 +227,7 @@ the Rust extensions to ensure they integrate properly with the Python package.
 
 **Critical policies:**
 - Never OCR and math-enrich the same file in the same pass.
-- DeepSeek/GLM-OCR/MinerU/OlmOCR backends inline equations — Phase-2 math enrichment is a no-op.
+- DeepSeek-OCR/GLM-OCR/MinerU/OlmOCR backends inline equations — Phase-2 math enrichment is a no-op.
 - RapidOCR dispatches through `Corpus.extract()` with `force_ocr=True`,
   `phase1_backend="docling"`.
 - Stub runners are **allowed by default** (`*_ALLOW_STUB=1`). To force real OCR,
@@ -294,18 +294,18 @@ categories:
 | `GLOSSAPI_SKIP_DOCLING_BOOT` | Skip Docling patching at import (`1` to skip) |
 | `GLOSSAPI_OCR_LANGS` | Comma-separated OCR languages, e.g. `el,en` |
 
-### DeepSeek
+### DeepSeek-OCR
 
 | Variable | Purpose |
 |---|---|
-| `GLOSSAPI_DEEPSEEK_ALLOW_CLI` | Enable real CLI runner |
-| `GLOSSAPI_DEEPSEEK_ALLOW_STUB` | Allow stub fallback |
-| `GLOSSAPI_DEEPSEEK_VLLM_SCRIPT` | Path to `run_pdf_ocr_vllm.py` |
-| `GLOSSAPI_DEEPSEEK_MODEL_DIR` | Optional override for model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr`) |
-| `GLOSSAPI_DEEPSEEK_TEST_PYTHON` | Python binary for DeepSeek venv |
-| `GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH` | Library path for libjpeg-turbo etc. |
-| `GLOSSAPI_DEEPSEEK_GPU_MEMORY_UTILIZATION` | VRAM fraction (0.5–0.9) |
-| `GLOSSAPI_DEEPSEEK_NO_FP8_KV` | Disable FP8 KV cache (`1`) |
+| `GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI` | Enable real CLI runner |
+| `GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB` | Allow stub fallback |
+| `GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT` | Path to `run_pdf_ocr_vllm.py` |
+| `GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR` | Optional override for model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr`) |
+| `GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON` | Python binary for DeepSeek-OCR venv |
+| `GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH` | Library path for libjpeg-turbo etc. |
+| `GLOSSAPI_DEEPSEEK_OCR_GPU_MEMORY_UTILIZATION` | VRAM fraction (0.5–0.9) |
+| `GLOSSAPI_DEEPSEEK_OCR_NO_FP8_KV` | Disable FP8 KV cache (`1`) |
 
 ### DeepSeek OCR v2 (MLX/macOS)
 
@@ -409,7 +409,7 @@ glossapi setup        # Environment provisioning wizard
 - Both wizards use **gum** for rich prompts, falling back to simple TTY if gum is
   unavailable.
 - Pipeline wizard presets: "Lightweight PDF smoke test", "MinerU demo", "Custom".
-- Setup wizard modes: `vanilla`, `rapidocr`, `mineru`, `deepseek`,
+- Setup wizard modes: `vanilla`, `rapidocr`, `mineru`, `deepseek-ocr`,
   `deepseek-ocr-2`, `glm-ocr`.
 
 ---
@@ -421,7 +421,7 @@ glossapi setup        # Environment provisioning wizard
 | **vanilla** | (none) | No | Minimal deps, PyPDFium backend only |
 | **rapidocr** | `[rapidocr]` | CUDA / MPS / CPU | Docling + RapidOCR + ORT-GPU |
 | **cuda** | `[cuda]` | CUDA | Torch + torchvision for GPU layout |
-| **deepseek** | `[deepseek]` | CUDA | vLLM + transformers + accelerate |
+| **deepseek-ocr** | `[deepseek-ocr]` | CUDA | vLLM + transformers + accelerate |
 | **deepseek-ocr-2** | (manual) | MPS (MLX) | MLX-formatted weights, macOS only |
 | **glm-ocr** | (manual) | MPS (MLX) | Lightweight 0.5B VLM, macOS only |
 | **mineru** | (manual) | CUDA / MPS / CPU | External `magic-pdf` CLI |
@@ -445,7 +445,7 @@ Provisioning: `./dependency_setup/setup_glossapi.sh --mode <profile> [--venv <pa
 | Marker | Meaning |
 |---|---|
 | `@pytest.mark.rapidocr` | Requires RapidOCR/Docling execution stack |
-| `@pytest.mark.deepseek` | Exercises the DeepSeek OCR pipeline |
+| `@pytest.mark.deepseek_ocr` | Exercises the DeepSeek-OCR pipeline |
 | (unmarked) | Vanilla — no GPU required |
 
 ### Conventions

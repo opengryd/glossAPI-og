@@ -14,7 +14,7 @@ This guide gets a new GlossAPI contributor from clone → first extraction with 
 
 ### Recommended — mode-aware setup script
 
-Use `dependency_setup/setup_glossapi.sh` to build an isolated virtualenv with the correct dependency set. Supported modes: `vanilla`, `rapidocr`, `deepseek`, `deepseek-ocr-2`, `glm-ocr`, `olmocr`, `mineru`. Examples:
+Use `dependency_setup/setup_glossapi.sh` to build an isolated virtualenv with the correct dependency set. Supported modes: `vanilla`, `rapidocr`, `deepseek-ocr`, `deepseek-ocr-2`, `glm-ocr`, `olmocr`, `mineru`. Examples:
 
 ```bash
 # Vanilla pipeline (CPU-only OCR)
@@ -23,15 +23,15 @@ Use `dependency_setup/setup_glossapi.sh` to build an isolated virtualenv with th
 # RapidOCR GPU stack
 ./dependency_setup/setup_glossapi.sh --mode rapidocr --venv dependency_setup/.venvs/rapidocr --run-tests
 
-# DeepSeek OCR on GPU (weights stored under $GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr)
+# DeepSeek-OCR on GPU (weights stored under $GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr)
 ./dependency_setup/setup_glossapi.sh \
-  --mode deepseek \
-  --venv dependency_setup/.venvs/deepseek \
+  --mode deepseek-ocr \
+  --venv dependency_setup/.venvs/deepseek-ocr \
   --weights-root /path/to/model_weights \
   --run-tests --smoke-test
 ```
 
-Add `--download-deepseek` if you need the script to fetch weights via Hugging Face; otherwise set `GLOSSAPI_WEIGHTS_ROOT` so the pipeline finds weights at `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr`. Inspect `dependency_setup/dependency_notes.md` for the latest pins, caveats, and validation runs. The script auto-detects Python (preferring 3.12 → 3.11 → 3.13) and installs GlossAPI with its Rust crates in editable mode so source changes are picked up immediately.
+Add `--download-deepseek-ocr` if you need the script to fetch weights via Hugging Face; otherwise set `GLOSSAPI_WEIGHTS_ROOT` so the pipeline finds weights at `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr`. Inspect `dependency_setup/dependency_notes.md` for the latest pins, caveats, and validation runs. The script auto-detects Python (preferring 3.12 → 3.11 → 3.13) and installs GlossAPI with its Rust crates in editable mode so source changes are picked up immediately.
 
 ### DeepSeek OCR v2 (MLX/MPS) setup
 
@@ -94,18 +94,18 @@ Add `--download-deepseek` if you need the script to fetch weights via Hugging Fa
 - Set `GLOSSAPI_MINERU_ALLOW_CLI=1` and `GLOSSAPI_MINERU_ALLOW_STUB=0` to force real OCR.
 - For macOS GPU: set `GLOSSAPI_MINERU_BACKEND="hybrid-auto-engine"` and `GLOSSAPI_MINERU_DEVICE_MODE="mps"`.
 
-**DeepSeek runtime checklist**
-- Run `python -m glossapi.ocr.deepseek.preflight` from the DeepSeek venv to assert the CLI can run (env vars, model dir, flashinfer, cc1plus, libjpeg).
+**DeepSeek-OCR runtime checklist**
+- Run `python -m glossapi.ocr.deepseek_ocr.preflight` from the DeepSeek-OCR venv to assert the CLI can run (env vars, model dir, flashinfer, cc1plus, libjpeg).
 - Force the real CLI and avoid stub fallback by setting:
-  - `GLOSSAPI_DEEPSEEK_ALLOW_CLI=1`
-  - `GLOSSAPI_DEEPSEEK_ALLOW_STUB=0`
-  - `GLOSSAPI_DEEPSEEK_VLLM_SCRIPT=/path/to/deepseek-ocr/run_pdf_ocr_vllm.py`
-  - `GLOSSAPI_DEEPSEEK_TEST_PYTHON=/path/to/deepseek/venv/bin/python`
-  - `GLOSSAPI_DEEPSEEK_MODEL_DIR=/path/to/deepseek-ocr/DeepSeek-OCR`
-  - `GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH=/path/to/libjpeg-turbo/lib`
+  - `GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI=1`
+  - `GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0`
+  - `GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT=/path/to/deepseek-ocr/run_pdf_ocr_vllm.py`
+  - `GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON=/path/to/deepseek-ocr/venv/bin/python`
+  - `GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR=/path/to/deepseek-ocr/DeepSeek-OCR`
+  - `GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH=/path/to/libjpeg-turbo/lib`
 - Install a CUDA toolkit with `nvcc` and set `CUDA_HOME` / prepend `$CUDA_HOME/bin` to `PATH` (FlashInfer/vLLM JIT expects it).
 - If FlashInfer is unstable on your stack, disable it with `VLLM_USE_FLASHINFER=0` and `FLASHINFER_DISABLE=1`.
-- Avoid FP8 KV cache issues by exporting `GLOSSAPI_DEEPSEEK_NO_FP8_KV=1`; tune VRAM use via `GLOSSAPI_DEEPSEEK_GPU_MEMORY_UTILIZATION=<0.5–0.9>`.
+- Avoid FP8 KV cache issues by exporting `GLOSSAPI_DEEPSEEK_OCR_NO_FP8_KV=1`; tune VRAM use via `GLOSSAPI_DEEPSEEK_OCR_GPU_MEMORY_UTILIZATION=<0.5–0.9>`.
 - Keep `LD_LIBRARY_PATH` pointing at the toolkit lib64 (e.g. `LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH`).
 
 ### Option 1 — pip (evaluate quickly)
@@ -141,10 +141,10 @@ The helper script provisions Python 3.10, installs Rust + `maturin`, performs an
 
 ## GPU prerequisites (optional but recommended)
 
-`setup_glossapi.sh` pulls the right CUDA/Torch/ONNX wheels for the RapidOCR and DeepSeek profiles. If you are curating dependencies manually, make sure you:
+`setup_glossapi.sh` pulls the right CUDA/Torch/ONNX wheels for the RapidOCR and DeepSeek-OCR profiles. If you are curating dependencies manually, make sure you:
 
 - Install the GPU build of ONNX Runtime (`onnxruntime-gpu`) and uninstall the CPU wheel.
-- Select the PyTorch build that matches your driver/toolkit (the repository currently targets CUDA 12.1 for DeepSeek).
+- Select the PyTorch build that matches your driver/toolkit (the repository currently targets CUDA 12.1 for DeepSeek-OCR).
 - Verify the providers with:
 
   ```bash
