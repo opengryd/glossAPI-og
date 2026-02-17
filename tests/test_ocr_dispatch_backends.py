@@ -77,3 +77,39 @@ def test_rapidocr_backend_routes_to_extract_with_docling(tmp_path, monkeypatch):
     assert captured.get("phase1_backend") == "docling"
     files = captured.get("filenames") or []
     assert files and files[0] == "doc.pdf"
+
+
+def test_glmocr_backend_routes_to_runner(tmp_path, monkeypatch):
+    corpus = _mk_corpus(tmp_path)
+
+    # Seed metadata with one bad file
+    dl_dir = corpus.output_dir / "download_results"
+    dl_dir.mkdir(parents=True, exist_ok=True)
+    fname = "doc.pdf"
+    df = pd.DataFrame([
+        {"filename": fname, corpus.url_column: "", "needs_ocr": True, "ocr_success": False}
+    ])
+    df.to_parquet(dl_dir / "download_results.parquet", index=False)
+
+    # Create stub pdf
+    (corpus.input_dir / fname).write_bytes(b"%PDF-1.4\n%stub\n")
+
+    from glossapi.ocr.glm_ocr import runner
+
+    calls = {}
+
+    def fake_run_for_files(self_ref, files, **kwargs):
+        calls["files"] = list(files)
+        return {"doc": {"page_count": 1}}
+
+    monkeypatch.setattr(runner, "run_for_files", fake_run_for_files)
+
+    # Ensure formula_enrich_from_json would raise if called
+    def fail_math(*args, **kwargs):
+        raise AssertionError("Phase-2 math should not run for GLM-OCR targets")
+
+    monkeypatch.setattr(corpus, "formula_enrich_from_json", fail_math)
+
+    corpus.ocr(backend="glm-ocr", fix_bad=True, math_enhance=True, mode="ocr_bad_then_math")
+
+    assert calls.get("files") == [fname]

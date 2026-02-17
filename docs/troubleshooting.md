@@ -45,6 +45,15 @@
 - **Wrong Python:** If the MLX venv differs from the main venv, set `GLOSSAPI_DEEPSEEK2_PYTHON` to the correct binary.
 - **MPS device error:** Ensure `GLOSSAPI_DEEPSEEK2_DEVICE=mps` (default). Check `torch.backends.mps.is_available()`.
 
+## GLM-OCR (MLX/macOS) issues
+
+- **`Model type glm_ocr not supported`:** GLM-OCR requires `mlx-vlm>=0.3.12`. Run `pip install --upgrade mlx-vlm` to update.
+- **`mlx` import error on non-Apple Silicon:** GLM-OCR requires Apple Silicon (M1+) and the MLX framework. It won't work on Intel Macs or Linux.
+- **Model not found:** Set `GLOSSAPI_GLMOCR_MODEL_DIR` to point to your local MLX-formatted weights, or let it auto-download from HuggingFace (`mlx-community/GLM-OCR-4bit`).
+- **Wrong Python:** If the MLX venv differs from the main venv, set `GLOSSAPI_GLMOCR_PYTHON` to the correct binary.
+- **MPS device error:** Ensure `GLOSSAPI_GLMOCR_DEVICE=mps` (default). Check `torch.backends.mps.is_available()`.
+- **Preflight checker:** Run `python -m glossapi.ocr.glm_ocr.preflight` to validate your environment.
+
 ## MinerU backend / device issues
 
 - **Backend selection:** Set `GLOSSAPI_MINERU_BACKEND` to override auto-detection. Set `GLOSSAPI_MINERU_DEVICE_MODE` (or `GLOSSAPI_MINERU_DEVICE`) to force `cuda`, `mps`, or `cpu`.
@@ -52,8 +61,8 @@
 
 ## Stub runners producing empty output
 
-- By default, DeepSeek and MinerU allow stub fallback (`*_ALLOW_STUB=1`). This means OCR may silently produce placeholder output instead of real results.
-- To force real OCR, set `GLOSSAPI_DEEPSEEK_ALLOW_STUB=0` (or `GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0`, `GLOSSAPI_MINERU_ALLOW_STUB=0`) **and** enable the CLI runner with `*_ALLOW_CLI=1`.
+- By default, DeepSeek, GLM-OCR, MinerU, and OlmOCR allow stub fallback (`*_ALLOW_STUB=1`). This means OCR may silently produce placeholder output instead of real results.
+- To force real OCR, set `GLOSSAPI_DEEPSEEK_ALLOW_STUB=0` (or `GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0`, `GLOSSAPI_GLMOCR_ALLOW_STUB=0`, `GLOSSAPI_OLMOCR_ALLOW_STUB=0`, `GLOSSAPI_MINERU_ALLOW_STUB=0`) **and** enable the CLI runner with `*_ALLOW_CLI=1`.
 
 ## Docling import slow or crashes at startup
 

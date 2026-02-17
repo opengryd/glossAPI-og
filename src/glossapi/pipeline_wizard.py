@@ -208,7 +208,7 @@ def _ask_ocr_backend() -> str:
     default_backend = "mineru" if platform.system() == "Darwin" else "rapidocr"
     choice = _gum_choose(
         "OCR backend",
-        ["none", "rapidocr", "mineru", "deepseek", "deepseek-ocr-2", "olmocr"],
+        ["none", "rapidocr", "mineru", "deepseek", "deepseek-ocr-2", "glm-ocr", "olmocr"],
         default=default_backend,
     )
     return choice[0]
@@ -552,6 +552,11 @@ def _run_wizard(
                 device = "mps" if platform.system() == "Darwin" else "cuda"
                 if accel_mode == "CPU":
                     device = "cpu"
+                ocr_kwargs.update({"device": device})
+            if backend == "glm-ocr":
+                extract_kwargs["phase1_backend"] = "safe"
+                clean_kwargs["drop_bad"] = False
+                device = "mps" if platform.system() == "Darwin" else "cpu"
                 ocr_kwargs.update({"device": device})
             if backend == "rapidocr" and accel_mode == "CPU":
                 ocr_kwargs.update({"fix_bad": True})

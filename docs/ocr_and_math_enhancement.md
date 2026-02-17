@@ -12,6 +12,7 @@ Backends
 - `backend='deepseek'`: DeepSeek‑OCR; equations are included inline in OCR output, so Phase‑2 math is not required and is treated as a no‑op.
 - `backend='deepseek-ocr-2'`: DeepSeek OCR v2 (MLX/MPS); equations are included inline in OCR output, so Phase-2 math is not required and is treated as a no-op.
 - `backend='mineru'`: MinerU (magic-pdf) OCR; equations are included inline in OCR output, so Phase‑2 math is not required and is treated as a no‑op.
+- `backend='glm-ocr'`: GLM-OCR (0.5B VLM, MLX/MPS); equations are included inline in OCR output, so Phase‑2 math is not required and is treated as a no‑op. Runs on macOS Apple Silicon.
 - `backend='olmocr'`: OlmOCR-2 (vLLM / MLX) OCR; equations are included inline in OCR output, so Phase‑2 math is not required and is treated as a no‑op. Supports CUDA (via vLLM) and macOS Apple Silicon (via MLX).
 
 Policy: never OCR and math on the same file
@@ -23,6 +24,7 @@ Policy: never OCR and math on the same file
 - DeepSeek entry point: `glossapi.ocr.deepseek.runner.run_for_files(...)`
 - DeepSeek OCR v2 entry point: `glossapi.ocr.deepseek_ocr2.runner.run_for_files(...)`
 - MinerU entry point: `glossapi.ocr.mineru.runner.run_for_files(...)`
+- GLM-OCR entry point: `glossapi.ocr.glm_ocr.runner.run_for_files(...)`
 - OlmOCR-2 entry point: `glossapi.ocr.olmocr.runner.run_for_files(...)`
 - RapidOCR dispatcher: `glossapi.ocr.rapidocr.dispatch.run_via_extract(...)`
 - Math enrichment: `glossapi.ocr.math.enrich.enrich_from_docling_json(...)`

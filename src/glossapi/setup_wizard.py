@@ -18,7 +18,7 @@ console = Console()
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
-MODE_CHOICES = ["vanilla", "rapidocr", "mineru", "deepseek", "deepseek-ocr-2", "olmocr"]
+MODE_CHOICES = ["vanilla", "rapidocr", "mineru", "deepseek", "deepseek-ocr-2", "glm-ocr", "olmocr"]
 SIMPLE_PROMPTS = os.environ.get("GLOSSAPI_SETUP_SIMPLE", "0") == "1"
 
 
@@ -232,6 +232,8 @@ def _run_setup(
     python_bin: str,
     download_deepseek: bool,
     download_deepseek_ocr2: bool,
+    download_glmocr: bool,
+    download_olmocr: bool,
     weights_root: Optional[str],
     download_mineru: bool,
     run_tests: bool,
@@ -249,6 +251,10 @@ def _run_setup(
         args.append("--download-deepseek")
     if download_deepseek_ocr2:
         args.append("--download-deepseek-ocr2")
+    if download_glmocr:
+        args.append("--download-glmocr")
+    if download_olmocr:
+        args.append("--download-olmocr")
     if weights_root:
         args.extend(["--weights-root", weights_root])
     if download_mineru:
@@ -271,11 +277,13 @@ def _run_setup(
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    mode: Optional[str] = typer.Option(None, help="Profile: vanilla/rapidocr/mineru/deepseek/deepseek-ocr-2/olmocr."),
+    mode: Optional[str] = typer.Option(None, help="Profile: vanilla/rapidocr/mineru/deepseek/deepseek-ocr-2/glm-ocr/olmocr."),
     venv: Optional[str] = typer.Option(None, help="Path to the target virtualenv."),
     python: Optional[str] = typer.Option(None, help="Python executable to use (3.11–3.13)."),
     download_deepseek: bool = typer.Option(False, help="Download DeepSeek weights."),
     download_deepseek_ocr2: bool = typer.Option(False, help="Download DeepSeek OCR v2 weights."),
+    download_glmocr: bool = typer.Option(False, help="Download GLM-OCR MLX weights."),
+    download_olmocr: bool = typer.Option(False, help="Download OlmOCR weights."),
     weights_root: Optional[str] = typer.Option(None, help="Root directory for all model weights."),
     download_mineru_models: bool = typer.Option(False, help="Download MinerU models."),
     detectron2_auto_install: bool = typer.Option(False, help="Auto-install detectron2 when using MinerU (macOS arm64)."),
@@ -300,6 +308,16 @@ def main(
     if selected_mode == "deepseek-ocr-2" and not download_deepseek_ocr2:
         download_deepseek_ocr2 = _ask_bool(
             "Download DeepSeek OCR v2 weights now? (skip to auto-download at runtime)",
+            default=False,
+        )
+    if selected_mode == "glm-ocr" and not download_glmocr:
+        download_glmocr = _ask_bool(
+            "Download GLM-OCR MLX weights now? (skip to auto-download at runtime)",
+            default=False,
+        )
+    if selected_mode == "olmocr" and not download_olmocr:
+        download_olmocr = _ask_bool(
+            "Download OlmOCR weights now? (skip to auto-download at runtime)",
             default=False,
         )
     if selected_mode == "mineru" and not download_mineru_models:
@@ -346,6 +364,8 @@ def main(
         python_bin=selected_python,
         download_deepseek=download_deepseek,
         download_deepseek_ocr2=download_deepseek_ocr2,
+        download_glmocr=download_glmocr,
+        download_olmocr=download_olmocr,
         weights_root=weights_root,
         download_mineru=download_mineru_models,
         run_tests=run_tests,

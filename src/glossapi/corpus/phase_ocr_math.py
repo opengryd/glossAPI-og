@@ -114,6 +114,7 @@ class OcrMathPhaseMixin:
          - backend: 'rapidocr' (default) uses the Docling + RapidOCR path via Phase-1 extract().
              'deepseek' uses the DeepSeek OCR (vLLM) path (no Docling JSON, math unsupported).
              'deepseek-ocr-2' uses the DeepSeek OCR v2 (MLX/MPS) path (no Docling JSON, math unsupported).
+             'glm-ocr' uses the GLM-OCR (MLX/MPS) path (no Docling JSON, math unsupported).
              'mineru' uses the MinerU (magic-pdf) path (no Docling JSON, math unsupported).
              'olmocr' uses the OlmOCR-2 (vLLM) path (no Docling JSON, math unsupported).
         - fix_bad: re-run OCR on documents marked bad by the cleaner (default True).
@@ -127,8 +128,8 @@ class OcrMathPhaseMixin:
         """
         # Normalize backend
         backend_norm = str(backend or "rapidocr").strip().lower()
-        if backend_norm not in {"rapidocr", "deepseek", "deepseek-ocr-2", "mineru", "olmocr"}:
-            raise ValueError("backend must be 'rapidocr', 'deepseek', 'deepseek-ocr-2', 'mineru', or 'olmocr'")
+        if backend_norm not in {"rapidocr", "deepseek", "deepseek-ocr-2", "glm-ocr", "mineru", "olmocr"}:
+            raise ValueError("backend must be 'rapidocr', 'deepseek', 'deepseek-ocr-2', 'glm-ocr', 'mineru', or 'olmocr'")
 
         # CONTENT_DEBUG override (preferred uppercase alias)
         # Priority: CONTENT_DEBUG > INTERNAL_DEBUG > content_debug/internal_debug flags
@@ -200,11 +201,12 @@ class OcrMathPhaseMixin:
             pass
 
         # Non-Docling backend semantics note: these backends inline equations
-        if backend_norm in {"deepseek", "deepseek-ocr-2", "mineru", "olmocr"}:
+        if backend_norm in {"deepseek", "deepseek-ocr-2", "glm-ocr", "mineru", "olmocr"}:
             try:
                 _backend_labels = {
                     "deepseek": "DeepSeek",
                     "deepseek-ocr-2": "DeepSeek OCR v2",
+                    "glm-ocr": "GLM-OCR",
                     "mineru": "MinerU",
                     "olmocr": "OlmOCR-2",
                 }
@@ -639,12 +641,14 @@ class OcrMathPhaseMixin:
         reran_ocr = False
 
         if mode_norm in {"ocr_bad", "ocr_bad_then_math"}:
-            if backend_norm in {"deepseek", "deepseek-ocr-2", "mineru", "olmocr"}:
+            if backend_norm in {"deepseek", "deepseek-ocr-2", "glm-ocr", "mineru", "olmocr"}:
                 # Non-Docling path: run OCR via dedicated runner (no Docling JSON)
                 if backend_norm == "deepseek":
                     from glossapi.ocr.deepseek import runner as _runner  # type: ignore
                 elif backend_norm == "deepseek-ocr-2":
                     from glossapi.ocr.deepseek_ocr2 import runner as _runner  # type: ignore
+                elif backend_norm == "glm-ocr":
+                    from glossapi.ocr.glm_ocr import runner as _runner  # type: ignore
                 elif backend_norm == "olmocr":
                     from glossapi.ocr.olmocr import runner as _runner  # type: ignore
                 else:
@@ -729,7 +733,7 @@ class OcrMathPhaseMixin:
                                     df_meta.loc[mask, "filter"] = "ok"
                                     df_meta.loc[mask, "needs_ocr"] = False
                                     df_meta.loc[mask, "ocr_success"] = True
-                                    if backend_norm in {"deepseek", "deepseek-ocr-2", "mineru", "olmocr"}:
+                                    if backend_norm in {"deepseek", "deepseek-ocr-2", "glm-ocr", "mineru", "olmocr"}:
                                         df_meta.loc[mask, "extraction_mode"] = backend_norm
                             self._cache_metadata_parquet(parquet_path)
                             parquet_schema.write_metadata_parquet(df_meta, parquet_path)

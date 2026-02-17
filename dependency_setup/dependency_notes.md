@@ -6,6 +6,8 @@
 - **DeepSeek** – GPU OCR via DeepSeek/vLLM. Extends vanilla requirements with torch/cu128, nightly vLLM and supporting CUDA libs (`dependency_setup/base/requirements-glossapi-deepseek.txt`). `xformers` was dropped because the published wheels still pin Torch 2.8; the rest of the stack now installs cleanly on Torch 2.9.
 - **DeepSeek OCR v2** – MLX/MPS OCR on macOS. Uses `dependency_setup/macos/requirements-glossapi-deepseek-ocr-2-macos.txt` (vanilla + `mlx`).
 - **MinerU** – OCR via the external `magic-pdf` CLI. Uses `dependency_setup/base/requirements-glossapi-mineru.txt` (vanilla + CLI setup).
+- **GLM-OCR** – Lightweight 0.5B VLM OCR on macOS Apple Silicon via MLX. Uses `dependency_setup/base/requirements-glossapi-glm-ocr.txt` (vanilla + `mlx-lm`, `mlx-vlm`).
+- **OlmOCR** – High-accuracy VLM-based OCR. Uses `dependency_setup/base/requirements-glossapi-olmocr.txt` (vanilla + vLLM/MLX).
 
 Each profile is installed through `dependency_setup/setup_glossapi.sh`:
 ```bash
@@ -15,6 +17,8 @@ Each profile is installed through `dependency_setup/setup_glossapi.sh`:
 ./dependency_setup/setup_glossapi.sh --mode deepseek --venv dependency_setup/.venvs/deepseek --run-tests
 ./dependency_setup/setup_glossapi.sh --mode deepseek-ocr-2 --venv dependency_setup/.venvs/deepseek-ocr-2 --run-tests
 ./dependency_setup/setup_glossapi.sh --mode mineru  --venv dependency_setup/.venvs/mineru  --run-tests
+./dependency_setup/setup_glossapi.sh --mode glm-ocr --venv dependency_setup/.venvs/glm-ocr --run-tests
+./dependency_setup/setup_glossapi.sh --mode olmocr  --venv dependency_setup/.venvs/olmocr  --run-tests
 ```
 
 Key flags:
@@ -35,6 +39,8 @@ Pytest markers were added so suites can be run per profile:
 | rapidocr  | `pytest -q -m "not deepseek" tests`                     |
 | deepseek  | `pytest -q -m "not rapidocr" tests`                     |
 | deepseek-ocr-2 | `pytest -q -m "not rapidocr and not deepseek" tests` |
+| glm-ocr   | `pytest -q -m "not rapidocr and not deepseek" tests` |
+| olmocr    | `pytest -q -m "not rapidocr and not deepseek" tests` |
 
 Heavy GPU tests in `tests/test_pipeline_smoke.py` were guarded with `pytest.importorskip("onnxruntime")` so vanilla installs skip them cleanly. Helper PDFs now embed DejaVuSans with Unicode support and insert spacing to keep OCR-friendly glyphs.
 
@@ -77,6 +83,16 @@ All three completed successfully after the following adjustments:
   export GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0
   export GLOSSAPI_DEEPSEEK2_ALLOW_CLI=1
   export GLOSSAPI_DEEPSEEK2_DEVICE="mps"
+  ```
+
+- GLM-OCR runtime exports (macOS MLX):
+  ```bash
+  export GLOSSAPI_GLMOCR_PYTHON="dependency_setup/.venvs/glm-ocr/bin/python"
+  export GLOSSAPI_GLMOCR_MLX_SCRIPT="/path/to/glossAPI/src/glossapi/ocr/glm_ocr/mlx_cli.py"
+  export GLOSSAPI_GLMOCR_MODEL_DIR="/path/to/model_weights/glm-ocr-mlx"
+  export GLOSSAPI_GLMOCR_ALLOW_STUB=0
+  export GLOSSAPI_GLMOCR_ALLOW_CLI=1
+  export GLOSSAPI_GLMOCR_DEVICE="mps"
   ```
 
 These notes capture the current dependency state, the rationale behind constraint changes, and the validation steps used to exercise each profile.

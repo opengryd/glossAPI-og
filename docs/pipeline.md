@@ -13,7 +13,7 @@ The `Corpus` class is the stable surface of the project. New functionality shoul
 | Download | `corpus.download()` | Fetch PDFs from a URL parquet (resume-aware, parallel scheduler grouping). |
 | Extract | `corpus.extract()` | Convert documents to Markdown. Backends: `"safe"` (PyPDFium), `"docling"`, or `"auto"`. Supports PDF, DOCX, HTML, XML/JATS, PPTX, CSV, MD. |
 | Clean | `corpus.clean()` | Rust-powered cleaning and mojibake detection via `glossapi_rs_cleaner` + quality scoring via `glossapi_rs_noise`. Sets `needs_ocr` flag in metadata. |
-| OCR / Math | `corpus.ocr()` | Re-OCR bad documents and/or enrich math. Backends: `"rapidocr"`, `"deepseek"`, `"deepseek-ocr-2"`, `"mineru"`. |
+| OCR / Math | `corpus.ocr()` | Re-OCR bad documents and/or enrich math. Backends: `"rapidocr"`, `"deepseek"`, `"deepseek-ocr-2"`, `"glm-ocr"`, `"mineru"`, `"olmocr"`. |
 | Section | `corpus.section()` | Extract sections from Markdown into a structured Parquet. |
 | Annotate | `corpus.annotate()` | Classify sections with a pre-trained model. Modes: `"text"`, `"chapter"`, `"auto"`. |
 | Export | `corpus.jsonl()` / `corpus.jsonl_sharded()` | Produce JSONL (optionally zstd-compressed shards) with merged metadata. |

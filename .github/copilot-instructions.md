@@ -65,6 +65,7 @@ glossAPI/
 │   │   │   ├── rapidocr/          # Docling + RapidOCR ONNX (default backend)
 │   │   │   ├── deepseek/          # DeepSeek-OCR via vLLM (CUDA)
 │   │   │   ├── deepseek_ocr2/     # DeepSeek-OCR v2 via MLX (MPS/macOS)
+│   │   │   ├── glm_ocr/           # GLM-OCR via MLX (MPS/macOS)
 │   │   │   ├── mineru/            # MinerU / magic-pdf CLI wrapper
 │   │   │   ├── math/              # Formula/code enrichment (Phase-2)
 │   │   │   └── utils/             # Shared OCR utilities (JSON I/O, triage, page)
@@ -220,12 +221,13 @@ the Rust extensions to ensure they integrate properly with the Python package.
 | **RapidOCR** (default) | `ocr.rapidocr` | CUDA / MPS / CPU | Separate Phase-2 enrichment from Docling JSON | Default; Docling + RapidOCR ONNX |
 | **DeepSeek** | `ocr.deepseek` | CUDA (vLLM) | Inline (no Phase-2) | High-accuracy OCR with CUDA GPU |
 | **DeepSeek v2** | `ocr.deepseek_ocr2` | MPS (MLX) | Inline (no Phase-2) | macOS Apple Silicon |
+| **GLM-OCR** | `ocr.glm_ocr` | MPS (MLX) | Inline (no Phase-2) | Lightweight 0.5B VLM OCR on macOS Apple Silicon |
 | **MinerU** | `ocr.mineru` | CUDA / MPS / CPU | Inline (no Phase-2) | External `magic-pdf` CLI |
 | **OlmOCR-2** | `ocr.olmocr` | CUDA (vLLM) / MPS (MLX) | Inline (no Phase-2) | High-accuracy VLM-based OCR with CUDA or Apple Silicon GPU |
 
 **Critical policies:**
 - Never OCR and math-enrich the same file in the same pass.
-- DeepSeek/MinerU/OlmOCR backends inline equations — Phase-2 math enrichment is a no-op.
+- DeepSeek/GLM-OCR/MinerU/OlmOCR backends inline equations — Phase-2 math enrichment is a no-op.
 - RapidOCR dispatches through `Corpus.extract()` with `force_ocr=True`,
   `phase1_backend="docling"`.
 - Stub runners are **allowed by default** (`*_ALLOW_STUB=1`). To force real OCR,
@@ -280,7 +282,7 @@ categories:
 
 | Variable | Purpose |
 |---|---|
-| `GLOSSAPI_WEIGHTS_ROOT` | Root directory for all model weights (default: `<repo>/model_weights/`). Per-backend subdirectories are derived automatically (`deepseek-ocr/`, `deepseek-ocr-mlx/`, `olmocr-mlx/`, `mineru/`). |
+| `GLOSSAPI_WEIGHTS_ROOT` | Root directory for all model weights (default: `<repo>/model_weights/`). Per-backend subdirectories are derived automatically (`deepseek-ocr/`, `deepseek-ocr-mlx/`, `glm-ocr-mlx/`, `olmocr-mlx/`, `mineru/`). |
 
 ### OCR Control
 
@@ -326,6 +328,18 @@ categories:
 | `GLOSSAPI_MINERU_MODE` | `auto` / `fast` / `accurate` |
 | `GLOSSAPI_MINERU_BACKEND` | Override MinerU internal backend selection |
 | `GLOSSAPI_MINERU_DEVICE_MODE` | Force device: `cuda` / `mps` / `cpu` (alias: `GLOSSAPI_MINERU_DEVICE`) |
+
+### GLM-OCR
+
+| Variable | Purpose |
+|---|---|
+| `GLOSSAPI_GLMOCR_ALLOW_CLI` | Enable real GLM-OCR MLX CLI subprocess |
+| `GLOSSAPI_GLMOCR_ALLOW_STUB` | Allow stub fallback |
+| `GLOSSAPI_GLMOCR_PYTHON` | Python binary for GLM-OCR venv |
+| `GLOSSAPI_GLMOCR_MODEL_DIR` | Optional override for model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/glm-ocr-mlx`) |
+| `GLOSSAPI_GLMOCR_MLX_MODEL` | HuggingFace MLX model identifier (default `mlx-community/GLM-OCR-4bit`) |
+| `GLOSSAPI_GLMOCR_MLX_SCRIPT` | Path to MLX inference script for subprocess execution |
+| `GLOSSAPI_GLMOCR_DEVICE` | Device override (`mps`, `cpu`) |
 
 ### OlmOCR-2
 
@@ -394,7 +408,7 @@ glossapi setup        # Environment provisioning wizard
   unavailable.
 - Pipeline wizard presets: "Lightweight PDF smoke test", "MinerU demo", "Custom".
 - Setup wizard modes: `vanilla`, `rapidocr`, `mineru`, `deepseek`,
-  `deepseek-ocr-2`.
+  `deepseek-ocr-2`, `glm-ocr`.
 
 ---
 
@@ -407,6 +421,7 @@ glossapi setup        # Environment provisioning wizard
 | **cuda** | `[cuda]` | CUDA | Torch + torchvision for GPU layout |
 | **deepseek** | `[deepseek]` | CUDA | vLLM + transformers + accelerate |
 | **deepseek-ocr-2** | (manual) | MPS (MLX) | MLX-formatted weights, macOS only |
+| **glm-ocr** | (manual) | MPS (MLX) | Lightweight 0.5B VLM, macOS only |
 | **mineru** | (manual) | CUDA / MPS / CPU | External `magic-pdf` CLI |
 | **docs** | `[docs]` | No | MkDocs Material for doc builds |
 

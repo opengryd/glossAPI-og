@@ -10,10 +10,12 @@ VENV_PATH="${GLOSSAPI_VENV:-}"
 DOWNLOAD_DEEPSEEK=0
 DOWNLOAD_DEEPSEEK_OCR2=0
 DOWNLOAD_OLMOCR=0
+DOWNLOAD_GLMOCR=0
 GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT:-${REPO_ROOT}/model_weights}"
 DEEPSEEK_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/deepseek-ocr"
 DEEPSEEK2_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/deepseek-ocr-mlx"
 OLMOCR_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/olmocr-mlx"
+GLMOCR_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/glm-ocr-mlx"
 MINERU_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/mineru"
 MINERU_COMMAND="${GLOSSAPI_MINERU_COMMAND:-}"
 DOWNLOAD_MINERU_MODELS=0
@@ -26,7 +28,7 @@ usage() {
 Usage: setup_glossapi.sh [options]
 
 Options:
-  --mode MODE            Environment profile: vanilla, rapidocr, deepseek, deepseek-ocr-2, olmocr, mineru (default: vanilla)
+  --mode MODE            Environment profile: vanilla, rapidocr, deepseek, deepseek-ocr-2, glm-ocr, olmocr, mineru (default: vanilla)
   --venv PATH            Target virtual environment path
   --python PATH          Python executable to use when creating the venv
   --weights-root PATH    Root directory for all model weights (default: $REPO_ROOT/model_weights)
@@ -34,6 +36,7 @@ Options:
   --download-deepseek-ocr2
                          Fetch DeepSeek OCR v2 weights (only meaningful for --mode deepseek-ocr-2)
   --download-olmocr      Fetch OlmOCR-2 MLX weights (only meaningful for --mode olmocr)
+  --download-glmocr      Fetch GLM-OCR MLX weights (only meaningful for --mode glm-ocr)
   --download-mineru-models
                          Download MinerU model bundle
   --mineru-command PATH  Path to magic-pdf binary (optional; stored in GLOSSAPI_MINERU_COMMAND)
@@ -78,10 +81,14 @@ while (( "$#" )); do
       DEEPSEEK_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/deepseek-ocr"
       DEEPSEEK2_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/deepseek-ocr-mlx"
       OLMOCR_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/olmocr-mlx"
+      GLMOCR_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/glm-ocr-mlx"
       MINERU_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/mineru"
       ;;
     --download-olmocr)
       DOWNLOAD_OLMOCR=1
+      ;;
+    --download-glmocr)
+      DOWNLOAD_GLMOCR=1
       ;;
     --download-mineru-models)
       DOWNLOAD_MINERU_MODELS=1
@@ -110,9 +117,9 @@ while (( "$#" )); do
 done
 
 case "${MODE}" in
-  vanilla|rapidocr|deepseek|deepseek-ocr-2|olmocr|mineru) ;;
+  vanilla|rapidocr|deepseek|deepseek-ocr-2|glm-ocr|olmocr|mineru) ;;
   *)
-    echo "Invalid mode '${MODE}'. Expected vanilla, rapidocr, deepseek, deepseek-ocr-2, olmocr, or mineru." >&2
+    echo "Invalid mode '${MODE}'. Expected vanilla, rapidocr, deepseek, deepseek-ocr-2, glm-ocr, olmocr, or mineru." >&2
     exit 1
     ;;
 esac
@@ -162,6 +169,18 @@ if [[ "${MODE}" == "olmocr" ]]; then
     if [[ -f "${MAC_REQUIREMENTS_FILE}" ]]; then
       REQUIREMENTS_FILE="${MAC_REQUIREMENTS_FILE}"
     fi
+  fi
+fi
+
+if [[ "${MODE}" == "glm-ocr" ]]; then
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    MAC_REQUIREMENTS_FILE="${SCRIPT_DIR}/macos/requirements-glossapi-glm-ocr-macos.txt"
+    if [[ -f "${MAC_REQUIREMENTS_FILE}" ]]; then
+      REQUIREMENTS_FILE="${MAC_REQUIREMENTS_FILE}"
+    fi
+  else
+    warn "glm-ocr is macOS-only; falling back to vanilla requirements."
+    REQUIREMENTS_FILE="${SCRIPT_DIR}/base/requirements-glossapi-glm-ocr.txt"
   fi
 fi
 
@@ -499,6 +518,10 @@ download_olmocr_weights() {
   download_hf_model "OlmOCR-2 MLX" "mlx-community/olmOCR-2-7B-1025-4bit" "$1" "--download-olmocr"
 }
 
+download_glmocr_weights() {
+  download_hf_model "GLM-OCR MLX" "mlx-community/GLM-OCR-4bit" "$1" "--download-glmocr"
+}
+
 download_mineru_models() {
   local target_dir="$1"
   info "Downloading MinerU models from ${MINERU_MODELS_REPO} to ${target_dir} (this may take a while)"
@@ -545,6 +568,19 @@ if [[ "${MODE}" == "mineru" ]]; then
   pip_run install --no-deps "magic-pdf==1.3.12"
   info "Installing magic-pdf runtime deps"
   pip_run install "loguru"
+elif [[ "${MODE}" == "glm-ocr" ]]; then
+  # The GLM-OCR requirements file is self-contained (no -r vanilla) and already
+  # pins transformers>=5.1, huggingface-hub>=1.0 — no docling lines.  Install
+  # it first, then add docling packages with --no-deps so their transitive
+  # transformers<5 / huggingface_hub<1 constraints cannot trigger downgrades.
+  pip_run install -r "${REQUIREMENTS_FILE}"
+  info "Installing Docling packages (--no-deps to avoid transformers<5 constraint)"
+  pip_run install --no-deps docling==2.48.0 docling-core==2.47.0 \
+    docling-parse==4.4.0 docling-ibm-models==3.9.1 \
+    || warn "Docling install failed; Docling-based extraction will be unavailable."
+  info "Installing mlx-lm and mlx-vlm (--no-deps)"
+  pip_run install --no-deps "mlx-lm>=0.30.7"   || warn "mlx-lm upgrade failed"
+  pip_run install --no-deps "mlx-vlm>=0.3.12"  || warn "mlx-vlm install failed; GLM-OCR in-process MLX mode will be unavailable."
 else
   pip_run install -r "${REQUIREMENTS_FILE}"
 fi
@@ -572,7 +608,7 @@ fi
 
 if [[ "${MODE}" == "deepseek-ocr-2" ]]; then
   info "Installing mlx-vlm without dependencies to avoid transformers conflicts"
-  pip_run install --no-deps "mlx-vlm==0.3.10" || warn "mlx-vlm install failed; DeepSeek OCR v2 in-process mode will be unavailable."
+  pip_run install --no-deps "mlx-vlm>=0.3.12" || warn "mlx-vlm install failed; DeepSeek OCR v2 in-process mode will be unavailable."
   # The MLX CLI script is now shipped inside the glossapi package.
   # GLOSSAPI_DEEPSEEK2_MLX_SCRIPT is only needed to override to an external script.
   export GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0
@@ -592,7 +628,7 @@ fi
 if [[ "${MODE}" == "olmocr" ]]; then
   if [[ "$(uname -s)" == "Darwin" ]]; then
     info "Installing mlx-vlm without dependencies to avoid transformers conflicts"
-    pip_run install --no-deps "mlx-vlm==0.3.10" || warn "mlx-vlm install failed; OlmOCR in-process MLX mode will be unavailable."
+    pip_run install --no-deps "mlx-vlm>=0.3.12" || warn "mlx-vlm install failed; OlmOCR in-process MLX mode will be unavailable."
     export GLOSSAPI_OLMOCR_ALLOW_STUB=0
     export GLOSSAPI_OLMOCR_ALLOW_CLI=1
     export GLOSSAPI_OLMOCR_DEVICE="mps"
@@ -612,6 +648,23 @@ if [[ "${MODE}" == "olmocr" ]]; then
     fi
   else
     info "OlmOCR weights not pre-downloaded; model will auto-download from HuggingFace at first run."
+  fi
+fi
+
+if [[ "${MODE}" == "glm-ocr" ]]; then
+  # Package installs already handled above in the main install block.
+  export GLOSSAPI_GLMOCR_ALLOW_STUB=0
+  export GLOSSAPI_GLMOCR_ALLOW_CLI=1
+  export GLOSSAPI_GLMOCR_DEVICE="mps"
+
+  if [[ "${DOWNLOAD_GLMOCR}" -eq 1 ]]; then
+    download_glmocr_weights "${GLMOCR_WEIGHTS_DIR}"
+    if [[ -d "${GLMOCR_WEIGHTS_DIR}" && -f "${GLMOCR_WEIGHTS_DIR}/config.json" ]]; then
+      export GLOSSAPI_GLMOCR_MODEL_DIR="${GLMOCR_WEIGHTS_DIR}"
+      info "GLM-OCR MLX model dir set to ${GLOSSAPI_GLMOCR_MODEL_DIR}"
+    fi
+  else
+    info "GLM-OCR weights not pre-downloaded; model will auto-download from HuggingFace at first run."
   fi
 fi
 
@@ -676,6 +729,9 @@ if [[ "${RUN_TESTS}" -eq 1 ]]; then
       pytest_args+=("-m" "not rapidocr and not deepseek")
       ;;
     olmocr)
+      pytest_args+=("-m" "not rapidocr and not deepseek")
+      ;;
+    glm-ocr)
       pytest_args+=("-m" "not rapidocr and not deepseek")
       ;;
   esac
@@ -777,6 +833,26 @@ export GLOSSAPI_OLMOCR_DEVICE="cuda"
 EOF
   fi
   info "Wrote OlmOCR env exports to ${ENV_FILE} (source it before running OCR)."
+fi
+
+if [[ "${MODE}" == "glm-ocr" ]]; then
+  cat <<EOF
+GLM-OCR (MLX/MPS) exports (add to your shell before running glossapi):
+  export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
+  export GLOSSAPI_GLMOCR_PYTHON="${VENV_PATH}/bin/python"
+  export GLOSSAPI_GLMOCR_ALLOW_STUB=0
+  export GLOSSAPI_GLMOCR_ALLOW_CLI=1
+  export GLOSSAPI_GLMOCR_DEVICE="mps"
+EOF
+  ENV_FILE="${SCRIPT_DIR}/.env_glmocr"
+  cat <<EOF > "${ENV_FILE}"
+export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
+export GLOSSAPI_GLMOCR_PYTHON="${VENV_PATH}/bin/python"
+export GLOSSAPI_GLMOCR_ALLOW_STUB=0
+export GLOSSAPI_GLMOCR_ALLOW_CLI=1
+export GLOSSAPI_GLMOCR_DEVICE="mps"
+EOF
+  info "Wrote GLM-OCR env exports to ${ENV_FILE} (source it before running OCR)."
 fi
 
 if [[ "${MODE}" == "mineru" ]]; then

@@ -14,7 +14,7 @@ This guide gets a new GlossAPI contributor from clone → first extraction with 
 
 ### Recommended — mode-aware setup script
 
-Use `dependency_setup/setup_glossapi.sh` to build an isolated virtualenv with the correct dependency set. Supported modes: `vanilla`, `rapidocr`, `deepseek`, `deepseek-ocr-2`, `mineru`. Examples:
+Use `dependency_setup/setup_glossapi.sh` to build an isolated virtualenv with the correct dependency set. Supported modes: `vanilla`, `rapidocr`, `deepseek`, `deepseek-ocr-2`, `glm-ocr`, `olmocr`, `mineru`. Examples:
 
 ```bash
 # Vanilla pipeline (CPU-only OCR)
@@ -53,6 +53,27 @@ Add `--download-deepseek` if you need the script to fetch weights via Hugging Fa
 - Set `GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0` to force real OCR.
 - Override model path with `GLOSSAPI_DEEPSEEK2_MODEL_DIR` if needed.
 - Override device with `GLOSSAPI_DEEPSEEK2_DEVICE` (`mps` or `cpu`, default `mps`).
+
+### GLM-OCR setup
+
+```bash
+./dependency_setup/setup_glossapi.sh \
+  --mode glm-ocr \
+  --venv dependency_setup/.venvs/glm-ocr \
+  --download-glmocr \
+  --run-tests
+```
+
+- Targets macOS Apple Silicon via MLX.
+- Weights are auto-downloaded from `mlx-community/GLM-OCR-4bit` if `--download-glmocr` is passed.
+- Equations are included inline — Phase-2 math enrichment is a no-op.
+
+**GLM-OCR runtime checklist**
+- Run `python -m glossapi.ocr.glm_ocr.preflight` to validate the environment.
+- The runner tries in-process MLX first (fastest), then CLI subprocess, then stub.
+- Set `GLOSSAPI_GLMOCR_ALLOW_STUB=0` to force real OCR.
+- Override model path with `GLOSSAPI_GLMOCR_MODEL_DIR` if needed.
+- Override device with `GLOSSAPI_GLMOCR_DEVICE` (`mps` or `cpu`, default `mps`).
 
 ### MinerU setup
 

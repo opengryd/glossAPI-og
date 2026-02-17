@@ -169,6 +169,27 @@ export GLOSSAPI_DEEPSEEK2_DEVICE=mps
 python -m glossapi.ocr.deepseek_ocr2.preflight  # optional: validates env without running OCR
 ```
 
+### GLM-OCR (MLX/MPS)
+
+GLM-OCR is a compact 0.5B VLM for document OCR, running on Apple Silicon via MLX. Equations are included inline in the OCR output, so Phase-2 math is not required and any math flags are ignored.
+
+```python
+from glossapi import Corpus
+c = Corpus('IN','OUT')
+c.ocr(backend='glm-ocr', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
+# → OCR only for bad files; math is included inline in the Markdown
+```
+
+To avoid stub output, set `GLOSSAPI_GLMOCR_ALLOW_STUB=0`.  The runner tries in-process MLX first (fastest), then CLI subprocess, then stub.  Model weights are auto-downloaded from HuggingFace if not present locally:
+
+```bash
+export GLOSSAPI_GLMOCR_ALLOW_STUB=0
+export GLOSSAPI_GLMOCR_DEVICE=mps
+# Optional: point to local weights to skip the auto-download
+# export GLOSSAPI_GLMOCR_MODEL_DIR=/path/to/GLM-OCR-MLX
+python -m glossapi.ocr.glm_ocr.preflight  # optional: validates env without running OCR
+```
+
 ### MinerU OCR
 
 MinerU (magic-pdf) can be used as an OCR backend; equations are included inline in the OCR output, so Phase‑2 math is not required and any math flags are ignored.

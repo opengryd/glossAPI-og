@@ -6,7 +6,7 @@ GlossAPI is a GPU-ready document processing pipeline from [GFOSS](https://gfoss.
 
 - **End-to-end pipeline** — download → extract → clean → OCR/math → section → annotate → export, all through one `Corpus` object.
 - **Multi-format extraction** — PDF, DOCX, HTML, XML/JATS, PowerPoint, CSV, and Markdown via Docling or the lightweight PyPDFium backend.
-- **Four OCR backends** — Docling + RapidOCR (default), DeepSeek-OCR (vLLM), DeepSeek-OCR v2 (MLX/MPS), and MinerU (magic-pdf). Pick the one that fits your GPU and accuracy needs.
+- **Six OCR backends** — Docling + RapidOCR (default), DeepSeek-OCR (vLLM), DeepSeek-OCR v2 (MLX/MPS), GLM-OCR (MLX/MPS), OlmOCR-2 (vLLM/MLX), and MinerU (magic-pdf). Pick the one that fits your GPU and accuracy needs.
 - **Rust-powered quality metrics** — Two Rust crates (`glossapi_rs_cleaner` for mojibake/noise cleaning, `glossapi_rs_noise` for quality scoring) keep Markdown quality predictable and fast.
 - **Greek-first design** — Metadata handling and section classification are tuned for academic Greek corpora, but the pipeline works for any language.
 - **Resumable & modular** — Phase methods respect skiplists and metadata parquet state, so you can resume from any stage or cherry-pick phases in custom scripts.
@@ -73,7 +73,7 @@ corpus.jsonl_sharded(                        # Phase 6 — Export
 | Download | `corpus.download()` | Fetch PDFs from a URL parquet (resume-aware, parallel scheduler grouping). |
 | Extract | `corpus.extract()` | Convert documents to Markdown. Backends: `"safe"` (PyPDFium), `"docling"`, or `"auto"`. Supports PDF, DOCX, HTML, XML/JATS, PPTX, CSV, MD. |
 | Clean | `corpus.clean()` | Rust-powered cleaning and mojibake detection. Sets `needs_ocr` flag in metadata. |
-| OCR / Math | `corpus.ocr()` | Re-OCR bad documents and/or enrich math. Backends: `"rapidocr"`, `"deepseek"`, `"deepseek-ocr-2"`, `"mineru"`. |
+| OCR / Math | `corpus.ocr()` | Re-OCR bad documents and/or enrich math. Backends: `"rapidocr"`, `"deepseek"`, `"deepseek-ocr-2"`, `"glm-ocr"`, `"olmocr"`, `"mineru"`. |
 | Section | `corpus.section()` | Extract sections from Markdown into a structured Parquet. |
 | Annotate | `corpus.annotate()` | Classify sections with a pre-trained model. Modes: `"text"`, `"chapter"`, `"auto"`. |
 | Export | `corpus.jsonl()` / `corpus.jsonl_sharded()` | Produce JSONL (optionally zstd-compressed shards) with merged metadata. |
@@ -87,6 +87,8 @@ A convenience method `corpus.process_all()` chains extract → section → annot
 | **RapidOCR** | `backend="rapidocr"` | CUDA / MPS / CPU | Separate math enrichment from Docling JSON | Default. Docling + RapidOCR ONNX stack. |
 | **DeepSeek** | `backend="deepseek"` | CUDA (vLLM) | Inline (equations embedded in OCR output) | Requires DeepSeek-OCR weights + vLLM. |
 | **DeepSeek v2** | `backend="deepseek-ocr-2"` | MPS (MLX) | Inline (equations embedded in OCR output) | Requires MLX-formatted DeepSeek-OCR v2 weights. |
+| **GLM-OCR** | `backend="glm-ocr"` | MPS (MLX) | Inline (equations embedded in OCR output) | Lightweight 0.5B VLM on Apple Silicon. |
+| **OlmOCR-2** | `backend="olmocr"` | CUDA (vLLM) / MPS (MLX) | Inline (equations embedded in OCR output) | High-accuracy VLM-based OCR. |
 | **MinerU** | `backend="mineru"` | CUDA / MPS / CPU | Inline (equations embedded in OCR output) | Wraps the external `magic-pdf` CLI. |
 
 ## Unified CLI
@@ -101,7 +103,7 @@ glossapi            # No subcommand → launches the pipeline wizard
 
 **Pipeline wizard** — Arrow-key driven phase selection with checkboxes, per-phase confirmation, optional JSONL export. Preset profiles: "Lightweight PDF smoke test", "MinerU demo", "Custom".
 
-**Setup wizard** — Detects OS and available Python versions, prompts for mode (vanilla / rapidocr / mineru / deepseek / deepseek-ocr-2), virtualenv path, optional model downloads, and post-install tests.
+**Setup wizard** — Detects OS and available Python versions, prompts for mode (vanilla / rapidocr / mineru / deepseek / deepseek-ocr-2 / glm-ocr / olmocr), virtualenv path, optional model downloads, and post-install tests.
 
 **Prerequisite:** Install [gum](https://github.com/charmbracelet/gum) for the interactive prompts (the CLI falls back to plain TTY prompts if gum is unavailable).
 
@@ -120,7 +122,7 @@ This script provisions the selected profile, sources the virtualenv, and launche
 | Scenario | Commands | Notes |
 | --- | --- | --- |
 | Pip users | `pip install glossapi` | Fast vanilla evaluation with minimal dependencies. |
-| Mode automation (recommended) | `./dependency_setup/setup_glossapi.sh --mode {vanilla\|rapidocr\|deepseek\|deepseek-ocr-2\|mineru}` | Creates an isolated venv per mode, installs Rust crates, and can run the relevant pytest subset. |
+| Mode automation (recommended) | `./dependency_setup/setup_glossapi.sh --mode {vanilla\|rapidocr\|deepseek\|deepseek-ocr-2\|glm-ocr\|olmocr\|mineru}` | Creates an isolated venv per mode, installs Rust crates, and can run the relevant pytest subset. |
 | Manual editable install | `pip install -e .` after cloning | Keep this if you prefer to manage dependencies by hand. |
 | Optional extras | `pip install glossapi[rapidocr]` / `[cuda]` / `[deepseek]` / `[docs]` | Install specific optional dependency groups only. |
 
@@ -157,6 +159,20 @@ Use `dependency_setup/setup_glossapi.sh` to provision a virtualenv with the righ
   --venv dependency_setup/.venvs/mineru \
   --download-mineru-models \
   --run-tests
+
+# GLM-OCR mode (MLX/MPS, macOS Apple Silicon)
+./dependency_setup/setup_glossapi.sh \
+  --mode glm-ocr \
+  --venv dependency_setup/.venvs/glm-ocr \
+  --download-glmocr \
+  --run-tests
+
+# OlmOCR-2 mode (CUDA or MLX/MPS)
+./dependency_setup/setup_glossapi.sh \
+  --mode olmocr \
+  --venv dependency_setup/.venvs/olmocr \
+  --download-olmocr \
+  --run-tests
 ```
 
 The setup script auto-detects Python (preferring 3.12 → 3.11 → 3.13), installs Rust extensions in editable mode, and supports `--run-tests` / `--smoke-test` for post-install validation. Check `dependency_setup/dependency_notes.md` for the latest pins and caveats.
@@ -164,6 +180,10 @@ The setup script auto-detects Python (preferring 3.12 → 3.11 → 3.13), instal
 Pass `--download-deepseek` to fetch DeepSeek weights automatically; otherwise set `GLOSSAPI_WEIGHTS_ROOT` so the pipeline finds weights at `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr`.
 
 Pass `--download-deepseek-ocr2` to fetch DeepSeek OCR v2 weights from `mlx-community/DeepSeek-OCR-2-8bit` into `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr-mlx`.
+
+Pass `--download-glmocr` to fetch GLM-OCR MLX weights from `mlx-community/GLM-OCR-4bit` into `$GLOSSAPI_WEIGHTS_ROOT/glm-ocr-mlx`.
+
+Pass `--download-olmocr` to fetch OlmOCR weights into `$GLOSSAPI_WEIGHTS_ROOT/olmocr`.
 
 <details>
 <summary><strong>DeepSeek runtime checklist</strong></summary>
@@ -246,7 +266,7 @@ output_dir/
 | --- | --- |
 | `src/glossapi/` | Core library — Corpus orchestrator, phase mixins, OCR backends, Docling integration. |
 | `src/glossapi/corpus/` | Phase implementations: `phase_download.py`, `phase_extract.py`, `phase_clean.py`, `phase_ocr_math.py`, `phase_sections.py`, `phase_annotate.py`, `phase_export.py`. |
-| `src/glossapi/ocr/` | OCR backend wrappers: `rapidocr/`, `deepseek/`, `mineru/`, `math/`, `utils/`. |
+| `src/glossapi/ocr/` | OCR backend wrappers: `rapidocr/`, `deepseek/`, `deepseek_ocr2/`, `glm_ocr/`, `olmocr/`, `mineru/`, `math/`, `utils/`. |
 | `rust/` | Rust crates: `glossapi_rs_cleaner`, `glossapi_rs_noise`. |
 | `samples/lightweight_pdf_corpus/` | Synthetic PDFs with manifest + expected outputs for smoke tests. |
 | `tests/` | pytest suite — `test_pipeline_smoke.py` for quick checks, plus per-feature tests. |

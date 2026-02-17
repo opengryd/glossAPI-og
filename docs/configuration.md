@@ -19,11 +19,12 @@ All model weights are stored under a single root directory controlled by `GLOSSA
 model_weights/              # $GLOSSAPI_WEIGHTS_ROOT
 ├── deepseek-ocr/           # DeepSeek CUDA weights
 ├── deepseek-ocr-mlx/       # DeepSeek OCR v2 MLX weights
+├── glm-ocr-mlx/            # GLM-OCR MLX weights
 ├── olmocr-mlx/             # OlmOCR-2 MLX weights
 └── mineru/                 # MinerU PDF-Extract-Kit models
 ```
 
-Individual backend directories can be overridden with their respective env vars (e.g. `GLOSSAPI_DEEPSEEK_MODEL_DIR`, `GLOSSAPI_DEEPSEEK2_MODEL_DIR`, `GLOSSAPI_OLMOCR_MLX_MODEL_DIR`) for advanced use cases. When set, they take precedence over the weights root convention. In most setups only `GLOSSAPI_WEIGHTS_ROOT` is needed.
+Individual backend directories can be overridden with their respective env vars (e.g. `GLOSSAPI_DEEPSEEK_MODEL_DIR`, `GLOSSAPI_DEEPSEEK2_MODEL_DIR`, `GLOSSAPI_GLMOCR_MODEL_DIR`, `GLOSSAPI_OLMOCR_MLX_MODEL_DIR`) for advanced use cases. When set, they take precedence over the weights root convention. In most setups only `GLOSSAPI_WEIGHTS_ROOT` is needed.
 
 ## OCR & Parsing
 
@@ -96,6 +97,29 @@ Run the preflight checker to validate your CLI, config, device, and model paths:
 
 ```bash
 python -m glossapi.ocr.mineru.preflight
+```
+
+### GLM-OCR runtime controls
+
+GLM-OCR is a compact 0.5B VLM for document OCR, running on Apple Silicon via MLX.
+
+- `GLOSSAPI_GLMOCR_ALLOW_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
+- `GLOSSAPI_GLMOCR_ALLOW_CLI` (`0` by default): flip to `1` to run the GLM-OCR MLX CLI subprocess.
+- `GLOSSAPI_GLMOCR_PYTHON`: Python executable for the GLM-OCR venv.
+- `GLOSSAPI_GLMOCR_MODEL_DIR`: local model weights directory (takes precedence over HF model ID).
+- `GLOSSAPI_GLMOCR_MLX_MODEL`: HuggingFace MLX model identifier (default `mlx-community/GLM-OCR-4bit`).
+- `GLOSSAPI_GLMOCR_MLX_SCRIPT`: path to the MLX CLI inference script for subprocess execution.
+- `GLOSSAPI_GLMOCR_DEVICE`: device override (`mps`, `cpu`); auto-detected if unset.
+
+On macOS, the runner tries in-process MLX first (if `mlx_vlm` is importable), then
+the MLX CLI subprocess, then the stub.
+
+#### GLM-OCR doctor checks
+
+Run the preflight checker to validate your environment:
+
+```bash
+python -m glossapi.ocr.glm_ocr.preflight
 ```
 
 ### OlmOCR-2 runtime controls

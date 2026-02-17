@@ -127,7 +127,7 @@ ocr(
 
 - All parameters are **keyword-only**.
 - Convenience shim that re‑runs `extract(force_ocr=True)` on cleaner-flagged documents and, by default, performs math/code enrichment unless `math_enhance=False`.
-- `backend`: one of `'rapidocr'` (default), `'deepseek'`, `'deepseek-ocr-2'`, `'mineru'`.
+- `backend`: one of `'rapidocr'` (default), `'deepseek'`, `'deepseek-ocr-2'`, `'glm-ocr'`, `'olmocr'`, `'mineru'`.
 - `mineru_backend`: override for MinerU's internal backend selection.
 - `mode`: explicit mode selection — `'ocr_bad'`, `'math_only'`, or `'ocr_bad_then_math'`. If omitted, inferred from `fix_bad`/`math_enhance`.
 - `reprocess_completed`: re-process files that have already been marked as done.
