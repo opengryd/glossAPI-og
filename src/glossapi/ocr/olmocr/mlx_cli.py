@@ -108,18 +108,52 @@ def load_model_and_processor(model_path: Path) -> tuple:
         return model, processor
 
 
+def _try_hf_cache(model_id: str) -> Optional[Path]:
+    """Check whether *model_id* already exists in the HuggingFace Hub cache.
+
+    Returns the snapshot directory if found, otherwise ``None``.
+    """
+    try:
+        from huggingface_hub import scan_cache_dir
+
+        cache_info = scan_cache_dir()
+        for repo in cache_info.repos:
+            if repo.repo_id == model_id and repo.repo_type == "model":
+                # Pick the most recent revision
+                revisions = sorted(
+                    repo.revisions,
+                    key=lambda r: r.last_modified,
+                    reverse=True,
+                )
+                if revisions:
+                    snap = revisions[0].snapshot_path
+                    # Sanity: the snapshot must contain at least one safetensors
+                    if any(snap.glob("*.safetensors")):
+                        return snap
+    except Exception:
+        pass
+    return None
+
+
 def resolve_model_dir(model_dir: Optional[str] = None) -> Path:
-    """Resolve the model directory: env var > explicit arg > weights root > HuggingFace download.
+    """Resolve the model directory: env var > explicit arg > weights root > HF cache > download.
 
     Priority:
     1. ``GLOSSAPI_OLMOCR_MLX_MODEL_DIR`` environment variable
     2. *model_dir* argument (local path or HuggingFace repo id)
     3. ``GLOSSAPI_WEIGHTS_ROOT/olmocr-mlx/`` if present on disk
-    4. ``GLOSSAPI_OLMOCR_MLX_MODEL`` env var as HuggingFace repo id
-    5. Auto-download from ``mlx-community/olmOCR-2-7B-1025-4bit``
+    4. HuggingFace Hub cache (already-downloaded snapshot)
+    5. ``GLOSSAPI_OLMOCR_MLX_MODEL`` env var as HuggingFace repo id
+    6. Auto-download from ``mlx-community/olmOCR-2-7B-1025-4bit``
+
+    When downloading, if ``GLOSSAPI_WEIGHTS_ROOT`` is set the model is saved
+    directly into ``<root>/olmocr-mlx/`` so that subsequent runs resolve at
+    step 3 without network access.
     """
     from huggingface_hub import snapshot_download
     from glossapi.ocr.utils.weights import resolve_weights_dir
+
+    log = logging.getLogger(__name__)
 
     env_dir = (os.getenv("GLOSSAPI_OLMOCR_MLX_MODEL_DIR") or "").strip()
     if env_dir:
@@ -141,10 +175,22 @@ def resolve_model_dir(model_dir: Optional[str] = None) -> Path:
             os.getenv("GLOSSAPI_OLMOCR_MLX_MODEL", "").strip() or DEFAULT_MODEL_ID
         )
 
-    print(f"Downloading model: {model_id}")
-    local_dir = snapshot_download(
-        repo_id=model_id,
-        allow_patterns=[
+    # Check HuggingFace Hub cache before triggering a download
+    cached = _try_hf_cache(model_id)
+    if cached is not None:
+        log.info("OlmOCR MLX model found in HF cache: %s", cached)
+        return cached
+
+    # Determine download destination — prefer explicit env var, then
+    # the project-default <repo>/model_weights/.
+    from glossapi.ocr.utils.weights import default_weights_root
+
+    weights_root_env = (os.getenv("GLOSSAPI_WEIGHTS_ROOT") or "").strip()
+    weights_root = Path(weights_root_env) if weights_root_env else default_weights_root()
+
+    download_kwargs: dict[str, Any] = {
+        "repo_id": model_id,
+        "allow_patterns": [
             "*.json",
             "*.safetensors",
             "*.py",
@@ -153,7 +199,18 @@ def resolve_model_dir(model_dir: Optional[str] = None) -> Path:
             "*.txt",
             "*.jinja",
         ],
-    )
+    }
+    if weights_root is not None:
+        # Download directly into the stable weights directory so
+        # resolve_weights_dir() finds it on the next run.
+        local_target = weights_root / "olmocr-mlx"
+        local_target.mkdir(parents=True, exist_ok=True)
+        download_kwargs["local_dir"] = str(local_target)
+        print(f"Downloading model: {model_id} → {local_target}")
+    else:
+        print(f"Downloading model: {model_id}")
+
+    local_dir = snapshot_download(**download_kwargs)
     return Path(local_dir)
 
 
