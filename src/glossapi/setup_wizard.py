@@ -18,7 +18,7 @@ console = Console()
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
-MODE_CHOICES = ["vanilla", "rapidocr", "mineru", "deepseek", "deepseek-ocr-2", "glm-ocr", "olmocr"]
+MODE_CHOICES = ["vanilla", "rapidocr", "mineru", "deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "olmocr"]
 SIMPLE_PROMPTS = os.environ.get("GLOSSAPI_SETUP_SIMPLE", "0") == "1"
 
 
@@ -230,7 +230,7 @@ def _run_setup(
     venv: Path,
     *,
     python_bin: str,
-    download_deepseek: bool,
+    download_deepseek_ocr: bool,
     download_deepseek_ocr2: bool,
     download_glmocr: bool,
     download_olmocr: bool,
@@ -247,8 +247,8 @@ def _run_setup(
         raise typer.Exit(code=1)
 
     args = ["bash", str(script), "--mode", mode, "--venv", str(venv), "--python", python_bin]
-    if download_deepseek:
-        args.append("--download-deepseek")
+    if download_deepseek_ocr:
+        args.append("--download-deepseek-ocr")
     if download_deepseek_ocr2:
         args.append("--download-deepseek-ocr2")
     if download_glmocr:
@@ -277,10 +277,10 @@ def _run_setup(
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    mode: Optional[str] = typer.Option(None, help="Profile: vanilla/rapidocr/mineru/deepseek/deepseek-ocr-2/glm-ocr/olmocr."),
+    mode: Optional[str] = typer.Option(None, help="Profile: vanilla/rapidocr/mineru/deepseek-ocr/deepseek-ocr-2/glm-ocr/olmocr."),
     venv: Optional[str] = typer.Option(None, help="Path to the target virtualenv."),
     python: Optional[str] = typer.Option(None, help="Python executable to use (3.11–3.13)."),
-    download_deepseek: bool = typer.Option(False, help="Download DeepSeek weights."),
+    download_deepseek_ocr: bool = typer.Option(False, help="Download DeepSeek OCR weights."),
     download_deepseek_ocr2: bool = typer.Option(False, help="Download DeepSeek OCR v2 weights."),
     download_glmocr: bool = typer.Option(False, help="Download GLM-OCR MLX weights."),
     download_olmocr: bool = typer.Option(False, help="Download OlmOCR weights."),
@@ -300,9 +300,9 @@ def main(
     selected_venv = _ask_venv(venv)
     selected_python = _ask_python(python)
 
-    if selected_mode == "deepseek" and not download_deepseek:
-        download_deepseek = _ask_bool(
-            "Download DeepSeek weights now? (skip for faster setup)",
+    if selected_mode == "deepseek-ocr" and not download_deepseek_ocr:
+        download_deepseek_ocr = _ask_bool(
+            "Download DeepSeek OCR weights now? (skip for faster setup)",
             default=False,
         )
     if selected_mode == "deepseek-ocr-2" and not download_deepseek_ocr2:
@@ -355,14 +355,14 @@ def main(
         )
     if not run_tests:
         run_tests = _ask_bool("Run tests after setup? (slower)", default=False)
-    if selected_mode == "deepseek" and not smoke_test:
-        smoke_test = _ask_bool("Run DeepSeek smoke test? (requires GPU)", default=False)
+    if selected_mode == "deepseek-ocr" and not smoke_test:
+        smoke_test = _ask_bool("Run DeepSeek OCR smoke test? (requires GPU)", default=False)
 
     _run_setup(
         selected_mode,
         selected_venv,
         python_bin=selected_python,
-        download_deepseek=download_deepseek,
+        download_deepseek_ocr=download_deepseek_ocr,
         download_deepseek_ocr2=download_deepseek_ocr2,
         download_glmocr=download_glmocr,
         download_olmocr=download_olmocr,

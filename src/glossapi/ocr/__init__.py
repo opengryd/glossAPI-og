@@ -11,7 +11,7 @@ from __future__ import annotations
 import importlib
 
 __all__ = [
-    "deepseek",
+    "deepseek_ocr",
     "deepseek_ocr2",
     "glm_ocr",
     "mineru",
@@ -19,7 +19,7 @@ __all__ = [
     "rapidocr",
     "math",
     "utils",
-    "deepseek_runner",
+    "deepseek_ocr_runner",
     "deepseek_ocr2_runner",
     "glm_ocr_runner",
     "mineru_runner",
@@ -27,9 +27,9 @@ __all__ = [
     "rapidocr_dispatch",
 ]
 
-_SUBPACKAGES = {"deepseek", "deepseek_ocr2", "glm_ocr", "mineru", "olmocr", "rapidocr", "math", "utils"}
+_SUBPACKAGES = {"deepseek_ocr", "deepseek_ocr2", "glm_ocr", "mineru", "olmocr", "rapidocr", "math", "utils"}
 _ALIASES = {
-    "deepseek_runner": "glossapi.ocr.deepseek.runner",
+    "deepseek_ocr_runner": "glossapi.ocr.deepseek_ocr.runner",
     "deepseek_ocr2_runner": "glossapi.ocr.deepseek_ocr2.runner",
     "glm_ocr_runner": "glossapi.ocr.glm_ocr.runner",
     "mineru_runner": "glossapi.ocr.mineru.runner",

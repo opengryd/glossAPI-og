@@ -412,7 +412,7 @@ def _run_vllm_cli(
             env["PATH"] = f"{candidate.parent}:{env.get('PATH', '')}"
             break
     # Propagate CUDA runtime library path for subprocess venvs that can't
-    # find libcudart on their own (mirrors GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH).
+    # find libcudart on their own (mirrors GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH).
     ld_path = env.get("GLOSSAPI_OLMOCR_LD_LIBRARY_PATH", "").strip()
     if ld_path:
         env["LD_LIBRARY_PATH"] = f"{ld_path}:{env.get('LD_LIBRARY_PATH', '')}"

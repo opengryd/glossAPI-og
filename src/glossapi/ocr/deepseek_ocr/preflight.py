@@ -56,26 +56,26 @@ def _ensure_path(path: Path, label: str, errors: List[CheckResult]) -> Optional[
     return path
 
 
-def check_deepseek_env(
+def check_deepseek_ocr_env(
     env: Optional[Dict[str, str]] = None,
     *,
     check_flashinfer: bool = True,
 ) -> PreflightReport:
-    """Validate DeepSeek CLI prerequisites without running the model."""
+    """Validate DeepSeek OCR CLI prerequisites without running the model."""
 
     env = dict(env or os.environ)
     errors: List[CheckResult] = []
     warnings: List[CheckResult] = []
     infos: List[CheckResult] = []
 
-    allow_cli = env.get("GLOSSAPI_DEEPSEEK_ALLOW_CLI", "0") == "1"
-    allow_stub = env.get("GLOSSAPI_DEEPSEEK_ALLOW_STUB", "1") == "1"
+    allow_cli = env.get("GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI", "0") == "1"
+    allow_stub = env.get("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "1") == "1"
     if not allow_cli:
         warnings.append(
             CheckResult(
                 "allow_cli",
                 False,
-                "Set GLOSSAPI_DEEPSEEK_ALLOW_CLI=1 to force the real CLI.",
+                "Set GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI=1 to force the real CLI.",
             )
         )
     if allow_stub:
@@ -83,19 +83,19 @@ def check_deepseek_env(
             CheckResult(
                 "allow_stub",
                 False,
-                "Set GLOSSAPI_DEEPSEEK_ALLOW_STUB=0 to fail instead of falling back to stub output.",
+                "Set GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0 to fail instead of falling back to stub output.",
             )
         )
 
-    script = Path(env.get("GLOSSAPI_DEEPSEEK_VLLM_SCRIPT") or DEFAULT_SCRIPT)
+    script = Path(env.get("GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT") or DEFAULT_SCRIPT)
     _ensure_path(script, "vllm_script", errors)
 
-    python_bin = Path(env.get("GLOSSAPI_DEEPSEEK_TEST_PYTHON") or sys.executable)
-    _ensure_path(python_bin, "deepseek_python", errors)
+    python_bin = Path(env.get("GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON") or sys.executable)
+    _ensure_path(python_bin, "deepseek_ocr_python", errors)
 
     raw_model_dir = (
-        env.get("GLOSSAPI_DEEPSEEK_TEST_MODEL_DIR")
-        or env.get("GLOSSAPI_DEEPSEEK_MODEL_DIR")
+        env.get("GLOSSAPI_DEEPSEEK_OCR_TEST_MODEL_DIR")
+        or env.get("GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR")
         or ""
     ).strip()
     if not raw_model_dir:
@@ -110,7 +110,7 @@ def check_deepseek_env(
             CheckResult(
                 "model_dir",
                 False,
-                "No GLOSSAPI_DEEPSEEK_MODEL_DIR or GLOSSAPI_WEIGHTS_ROOT configured.",
+                "No GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR or GLOSSAPI_WEIGHTS_ROOT configured.",
             )
         )
     if model_dir:
@@ -125,7 +125,7 @@ def check_deepseek_env(
                 )
             )
 
-    ld_path_env = env.get("GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH")
+    ld_path_env = env.get("GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH")
     lib_dir = Path(ld_path_env) if ld_path_env else DEFAULT_LIB_DIR
     _ensure_path(lib_dir, "ld_library_path", errors)
 
@@ -153,7 +153,7 @@ def check_deepseek_env(
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
-    report = check_deepseek_env()
+    report = check_deepseek_ocr_env()
     summary = report.summarize()
     if summary:
         print(summary)

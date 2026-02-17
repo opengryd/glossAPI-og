@@ -63,7 +63,7 @@ def _run_cli(
         for candidate in sorted(Path("/usr/lib/gcc/x86_64-linux-gnu").glob("*/cc1plus")):
             env["PATH"] = f"{candidate.parent}:{env.get('PATH','')}"
             break
-    ld_path = env.get("GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH")
+    ld_path = env.get("GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH")
     if ld_path:
         env["LD_LIBRARY_PATH"] = f"{ld_path}:{env.get('LD_LIBRARY_PATH','')}"
 
@@ -131,22 +131,22 @@ def run_for_files(
     md_dir.mkdir(parents=True, exist_ok=True)
     metrics_dir.mkdir(parents=True, exist_ok=True)
 
-    env_allow_stub = os.environ.get("GLOSSAPI_DEEPSEEK_ALLOW_STUB", "1") == "1"
-    env_allow_cli = os.environ.get("GLOSSAPI_DEEPSEEK_ALLOW_CLI", "0") == "1"
+    env_allow_stub = os.environ.get("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "1") == "1"
+    env_allow_cli = os.environ.get("GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI", "0") == "1"
 
     use_cli = allow_cli or env_allow_cli
     use_stub = allow_stub and env_allow_stub
 
     script_path = Path(vllm_script) if vllm_script else Path.cwd() / "deepseek-ocr" / "run_pdf_ocr_vllm.py"
     # Optional GPU memory utilization override (env wins over kwarg)
-    env_gpu_mem = os.environ.get("GLOSSAPI_DEEPSEEK_GPU_MEMORY_UTILIZATION")
+    env_gpu_mem = os.environ.get("GLOSSAPI_DEEPSEEK_OCR_GPU_MEMORY_UTILIZATION")
     gpu_mem_fraction = gpu_memory_utilization
     if env_gpu_mem:
         try:
             gpu_mem_fraction = float(env_gpu_mem)
         except Exception:
             gpu_mem_fraction = gpu_memory_utilization
-        disable_fp8_kv = disable_fp8_kv or os.environ.get("GLOSSAPI_DEEPSEEK_NO_FP8_KV") == "1"
+        disable_fp8_kv = disable_fp8_kv or os.environ.get("GLOSSAPI_DEEPSEEK_OCR_NO_FP8_KV") == "1"
 
     if use_cli and script_path.exists():
         try:

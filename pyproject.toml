@@ -57,7 +57,7 @@ cuda = [
 # DeepSeek OCR backend extras (CUDA 12.1 build of vLLM). Torch is not pinned here
 # because users should install the CUDA wheel from the PyTorch index
 # (see docs: installing torch==2.5.1+cu121 via extra index URL).
-deepseek = [
+deepseek-ocr = [
     "vllm>=0.11.0",
     "transformers>=4.45,<5",
     "accelerate>=1.2.1,<2",
@@ -88,5 +88,5 @@ python-packages = [
 [tool.pytest.ini_options]
 markers = [
     "rapidocr: requires the RapidOCR/Docling execution stack",
-    "deepseek: exercises the DeepSeek OCR pipeline",
+    "deepseek_ocr: exercises the DeepSeek OCR pipeline",
 ]
