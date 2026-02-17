@@ -5,7 +5,7 @@ Minimal DeepSeek OCR integration smoke test.
 This script runs the GlossAPI DeepSeek backend on a tiny sample PDF and
 verifies that real Markdown output is produced. It requires the DeepSeek-OCR
 weights to be available under ``../deepseek-ocr/DeepSeek-OCR`` relative to
-the repository root (override via ``DEEPSEEK_MODEL_DIR``).
+the repository root (override via ``DEEPSEEK_OCR_MODEL_DIR``).
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def ensure_model_available(model_root: Path) -> None:
         raise FileNotFoundError(
             f"Expected DeepSeek-OCR weights at {expected}. "
             "Download the checkpoint (huggingface.co/deepseek-ai/DeepSeek-OCR) "
-            "or set DEEPSEEK_MODEL_DIR to the directory that contains them."
+            "or set DEEPSEEK_OCR_MODEL_DIR to the directory that contains them."
         )
 
 
@@ -67,26 +67,26 @@ def run_smoke(model_root: Path) -> None:
         parquet_path = dl_dir / "download_results.parquet"
         df.to_parquet(parquet_path, index=False)
 
-        os.environ.setdefault("GLOSSAPI_DEEPSEEK_ALLOW_STUB", "0")
+        os.environ.setdefault("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "0")
         os.environ.setdefault(
-            "GLOSSAPI_DEEPSEEK_VLLM_SCRIPT",
+            "GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT",
             str(model_root / "run_pdf_ocr_vllm.py"),
         )
         os.environ.setdefault(
-            "GLOSSAPI_DEEPSEEK_PYTHON",
+            "GLOSSAPI_DEEPSEEK_OCR_PYTHON",
             sys.executable,
         )
-        ld_extra = os.environ.get("GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH") or str(
+        ld_extra = os.environ.get("GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH") or str(
             model_root / "libjpeg-turbo" / "lib"
         )
-        os.environ["GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH"] = ld_extra
+        os.environ["GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH"] = ld_extra
         os.environ["LD_LIBRARY_PATH"] = (
             f"{ld_extra}:{os.environ.get('LD_LIBRARY_PATH','')}".rstrip(":")
         )
 
         corpus = Corpus(input_dir=input_dir, output_dir=output_dir)
         corpus.ocr(
-            backend="deepseek",
+            backend="deepseek-ocr",
             fix_bad=True,
             math_enhance=False,
             reprocess_completed=True,
@@ -94,13 +94,13 @@ def run_smoke(model_root: Path) -> None:
 
         md_path = output_dir / "markdown" / (sample_pdf.stem + ".md")
         if not md_path.exists():
-            raise RuntimeError(f"DeepSeek OCR did not produce {md_path}")
+            raise RuntimeError(f"DeepSeek-OCR did not produce {md_path}")
         if not md_path.read_text(encoding="utf-8").strip():
-            raise RuntimeError(f"DeepSeek Markdown output is empty: {md_path}")
+            raise RuntimeError(f"DeepSeek-OCR Markdown output is empty: {md_path}")
 
 
 def main() -> None:
-    model_dir_env = os.environ.get("DEEPSEEK_MODEL_DIR")
+    model_dir_env = os.environ.get("DEEPSEEK_OCR_MODEL_DIR")
     if model_dir_env:
         model_root = Path(model_dir_env).expanduser().resolve()
     else:

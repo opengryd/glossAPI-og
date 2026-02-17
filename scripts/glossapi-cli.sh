@@ -14,7 +14,7 @@ cat <<'EOF'
 
 	Welcome to GlossAPI CLI
 	Unified setup + pipeline launcher for the academic PDF processing toolkit.
-	Profiles: vanilla, RapidOCR, MinerU, DeepSeek, DeepSeek OCR v2, GLM-OCR, OlmOCR-2
+	Profiles: vanilla, RapidOCR, MinerU, DeepSeek OCR, DeepSeek OCR v2, GLM-OCR, OlmOCR-2
 
 EOF
 PYTHON_BIN="${PYTHON:-}"
@@ -264,7 +264,7 @@ run_setup_wizard_interactive() {
 		"vanilla (Core pipeline; fastest setup)"
 		"rapidocr (Docling + RapidOCR GPU stack)"
 		"mineru (External magic-pdf CLI + models)"
-		"deepseek (DeepSeek OCR; heaviest GPU stack)"
+		"deepseek-ocr (DeepSeek OCR; heaviest GPU stack)"
 		"deepseek-ocr-2 (DeepSeek OCR v2 MLX/MPS)"
 		"glm-ocr (GLM-OCR 0.5B VLM; MLX/MPS)"
 		"olmocr (OlmOCR-2 VLM OCR; CUDA or MLX/MPS)"
@@ -315,7 +315,7 @@ run_setup_wizard_interactive() {
 	local selected_venv
 	selected_venv="$(gum_input "Virtualenv path" "${default_venv}")"
 
-	local download_deepseek=0
+	local download_deepseek_ocr=0
 	local download_deepseek_ocr2=0
 	local download_glmocr=0
 	local download_olmocr=0
@@ -326,8 +326,8 @@ run_setup_wizard_interactive() {
 	local detectron2_auto_install=0
 	local detectron2_wheel_url=""
 
-	if [[ "${selected_mode}" == "deepseek" ]]; then
-		gum_confirm "Download DeepSeek weights now?" 0 && download_deepseek=1 || download_deepseek=0
+	if [[ "${selected_mode}" == "deepseek-ocr" ]]; then
+		gum_confirm "Download DeepSeek OCR weights now?" 0 && download_deepseek_ocr=1 || download_deepseek_ocr=0
 	fi
 
 	if [[ "${selected_mode}" == "deepseek-ocr-2" ]]; then
@@ -349,7 +349,7 @@ run_setup_wizard_interactive() {
 	fi
 
 	# Prompt for a shared weights root when any download is requested
-	if [[ "${download_deepseek}" == "1" || "${download_deepseek_ocr2}" == "1" || "${download_glmocr}" == "1" || "${download_olmocr}" == "1" ]]; then
+	if [[ "${download_deepseek_ocr}" == "1" || "${download_deepseek_ocr2}" == "1" || "${download_glmocr}" == "1" || "${download_olmocr}" == "1" ]]; then
 		weights_root="$(gum_input "Model weights root dir" "${ROOT_DIR}/model_weights")"
 	fi
 
@@ -362,16 +362,16 @@ run_setup_wizard_interactive() {
 	fi
 
 	gum_confirm "Run tests after setup?" 0 && run_tests=1 || run_tests=0
-	if [[ "${selected_mode}" == "deepseek" ]]; then
-		gum_confirm "Run DeepSeek smoke test?" 0 && smoke_test=1 || smoke_test=0
+	if [[ "${selected_mode}" == "deepseek-ocr" ]]; then
+		gum_confirm "Run DeepSeek OCR smoke test?" 0 && smoke_test=1 || smoke_test=0
 	fi
 
 	local args=("--mode" "${selected_mode}" "--venv" "${selected_venv}" "--python" "${selected_python}")
 	if [[ -n "${weights_root}" ]]; then
 		args+=("--weights-root" "${weights_root}")
 	fi
-	if [[ "${download_deepseek}" == "1" ]]; then
-		args+=("--download-deepseek")
+	if [[ "${download_deepseek_ocr}" == "1" ]]; then
+		args+=("--download-deepseek-ocr")
 	fi
 	if [[ "${download_deepseek_ocr2}" == "1" ]]; then
 		args+=("--download-deepseek-ocr2")
@@ -447,7 +447,7 @@ PY
 }
 
 run_setup_flow() {
-	if [[ -z "${MODE}" && -z "${VENV_DIR}" && -z "${DOWNLOAD_MINERU_MODELS}" && -z "${DOWNLOAD_DEEPSEEK}" && -z "${DOWNLOAD_DEEPSEEK_OCR2}" && -z "${DOWNLOAD_GLMOCR}" && -z "${DOWNLOAD_OLMOCR}" && -z "${WEIGHTS_ROOT}" && -z "${RUN_TESTS}" && -z "${SMOKE_TEST}" ]]; then
+	if [[ -z "${MODE}" && -z "${VENV_DIR}" && -z "${DOWNLOAD_MINERU_MODELS}" && -z "${DOWNLOAD_DEEPSEEK_OCR}" && -z "${DOWNLOAD_DEEPSEEK_OCR2}" && -z "${DOWNLOAD_GLMOCR}" && -z "${DOWNLOAD_OLMOCR}" && -z "${WEIGHTS_ROOT}" && -z "${RUN_TESTS}" && -z "${SMOKE_TEST}" ]]; then
 		if ! have_gum; then
 			echo "gum is required for the interactive setup. Install it and re-run." >&2
 			exit 1
@@ -479,8 +479,8 @@ run_setup_flow() {
 			args+=("--weights-root" "${WEIGHTS_ROOT}")
 		fi
 
-		if [[ "${MODE}" == "deepseek" && "${DOWNLOAD_DEEPSEEK}" == "1" ]]; then
-			args+=("--download-deepseek")
+		if [[ "${MODE}" == "deepseek-ocr" && "${DOWNLOAD_DEEPSEEK_OCR}" == "1" ]]; then
+			args+=("--download-deepseek-ocr")
 		fi
 
 		if [[ "${MODE}" == "deepseek-ocr-2" && "${DOWNLOAD_DEEPSEEK_OCR2}" == "1" ]]; then
@@ -503,7 +503,7 @@ run_setup_flow() {
 			args+=("--run-tests")
 		fi
 
-		if [[ "${MODE}" == "deepseek" && "${SMOKE_TEST}" == "1" ]]; then
+		if [[ "${MODE}" == "deepseek-ocr" && "${SMOKE_TEST}" == "1" ]]; then
 			args+=("--smoke-test")
 		fi
 
@@ -515,7 +515,7 @@ run_setup_flow() {
 MODE="${MODE:-}"
 VENV_DIR="${VENV_DIR:-}"
 DOWNLOAD_MINERU_MODELS="${DOWNLOAD_MINERU_MODELS:-}"
-DOWNLOAD_DEEPSEEK="${DOWNLOAD_DEEPSEEK:-}"
+DOWNLOAD_DEEPSEEK_OCR="${DOWNLOAD_DEEPSEEK_OCR:-}"
 DOWNLOAD_DEEPSEEK_OCR2="${DOWNLOAD_DEEPSEEK_OCR2:-}"
 DOWNLOAD_GLMOCR="${DOWNLOAD_GLMOCR:-}"
 DOWNLOAD_OLMOCR="${DOWNLOAD_OLMOCR:-}"
@@ -624,12 +624,12 @@ if [[ "${WANT_PIPELINE}" -eq 1 ]]; then
 		exit 1
 	fi
 
-	if [[ "${MODE}" == "deepseek" && -f "${ROOT_DIR}/dependency_setup/.env_deepseek" ]]; then
-		if ! bash -n "${ROOT_DIR}/dependency_setup/.env_deepseek" >/dev/null 2>&1; then
-			echo "[warn] DeepSeek env file has syntax errors; re-run setup to regenerate it." >&2
+	if [[ "${MODE}" == "deepseek-ocr" && -f "${ROOT_DIR}/dependency_setup/.env_deepseek_ocr" ]]; then
+		if ! bash -n "${ROOT_DIR}/dependency_setup/.env_deepseek_ocr" >/dev/null 2>&1; then
+			echo "[warn] DeepSeek OCR env file has syntax errors; re-run setup to regenerate it." >&2
 		else
 			# shellcheck disable=SC1091
-			source "${ROOT_DIR}/dependency_setup/.env_deepseek"
+			source "${ROOT_DIR}/dependency_setup/.env_deepseek_ocr"
 		fi
 	fi
 

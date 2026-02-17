@@ -7,7 +7,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 MODE="vanilla"
 PYTHON_BIN="${PYTHON:-}"
 VENV_PATH="${GLOSSAPI_VENV:-}"
-DOWNLOAD_DEEPSEEK=0
+DOWNLOAD_DEEPSEEK_OCR=0
 DOWNLOAD_DEEPSEEK_OCR2=0
 DOWNLOAD_OLMOCR=0
 DOWNLOAD_OLMOCR_CUDA=0
@@ -30,11 +30,12 @@ usage() {
 Usage: setup_glossapi.sh [options]
 
 Options:
-  --mode MODE            Environment profile: vanilla, rapidocr, deepseek, deepseek-ocr-2, glm-ocr, olmocr, mineru (default: vanilla)
+  --mode MODE            Environment profile: vanilla, rapidocr, deepseek-ocr, deepseek-ocr-2, glm-ocr, olmocr, mineru (default: vanilla)
   --venv PATH            Target virtual environment path
   --python PATH          Python executable to use when creating the venv
   --weights-root PATH    Root directory for all model weights (default: $REPO_ROOT/model_weights)
-  --download-deepseek    Fetch DeepSeek-OCR weights (only meaningful for --mode deepseek)
+  --download-deepseek-ocr
+                         Fetch DeepSeek-OCR weights (only meaningful for --mode deepseek-ocr)
   --download-deepseek-ocr2
                          Fetch DeepSeek OCR v2 weights (only meaningful for --mode deepseek-ocr-2)
   --download-olmocr      Fetch OlmOCR-2 MLX weights (only meaningful for --mode olmocr on macOS)
@@ -44,7 +45,7 @@ Options:
                          Download MinerU model bundle
   --mineru-command PATH  Path to magic-pdf binary (optional; stored in GLOSSAPI_MINERU_COMMAND)
   --run-tests            Run pytest -q after installation
-  --smoke-test           Run dependency_setup/deepseek_gpu_smoke.py (deepseek mode only)
+  --smoke-test           Run dependency_setup/deepseek_ocr_gpu_smoke.py (deepseek-ocr mode only)
   --help                 Show this help message
 EOF
 }
@@ -72,8 +73,8 @@ while (( "$#" )); do
       shift || { echo "--python requires a path" >&2; exit 1; }
       PYTHON_BIN="${1:-}"
       ;;
-    --download-deepseek)
-      DOWNLOAD_DEEPSEEK=1
+    --download-deepseek-ocr)
+      DOWNLOAD_DEEPSEEK_OCR=1
       ;;
     --download-deepseek-ocr2)
       DOWNLOAD_DEEPSEEK_OCR2=1
@@ -124,9 +125,9 @@ while (( "$#" )); do
 done
 
 case "${MODE}" in
-  vanilla|rapidocr|deepseek|deepseek-ocr-2|glm-ocr|olmocr|mineru) ;;
+  vanilla|rapidocr|deepseek-ocr|deepseek-ocr-2|glm-ocr|olmocr|mineru) ;;
   *)
-    echo "Invalid mode '${MODE}'. Expected vanilla, rapidocr, deepseek, deepseek-ocr-2, glm-ocr, olmocr, or mineru." >&2
+    echo "Invalid mode '${MODE}'. Expected vanilla, rapidocr, deepseek-ocr, deepseek-ocr-2, glm-ocr, olmocr, or mineru." >&2
     exit 1
     ;;
 esac
@@ -149,9 +150,9 @@ if [[ "${MODE}" == "rapidocr" ]]; then
   fi
 fi
 
-if [[ "${MODE}" == "deepseek" ]]; then
+if [[ "${MODE}" == "deepseek-ocr" ]]; then
   if [[ "$(uname -s)" == "Darwin" ]]; then
-    MAC_REQUIREMENTS_FILE="${SCRIPT_DIR}/macos/requirements-glossapi-deepseek-macos.txt"
+    MAC_REQUIREMENTS_FILE="${SCRIPT_DIR}/macos/requirements-glossapi-deepseek-ocr-macos.txt"
     if [[ -f "${MAC_REQUIREMENTS_FILE}" ]]; then
       REQUIREMENTS_FILE="${MAC_REQUIREMENTS_FILE}"
     fi
@@ -513,8 +514,8 @@ download_hf_model() {
   fi
 }
 
-download_deepseek_weights() {
-  download_hf_model "DeepSeek-OCR" "deepseek-ai/DeepSeek-OCR" "$1" "--download-deepseek"
+download_deepseek_ocr_weights() {
+  download_hf_model "DeepSeek-OCR" "deepseek-ai/DeepSeek-OCR" "$1" "--download-deepseek-ocr"
 }
 
 download_deepseek_ocr2_weights() {
@@ -603,17 +604,17 @@ info "Building Rust extensions via editable installs"
 pip_run install -e "${REPO_ROOT}/rust/glossapi_rs_cleaner"
 pip_run install -e "${REPO_ROOT}/rust/glossapi_rs_noise"
 
-if [[ "${MODE}" == "deepseek" ]]; then
-  export GLOSSAPI_DEEPSEEK_PYTHON="${VENV_PATH}/bin/python"
-  export GLOSSAPI_DEEPSEEK_VLLM_SCRIPT="${DEEPSEEK_WEIGHTS_DIR}/run_pdf_ocr_vllm.py"
-  export GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH="${DEEPSEEK_WEIGHTS_DIR}/libjpeg-turbo/lib"
-  export GLOSSAPI_DEEPSEEK_ALLOW_STUB=0
-  export LD_LIBRARY_PATH="${GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH}:${LD_LIBRARY_PATH:-}"
+if [[ "${MODE}" == "deepseek-ocr" ]]; then
+  export GLOSSAPI_DEEPSEEK_OCR_PYTHON="${VENV_PATH}/bin/python"
+  export GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT="${DEEPSEEK_WEIGHTS_DIR}/run_pdf_ocr_vllm.py"
+  export GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH="${DEEPSEEK_WEIGHTS_DIR}/libjpeg-turbo/lib"
+  export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
+  export LD_LIBRARY_PATH="${GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH}:${LD_LIBRARY_PATH:-}"
 
-  if [[ "${DOWNLOAD_DEEPSEEK}" -eq 1 ]]; then
-    download_deepseek_weights "${DEEPSEEK_WEIGHTS_DIR}"
+  if [[ "${DOWNLOAD_DEEPSEEK_OCR}" -eq 1 ]]; then
+    download_deepseek_ocr_weights "${DEEPSEEK_WEIGHTS_DIR}"
   else
-    warn "DeepSeek weights not downloaded (use --download-deepseek to fetch automatically)."
+    warn "DeepSeek OCR weights not downloaded (use --download-deepseek-ocr to fetch automatically)."
   fi
 fi
 
@@ -809,22 +810,22 @@ if [[ "${RUN_TESTS}" -eq 1 ]]; then
   pytest_args=("-q")
   case "${MODE}" in
     vanilla)
-      pytest_args+=("-m" "not rapidocr and not deepseek")
+      pytest_args+=("-m" "not rapidocr and not deepseek_ocr")
       ;;
     rapidocr)
-      pytest_args+=("-m" "not deepseek")
+      pytest_args+=("-m" "not deepseek_ocr")
       ;;
-    deepseek)
+    deepseek-ocr)
       pytest_args+=("-m" "not rapidocr")
       ;;
     deepseek-ocr-2)
-      pytest_args+=("-m" "not rapidocr and not deepseek")
+      pytest_args+=("-m" "not rapidocr and not deepseek_ocr")
       ;;
     olmocr)
-      pytest_args+=("-m" "not rapidocr and not deepseek")
+      pytest_args+=("-m" "not rapidocr and not deepseek_ocr")
       ;;
     glm-ocr)
-      pytest_args+=("-m" "not rapidocr and not deepseek")
+      pytest_args+=("-m" "not rapidocr and not deepseek_ocr")
       ;;
   esac
 
@@ -832,9 +833,9 @@ if [[ "${RUN_TESTS}" -eq 1 ]]; then
   python_run -m pytest "${pytest_args[@]}" tests
 fi
 
-if [[ "${MODE}" == "deepseek" && "${RUN_SMOKE}" -eq 1 ]]; then
-  info "Running DeepSeek smoke test"
-  python_run "${SCRIPT_DIR}/deepseek_gpu_smoke.py"
+if [[ "${MODE}" == "deepseek-ocr" && "${RUN_SMOKE}" -eq 1 ]]; then
+  info "Running DeepSeek OCR smoke test"
+  python_run "${SCRIPT_DIR}/deepseek_ocr_gpu_smoke.py"
 fi
 
 cat <<EOF
@@ -845,27 +846,27 @@ Activate with:
 
 EOF
 
-if [[ "${MODE}" == "deepseek" ]]; then
+if [[ "${MODE}" == "deepseek-ocr" ]]; then
   cat <<EOF
-DeepSeek-specific exports (add to your shell before running glossapi):
+DeepSeek OCR exports (add to your shell before running glossapi):
   export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
-  export GLOSSAPI_DEEPSEEK_PYTHON="${VENV_PATH}/bin/python"
-  export GLOSSAPI_DEEPSEEK_VLLM_SCRIPT="${DEEPSEEK_WEIGHTS_DIR}/run_pdf_ocr_vllm.py"
-  export GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH="${DEEPSEEK_WEIGHTS_DIR}/libjpeg-turbo/lib"
-  export GLOSSAPI_DEEPSEEK_ALLOW_STUB=0
-  export LD_LIBRARY_PATH="\$GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH:\${LD_LIBRARY_PATH:-}"
+  export GLOSSAPI_DEEPSEEK_OCR_PYTHON="${VENV_PATH}/bin/python"
+  export GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT="${DEEPSEEK_WEIGHTS_DIR}/run_pdf_ocr_vllm.py"
+  export GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH="${DEEPSEEK_WEIGHTS_DIR}/libjpeg-turbo/lib"
+  export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
+  export LD_LIBRARY_PATH="\$GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH:\${LD_LIBRARY_PATH:-}"
 EOF
-  ENV_FILE="${SCRIPT_DIR}/.env_deepseek"
+  ENV_FILE="${SCRIPT_DIR}/.env_deepseek_ocr"
   cat <<EOF > "${ENV_FILE}"
 export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
-export GLOSSAPI_DEEPSEEK_PYTHON="${VENV_PATH}/bin/python"
-export GLOSSAPI_DEEPSEEK_VLLM_SCRIPT="${DEEPSEEK_WEIGHTS_DIR}/run_pdf_ocr_vllm.py"
-export GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH="${DEEPSEEK_WEIGHTS_DIR}/libjpeg-turbo/lib"
-export GLOSSAPI_DEEPSEEK_ALLOW_STUB=0
-export GLOSSAPI_DEEPSEEK_ALLOW_CLI=1
-export LD_LIBRARY_PATH="\$GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH:\${LD_LIBRARY_PATH:-}"
+export GLOSSAPI_DEEPSEEK_OCR_PYTHON="${VENV_PATH}/bin/python"
+export GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT="${DEEPSEEK_WEIGHTS_DIR}/run_pdf_ocr_vllm.py"
+export GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH="${DEEPSEEK_WEIGHTS_DIR}/libjpeg-turbo/lib"
+export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
+export GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI=1
+export LD_LIBRARY_PATH="\$GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH:\${LD_LIBRARY_PATH:-}"
 EOF
-  info "Wrote DeepSeek env exports to ${ENV_FILE} (source it before running OCR)."
+  info "Wrote DeepSeek OCR env exports to ${ENV_FILE} (source it before running OCR)."
 fi
 
 if [[ "${MODE}" == "deepseek-ocr-2" ]]; then
