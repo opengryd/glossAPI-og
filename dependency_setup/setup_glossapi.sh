@@ -653,7 +653,7 @@ _detect_cuda_lib_path() {
   done
   # 2. Well-known system paths
   for candidate in /usr/local/cuda/lib64 /usr/local/cuda/lib \
-                   /usr/lib/x86_64-linux-gnu /usr/lib64; do
+                   /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu /usr/lib64; do
     if [[ -f "${candidate}/libcudart.so" || -f "${candidate}/libcudart.so.12" ]]; then
       echo "${candidate}"
       return 0
@@ -680,22 +680,77 @@ if [[ "${MODE}" == "olmocr" ]]; then
     export GLOSSAPI_OLMOCR_DEVICE="mps"
   else
     # ── Linux / CUDA setup ──────────────────────────────────────────────
-    # 1. Install CUDA-enabled PyTorch FIRST so that vLLM and olmocr[gpu]
-    #    pick up the GPU build rather than pulling in CPU-only torch.
+    # The requirements step (vanilla deps via docling-ibm-models) may have
+    # already installed a CPU-only torch from PyPI.  We must replace it
+    # with a CUDA-enabled build from the PyTorch wheel index.
+    #
+    # Architecture handling:
+    #   x86_64  → cu124 index (standard CUDA 12.4 wheels)
+    #   aarch64 → cu126 index (ARM64 CUDA wheels; cu124 only has x86_64)
+    _torch_index="https://download.pytorch.org/whl/cu124"
+    if [[ "$(uname -m)" == "aarch64" ]]; then
+      _torch_index="https://download.pytorch.org/whl/cu126"
+      info "Detected aarch64 architecture — using cu126 wheel index for CUDA PyTorch"
+    fi
+
+    # 1. Uninstall any existing CPU-only torch, then install CUDA-enabled
+    #    torch from the correct index.  Using uninstall+install instead of
+    #    --force-reinstall avoids reinstalling all transitive deps.
     info "OlmOCR on Linux/CUDA: installing CUDA-enabled PyTorch"
-    pip_run install torch torchvision \
-      --index-url https://download.pytorch.org/whl/cu124 \
+    pip_run uninstall -y torch torchvision torchaudio 2>/dev/null || true
+    pip_run install torch torchvision torchaudio \
+      --index-url "${_torch_index}" \
       || warn "CUDA PyTorch install failed; falling back to default torch (may be CPU-only)."
 
+    # Verify CUDA is actually available in the new torch install.
+    if python_run -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
+      info "CUDA PyTorch verified — torch.cuda.is_available() == True"
+    else
+      warn "torch.cuda.is_available() reports False after install."
+      warn "The installed torch may be CPU-only (architecture: $(uname -m))."
+      warn "Attempting fallback: installing torch from PyTorch nightly index…"
+      pip_run uninstall -y torch torchvision torchaudio 2>/dev/null || true
+      pip_run install torch torchvision torchaudio \
+        --index-url "https://download.pytorch.org/whl/nightly/cu126" \
+        || warn "Nightly CUDA PyTorch install also failed."
+      if python_run -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
+        info "CUDA PyTorch verified via nightly — torch.cuda.is_available() == True"
+      else
+        warn "CUDA is still not available. OCR will fail unless you install CUDA PyTorch manually."
+        warn "Try: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126"
+      fi
+    fi
+
     # 2. Install vLLM for the built-in in-process/CLI CUDA runner.
+    #    Use --no-deps to prevent vLLM from pulling in a CPU-only torch
+    #    that would overwrite the CUDA build we just installed.
     info "Installing vLLM for in-process CUDA execution"
-    pip_run install "vllm>=0.6.0" || warn "vLLM install failed; in-process CUDA mode will be unavailable."
+    pip_run install --no-deps "vllm>=0.6.0" \
+      || warn "vLLM install failed; in-process CUDA mode will be unavailable."
+    # Install vLLM's remaining dependencies (excluding torch).
+    pip_run install "vllm>=0.6.0" --no-build-isolation 2>/dev/null \
+      || true  # deps may already be satisfied from requirements step
 
     # 3. Install olmocr[gpu] as fallback pipeline runner.
+    #    Again avoid letting it overwrite our CUDA torch.
     info "Installing olmocr[gpu] as fallback CLI runner"
-    pip_run install "olmocr[gpu]" || warn "olmocr[gpu] install failed; OlmOCR CLI fallback will be unavailable."
+    pip_run install --no-deps "olmocr[gpu]" \
+      || warn "olmocr[gpu] install failed; OlmOCR CLI fallback will be unavailable."
+    pip_run install "olmocr[gpu]" --no-build-isolation 2>/dev/null \
+      || true  # deps may already be satisfied
 
-    # 4. Detect CUDA runtime library path for subprocess LD_LIBRARY_PATH.
+    # 4. Final CUDA verification — make sure vLLM/olmocr didn't clobber torch.
+    if python_run -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
+      info "Final CUDA check passed — torch.cuda.is_available() == True"
+    else
+      warn "CUDA torch was overwritten during vLLM/olmocr install — reinstalling…"
+      pip_run uninstall -y torch torchvision torchaudio 2>/dev/null || true
+      pip_run install torch torchvision torchaudio \
+        --index-url "${_torch_index}" \
+        || warn "CUDA PyTorch re-install failed."
+    fi
+
+    # 5. Detect CUDA runtime library path for subprocess LD_LIBRARY_PATH.
     OLMOCR_CUDA_LIB_PATH="$(_detect_cuda_lib_path)"
     if [[ -n "${OLMOCR_CUDA_LIB_PATH}" ]]; then
       info "Detected CUDA runtime libs at ${OLMOCR_CUDA_LIB_PATH}"
