@@ -60,3 +60,20 @@ loguru>=0.7.2
 pymupdf>=1.24.9,<1.25.0
 rapid-table>=1.0.5,<2.0.0
 fast_langdetect>=0.2.3,<0.3.0
+
+# mineru[pipeline] transitive deps (installed --no-deps)
+ultralytics>=8.3.48,<9
+doclayout_yolo==0.0.4
+dill>=0.3.8,<1
+matplotlib>=3.10,<4
+seaborn>=0.11.0
+py-cpuinfo
+accelerate>=1.5.1
+
+# unimernet transitive deps (installed --no-deps)
+albumentations>=1.4.4,<2
+timm>=0.9.16,<0.10.0
+evaluate>=0.4.1,<0.5.0
+fairscale>=0.4.13,<0.5.0
+rapidfuzz>=3.8.1,<4
+webdataset>=0.2.86,<0.3.0
