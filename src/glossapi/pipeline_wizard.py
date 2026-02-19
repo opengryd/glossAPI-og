@@ -644,7 +644,7 @@ def _run_wizard(
                 device = "mps" if platform.system() == "Darwin" else "cpu"
                 ocr_kwargs.update({"device": device})
             if backend == "rapidocr" and accel_mode == "CPU":
-                ocr_kwargs.update({"fix_bad": True})
+                ocr_kwargs.update({"fix_bad": True, "device": "cpu"})
 
     if resolved_format == "pdf" and (ocr_kwargs is None or ocr_kwargs.get("backend") == "rapidocr"):
         if accel_mode == "CPU":

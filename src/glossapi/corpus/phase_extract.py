@@ -168,13 +168,13 @@ class ExtractPhaseMixin:
         if not (require_ocr or require_math or require_backend_gpu):
             return
 
-        # Enforce non-CPU accelerator selection when OCR/math is forced
+        # If the caller explicitly selected CPU, allow it (RapidOCR CPUExecutionProvider works, just slower).
         accel_lower = str(accel_type or "").strip().lower()
         if accel_lower.startswith("cpu"):
-            raise RuntimeError(
-                "GPU OCR was requested (force_ocr/math) but accel_type='CPU'. "
-                "Select accel_type='CUDA', accel_type='MPS', or accel_type='Auto' to enable GPU backends."
+            self.logger.info(
+                "GPU preflight: CPU mode selected; OCR will use CPUExecutionProvider (slower than GPU/CoreML)."
             )
+            return
 
         try:
             import onnxruntime as _ort  # type: ignore
@@ -254,6 +254,11 @@ class ExtractPhaseMixin:
                 "GPU preflight: using %s backends via torch + onnxruntime; ensure GPU drivers are available.",
                 banner,
             )
+            if banner == "MPS/Metal":
+                self.logger.info(
+                    "GPU preflight: CoreML acceleration will be injected into "
+                    "RapidOCR ONNX sessions for Apple Neural Engine / GPU inference."
+                )
             self._gpu_banner_logged = True
 
         self.logger.info(

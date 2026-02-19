@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Tuple
 
 from docling.datamodel.base_models import InputFormat
@@ -23,6 +24,17 @@ from .safe import SafeRapidOcrModel, patch_docling_rapidocr
 _logger = logging.getLogger(__name__)
 
 patch_docling_rapidocr()
+
+# ---------------------------------------------------------------------------
+# Docling processes pages in small batches (default 4).  For long documents
+# this both limits throughput and makes the progress bar appear stuck.
+# Raise the default to 16 unless the user has already overridden it.
+# ---------------------------------------------------------------------------
+if "DOCLING_PERF_PAGE_BATCH_SIZE" not in os.environ:
+    os.environ["DOCLING_PERF_PAGE_BATCH_SIZE"] = "16"
+    _logger.debug(
+        "Set DOCLING_PERF_PAGE_BATCH_SIZE=16 (override with env var)"
+    )
 
 
 def _resolve_accelerator(device: str | None) -> Tuple[AcceleratorOptions, str]:
