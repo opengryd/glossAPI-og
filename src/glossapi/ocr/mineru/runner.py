@@ -11,6 +11,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from .config import prepare_env_with_config
+
 try:
     import pypdfium2 as _pypdfium2
 except Exception:  # pragma: no cover - optional dependency
@@ -136,33 +138,23 @@ def _prepare_mineru_env(
     tmp_root: Path,
     device_mode: Optional[str],
 ) -> Dict[str, str]:
-    if not device_mode:
-        return base_env
-    config_path = base_env.get("MINERU_TOOLS_CONFIG_JSON", "")
-    if not config_path:
-        LOGGER.warning("MINERU_TOOLS_CONFIG_JSON not set; cannot override device-mode=%s", device_mode)
-        return base_env
-    config_file = Path(config_path)
-    if not config_file.exists():
-        LOGGER.warning("MinerU config not found at %s; cannot override device-mode=%s", config_file, device_mode)
-        return base_env
-    try:
-        data = json.loads(config_file.read_text(encoding="utf-8"))
-    except Exception as exc:
-        LOGGER.warning("Failed to read MinerU config %s (%s); skipping device override", config_file, exc)
-        return base_env
+    """Resolve and set ``MINERU_TOOLS_CONFIG_JSON`` in the subprocess env.
 
-    if data.get("device-mode") == device_mode:
-        return base_env
-
-    data["device-mode"] = device_mode
-    tmp_root.mkdir(parents=True, exist_ok=True)
-    tmp_config = tmp_root / f"mineru_config_{device_mode}.json"
-    tmp_config.write_text(json.dumps(data, indent=2), encoding="utf-8")
-
-    env_copy = dict(base_env)
-    env_copy["MINERU_TOOLS_CONFIG_JSON"] = str(tmp_config)
-    return env_copy
+    Uses :func:`config.prepare_env_with_config` to auto-discover the repo's
+    ``magic-pdf.json``, resolve relative model paths, and optionally override
+    the device mode — all in one step.
+    """
+    env_out, resolved = prepare_env_with_config(
+        base_env,
+        tmp_root,
+        device_mode=device_mode,
+    )
+    if resolved is None:
+        LOGGER.warning(
+            "No MinerU config found (set MINERU_TOOLS_CONFIG_JSON or "
+            "place magic-pdf.json in model_weights/mineru/)"
+        )
+    return env_out
 
 
 def _write_stub(pdf_path: Path, md_out: Path, metrics_out: Path, content_debug: bool) -> Dict[str, Any]:

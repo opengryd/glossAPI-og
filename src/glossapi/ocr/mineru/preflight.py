@@ -11,6 +11,8 @@ import sys
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
+from .config import discover_config
+
 
 @dataclasses.dataclass(frozen=True)
 class CheckResult:
@@ -66,13 +68,17 @@ def _torch_device_available(device_mode: str) -> bool:
     return True
 
 
-def _extract_models_dirs(config: dict) -> List[Path]:
+def _extract_models_dirs(config: dict, config_dir: Optional[Path] = None) -> List[Path]:
+    """Return model directory paths, resolving relative ones against *config_dir*."""
     value = config.get("models-dir")
+    paths: List[Path] = []
     if isinstance(value, dict):
-        return [Path(v) for v in value.values() if v]
-    if isinstance(value, str):
-        return [Path(value)]
-    return []
+        paths = [Path(v) for v in value.values() if v]
+    elif isinstance(value, str):
+        paths = [Path(value)]
+    if config_dir is not None:
+        paths = [(config_dir / p).resolve() if not p.is_absolute() else p for p in paths]
+    return paths
 
 
 def check_mineru_env(env: Optional[Dict[str, str]] = None) -> PreflightReport:
@@ -109,7 +115,26 @@ def check_mineru_env(env: Optional[Dict[str, str]] = None) -> PreflightReport:
         infos.append(CheckResult("magic_pdf", True, f"Found at {magic_pdf}"))
 
     config_path = env.get("MINERU_TOOLS_CONFIG_JSON")
-    config_file = _ensure_path(Path(config_path) if config_path else Path(""), "config_json", errors)
+    config_file: Optional[Path] = None
+    if config_path:
+        config_file = _ensure_path(Path(config_path), "config_json", errors)
+    else:
+        # Auto-discover the repo-bundled config
+        discovered = discover_config(env)
+        if discovered:
+            config_file = discovered
+            infos.append(
+                CheckResult("config_json", True, f"Auto-discovered config at {discovered}")
+            )
+        else:
+            errors.append(
+                CheckResult(
+                    "config_json",
+                    False,
+                    "MINERU_TOOLS_CONFIG_JSON not set and no magic-pdf.json found in "
+                    "model_weights/mineru/ (see docs/configuration.md)",
+                )
+            )
     config: dict = {}
     if config_file:
         try:
@@ -143,7 +168,8 @@ def check_mineru_env(env: Optional[Dict[str, str]] = None) -> PreflightReport:
             infos.append(CheckResult("backend", True, f"Requested backend={backend}"))
 
     if config:
-        model_dirs = _extract_models_dirs(config)
+        config_dir = config_file.parent if config_file else None
+        model_dirs = _extract_models_dirs(config, config_dir)
         if model_dirs:
             for idx, model_dir in enumerate(model_dirs, start=1):
                 _ensure_path(model_dir, f"models_dir_{idx}", errors)
