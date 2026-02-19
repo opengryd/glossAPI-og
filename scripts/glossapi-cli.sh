@@ -260,15 +260,28 @@ run_setup_wizard_interactive() {
 	fi
 
 
-	local modes=(
-		"vanilla (Core pipeline; fastest setup)"
-		"rapidocr (Docling + RapidOCR GPU stack)"
-		"mineru (External magic-pdf CLI + models)"
-		"deepseek-ocr (DeepSeek OCR; heaviest GPU stack)"
-		"deepseek-ocr-2 (DeepSeek OCR v2 MLX/MPS)"
-		"glm-ocr (GLM-OCR 0.5B VLM; MLX/MPS)"
-		"olmocr (OlmOCR-2 VLM OCR; CUDA or MLX/MPS)"
-	)
+	local modes=()
+	if [[ "${os_name}" == "Darwin" ]]; then
+		modes=(
+			"vanilla (Core pipeline; fastest setup)"
+			"rapidocr (Docling + RapidOCR; MPS/CPU on macOS)"
+			"mineru (External magic-pdf CLI + models)"
+			"deepseek-ocr (CUDA/vLLM only — NOT supported on macOS)"
+			"deepseek-ocr-2 (DeepSeek OCR v2; MLX/MPS — macOS native)"
+			"glm-ocr (GLM-OCR 0.5B VLM; MLX/MPS — macOS native)"
+			"olmocr (OlmOCR-2 VLM OCR; MLX/MPS — macOS native)"
+		)
+	else
+		modes=(
+			"vanilla (Core pipeline; fastest setup)"
+			"rapidocr (Docling + RapidOCR GPU stack)"
+			"mineru (External magic-pdf CLI + models)"
+			"deepseek-ocr (DeepSeek OCR; heaviest GPU stack — requires CUDA)"
+			"deepseek-ocr-2 (DeepSeek OCR v2 MLX/MPS — macOS only)"
+			"glm-ocr (GLM-OCR 0.5B VLM; MLX/MPS — macOS only)"
+			"olmocr (OlmOCR-2 VLM OCR; CUDA or MLX/MPS)"
+		)
+	fi
 	local default_idx=1
 	local i=1
 	for mode in "${modes[@]}"; do
@@ -282,6 +295,29 @@ run_setup_wizard_interactive() {
 	local selected_mode
 	selected_mode="$(gum_select "Environment profile" "${modes[@]}")"
 	selected_mode="${selected_mode%% *}"
+
+	# Warn if user selects a CUDA-only profile on macOS
+	if [[ "${os_name}" == "Darwin" && "${selected_mode}" == "deepseek-ocr" ]]; then
+		echo ""
+		echo "⚠️  WARNING: deepseek-ocr requires CUDA + vLLM which are NOT available on macOS."
+		echo "   Consider 'deepseek-ocr-2' (MLX/MPS) or 'glm-ocr' instead."
+		echo ""
+		if ! gum_confirm "Continue with deepseek-ocr anyway?" 0; then
+			echo "Aborted. Re-run to select a different profile."
+			exit 0
+		fi
+	fi
+	# Warn if user selects macOS-only MLX profiles on Linux
+	if [[ "${os_name}" == "Linux" && ("${selected_mode}" == "deepseek-ocr-2" || "${selected_mode}" == "glm-ocr") ]]; then
+		echo ""
+		echo "⚠️  WARNING: ${selected_mode} uses MLX which is only available on macOS/Apple Silicon."
+		echo "   Consider 'deepseek-ocr' (CUDA/vLLM) or 'olmocr' instead."
+		echo ""
+		if ! gum_confirm "Continue with ${selected_mode} anyway?" 0; then
+			echo "Aborted. Re-run to select a different profile."
+			exit 0
+		fi
+	fi
 
 	local py_versions=()
 	while IFS= read -r _line; do

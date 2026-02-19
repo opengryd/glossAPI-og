@@ -18,7 +18,42 @@ console = Console()
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
-MODE_CHOICES = ["vanilla", "rapidocr", "mineru", "deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "olmocr"]
+_ALL_MODES = ["vanilla", "rapidocr", "mineru", "deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "olmocr"]
+
+# Platform annotations shown in interactive menus
+_MODE_LABELS: dict[str, dict[str, str]] = {
+    "vanilla":        {"Darwin": "vanilla (Core pipeline; fastest setup)",
+                       "Linux":  "vanilla (Core pipeline; fastest setup)"},
+    "rapidocr":       {"Darwin": "rapidocr (Docling + RapidOCR; MPS/CPU on macOS)",
+                       "Linux":  "rapidocr (Docling + RapidOCR GPU stack)"},
+    "mineru":         {"Darwin": "mineru (External magic-pdf CLI + models)",
+                       "Linux":  "mineru (External magic-pdf CLI + models)"},
+    "deepseek-ocr":   {"Darwin": "deepseek-ocr ⚠️  CUDA/vLLM only — NOT supported on macOS",
+                       "Linux":  "deepseek-ocr (DeepSeek OCR; requires CUDA)"},
+    "deepseek-ocr-2": {"Darwin": "deepseek-ocr-2 (DeepSeek OCR v2; MLX/MPS — macOS native)",
+                       "Linux":  "deepseek-ocr-2 (MLX/MPS — macOS only)"},
+    "glm-ocr":        {"Darwin": "glm-ocr (GLM-OCR 0.5B VLM; MLX/MPS — macOS native)",
+                       "Linux":  "glm-ocr (MLX/MPS — macOS only)"},
+    "olmocr":         {"Darwin": "olmocr (OlmOCR-2 VLM OCR; MLX/MPS — macOS native)",
+                       "Linux":  "olmocr (OlmOCR-2 VLM OCR; CUDA or MLX/MPS)"},
+}
+
+
+def _mode_choices_for_platform() -> list[str]:
+    """Return annotated mode labels appropriate for the current platform."""
+    system = platform.system()
+    return [
+        _MODE_LABELS.get(m, {}).get(system, m)
+        for m in _ALL_MODES
+    ]
+
+
+def _label_to_mode(label: str) -> str:
+    """Extract the bare mode name from an annotated label like 'rapidocr (Docling ...)'."""
+    return label.split()[0].rstrip()
+
+
+MODE_CHOICES = _ALL_MODES  # kept for backward compat (--mode flag validation)
 SIMPLE_PROMPTS = os.environ.get("GLOSSAPI_SETUP_SIMPLE", "0") == "1"
 
 
@@ -169,16 +204,41 @@ def _detect_os_label() -> str:
 def _ask_mode(default: Optional[str]) -> str:
     if default:
         return default
-    default_mode = "vanilla"
-    choices = MODE_CHOICES
-    default_choice = default_mode
+    system = platform.system()
+    default_mode = "mineru" if system == "Darwin" else "rapidocr"
+    choices = _mode_choices_for_platform()
+    # Find the annotated default label
+    default_choice = next((c for c in choices if c.startswith(default_mode)), choices[0])
     if _is_interactive():
-        return _gum_choose("Environment profile", choices, default_choice)
-    tty = _open_tty()
-    if tty:
-        with tty:
-            return _simple_select("Environment profile", choices, default_choice, tty)
-    return _simple_select("Environment profile", choices, default_choice, None)
+        selected = _gum_choose("Environment profile", choices, default_choice)
+    else:
+        tty = _open_tty()
+        if tty:
+            with tty:
+                selected = _simple_select("Environment profile", choices, default_choice, tty)
+        else:
+            selected = _simple_select("Environment profile", choices, default_choice, None)
+    mode = _label_to_mode(selected)
+    # Warn about platform-incompatible selections
+    if system == "Darwin" and mode == "deepseek-ocr":
+        console.print(
+            "[bold yellow]⚠️  WARNING:[/bold yellow] deepseek-ocr requires CUDA + vLLM "
+            "which are [bold]NOT available on macOS[/bold].\n"
+            "   Consider [green]deepseek-ocr-2[/green] (MLX/MPS) or "
+            "[green]glm-ocr[/green] instead."
+        )
+        if not _ask_bool("Continue with deepseek-ocr anyway?", default=False):
+            raise typer.Exit(code=0)
+    if system == "Linux" and mode in {"deepseek-ocr-2", "glm-ocr"}:
+        console.print(
+            f"[bold yellow]⚠️  WARNING:[/bold yellow] {mode} uses MLX which is "
+            "[bold]only available on macOS/Apple Silicon[/bold].\n"
+            "   Consider [green]deepseek-ocr[/green] (CUDA/vLLM) or "
+            "[green]olmocr[/green] instead."
+        )
+        if not _ask_bool(f"Continue with {mode} anyway?", default=False):
+            raise typer.Exit(code=0)
+    return mode
 
 
 def _ask_venv(default: Optional[str]) -> Path:
