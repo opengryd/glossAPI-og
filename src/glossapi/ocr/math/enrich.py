@@ -146,7 +146,16 @@ def enrich_from_docling_json(
                 out_md_path.write_text("\n\n".join(fallback), encoding="utf-8")
         return {"items": 0, "accepted": 0, "time_sec": 0.0}
 
-    acc = AcceleratorOptions(device=device if device else AcceleratorDevice.AUTO)
+    # Map string device name to AcceleratorDevice enum; passing a raw string causes Docling
+    # to fail its own device validation and fall back to CPU silently.
+    _DEVICE_MAP = {
+        "cuda": AcceleratorDevice.CUDA,
+        "mps": AcceleratorDevice.MPS,
+        "cpu": AcceleratorDevice.CPU,
+        "auto": AcceleratorDevice.AUTO,
+    }
+    _device_enum = _DEVICE_MAP.get(str(device or "").strip().lower(), AcceleratorDevice.AUTO)
+    acc = AcceleratorOptions(device=_device_enum)
     opts = CodeFormulaModelOptions(do_code_enrichment=True, do_formula_enrichment=True)
     model: Optional[CodeFormulaModel] = None
     try:
@@ -314,9 +323,14 @@ def enrich_from_docling_json(
             r = min(im.width, r + int(pad_px))
             b = min(im.height, b + int(pad_px))
             crop = im.crop((l, t, r, b))
+            _item = getattr(entry, "item", None) or _find_item(doc, entry)
+            if _item is None:
+                # No matching code/formula element found in the document; skip this ROI
+                # rather than passing a wrong-label item to CodeFormulaModel.
+                continue
             batch.append(
                 ItemAndImageEnrichmentElement(
-                    item=getattr(entry, "item", None) or _find_item(doc, entry),
+                    item=_item,
                     image=crop,
                 )
             )
@@ -361,8 +375,10 @@ def enrich_from_docling_json(
 
 
 def _find_item(doc, entry: RoiEntry):
-    # Find the actual NodeItem instance matching page_no + per_page_ix for FORMULA/CODE
+    # Find the actual NodeItem instance matching page_no + per_page_ix for FORMULA/CODE.
+    # Returns None if no matching element is found (caller must guard).
     c = 0
+    last_seen = None
     for element, _level in doc.iterate_items():  # type: ignore[attr-defined]
         lab = str(getattr(element, 'label', '')).lower()
         if lab != entry.label:
@@ -374,7 +390,11 @@ def _find_item(doc, entry: RoiEntry):
         pn = int(getattr(p, 'page_no', 0))
         if pn != entry.page_no:
             continue
+        last_seen = element
         c += 1
         if c == entry.per_page_ix:
             return element
-    return element  # type: ignore  # last seen element of same type as fallback
+    # Fallback: last element with the correct label on the correct page (not the absolute
+    # last iterated element, which could be any label and would cause Docling to raise
+    # "Label must be either code or formula").
+    return last_seen
