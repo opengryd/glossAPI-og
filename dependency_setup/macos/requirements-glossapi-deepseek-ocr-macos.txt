@@ -1,6 +1,12 @@
-# DeepSeek profile (macOS)
-# NOTE: DeepSeek/vLLM CUDA wheels are Linux-only. This file intentionally falls
-# back to the vanilla macOS requirements so installs do not fail on macOS.
-# Use DeepSeek mode on a Linux CUDA host for full GPU OCR support.
+# DeepSeek-OCR V1 profile (macOS MLX/MPS)
+# mlx-vlm and mlx-lm are installed separately with --no-deps by setup_glossapi.sh
+# to avoid transformers<5 / huggingface_hub<1 conflicts with Docling.
+# This file covers the other runtime dependencies for the MLX CLI.
 
 -r requirements-glossapi-vanilla-macos.txt
+
+# Additional deps required by the DeepSeek OCR v1 MLX CLI runner
+tokenizers>=0.20.3
+PyMuPDF
+img2pdf
+Pillow

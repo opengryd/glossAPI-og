@@ -630,9 +630,12 @@ def _run_wizard(
             if backend == "deepseek-ocr":
                 extract_kwargs["phase1_backend"] = "safe"
                 clean_kwargs["drop_bad"] = False
-                device = "cuda"
                 if accel_mode == "CPU":
                     device = "cpu"
+                elif platform.system() == "Darwin":
+                    device = "mps"
+                else:
+                    device = "cuda"
                 ocr_kwargs.update({"device": device})
             if backend == "deepseek-ocr-2":
                 extract_kwargs["phase1_backend"] = "safe"

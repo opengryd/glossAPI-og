@@ -14,6 +14,7 @@ DOWNLOAD_OLMOCR_CUDA=0
 DOWNLOAD_GLMOCR=0
 GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT:-${REPO_ROOT}/model_weights}"
 DEEPSEEK_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/deepseek-ocr"
+DEEPSEEK1_MLX_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/deepseek-ocr-1-mlx"
 DEEPSEEK2_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/deepseek-ocr-mlx"
 OLMOCR_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/olmocr-mlx"
 OLMOCR_CUDA_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/olmocr"
@@ -83,6 +84,7 @@ while (( "$#" )); do
       shift || { echo "--weights-root requires a path" >&2; exit 1; }
       GLOSSAPI_WEIGHTS_ROOT="${1:-}"
       DEEPSEEK_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/deepseek-ocr"
+      DEEPSEEK1_MLX_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/deepseek-ocr-1-mlx"
       DEEPSEEK2_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/deepseek-ocr-mlx"
       OLMOCR_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/olmocr-mlx"
       OLMOCR_CUDA_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/olmocr"
@@ -518,6 +520,10 @@ download_deepseek_ocr_weights() {
   download_hf_model "DeepSeek-OCR" "deepseek-ai/DeepSeek-OCR" "$1" "--download-deepseek-ocr"
 }
 
+download_deepseek_ocr1_mlx_weights() {
+  download_hf_model "DeepSeek-OCR v1 MLX" "mlx-community/DeepSeek-OCR-8bit" "$1" "--download-deepseek-ocr"
+}
+
 download_deepseek_ocr2_weights() {
   download_hf_model "DeepSeek OCR v2" "mlx-community/DeepSeek-OCR-2-8bit" "$1" "--download-deepseek-ocr2"
 }
@@ -605,16 +611,35 @@ pip_run install -e "${REPO_ROOT}/rust/glossapi_rs_cleaner"
 pip_run install -e "${REPO_ROOT}/rust/glossapi_rs_noise"
 
 if [[ "${MODE}" == "deepseek-ocr" ]]; then
-  export GLOSSAPI_DEEPSEEK_OCR_PYTHON="${VENV_PATH}/bin/python"
-  export GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT="${DEEPSEEK_WEIGHTS_DIR}/run_pdf_ocr_vllm.py"
-  export GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH="${DEEPSEEK_WEIGHTS_DIR}/libjpeg-turbo/lib"
-  export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
-  export LD_LIBRARY_PATH="${GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH}:${LD_LIBRARY_PATH:-}"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    info "Installing mlx-lm and mlx-vlm (--no-deps) for DeepSeek OCR v1 MPS path"
+    pip_run install --no-deps "mlx-lm>=0.30.7"  || warn "mlx-lm upgrade failed"
+    pip_run install --no-deps "mlx-vlm>=0.3.12" || warn "mlx-vlm install failed; DeepSeek OCR v1 in-process MLX mode will be unavailable."
+    export GLOSSAPI_DEEPSEEK_OCR_DEVICE="mps"
+    export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
+    export GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON="${VENV_PATH}/bin/python"
 
-  if [[ "${DOWNLOAD_DEEPSEEK_OCR}" -eq 1 ]]; then
-    download_deepseek_ocr_weights "${DEEPSEEK_WEIGHTS_DIR}"
+    if [[ "${DOWNLOAD_DEEPSEEK_OCR}" -eq 1 ]]; then
+      download_deepseek_ocr1_mlx_weights "${DEEPSEEK1_MLX_WEIGHTS_DIR}"
+      if [[ -d "${DEEPSEEK1_MLX_WEIGHTS_DIR}" && -f "${DEEPSEEK1_MLX_WEIGHTS_DIR}/config.json" ]]; then
+        export GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR="${DEEPSEEK1_MLX_WEIGHTS_DIR}"
+        info "DeepSeek OCR v1 MLX model dir set to ${GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR}"
+      fi
+    else
+      info "DeepSeek OCR v1 MLX weights not pre-downloaded; model will auto-download from HuggingFace at first run."
+    fi
   else
-    warn "DeepSeek OCR weights not downloaded (use --download-deepseek-ocr to fetch automatically)."
+    export GLOSSAPI_DEEPSEEK_OCR_PYTHON="${VENV_PATH}/bin/python"
+    export GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT="${DEEPSEEK_WEIGHTS_DIR}/run_pdf_ocr_vllm.py"
+    export GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH="${DEEPSEEK_WEIGHTS_DIR}/libjpeg-turbo/lib"
+    export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
+    export LD_LIBRARY_PATH="${GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH}:${LD_LIBRARY_PATH:-}"
+
+    if [[ "${DOWNLOAD_DEEPSEEK_OCR}" -eq 1 ]]; then
+      download_deepseek_ocr_weights "${DEEPSEEK_WEIGHTS_DIR}"
+    else
+      warn "DeepSeek OCR weights not downloaded (use --download-deepseek-ocr to fetch automatically)."
+    fi
   fi
 fi
 
@@ -902,7 +927,26 @@ Activate with:
 EOF
 
 if [[ "${MODE}" == "deepseek-ocr" ]]; then
-  cat <<EOF
+  ENV_FILE="${SCRIPT_DIR}/.env_deepseek_ocr"
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    cat <<EOF
+DeepSeek OCR v1 (MLX/MPS) exports (add to your shell before running glossapi):
+  export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
+  export GLOSSAPI_DEEPSEEK_OCR_DEVICE="mps"
+  export GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON="${VENV_PATH}/bin/python"
+  export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
+EOF
+    cat <<EOF > "${ENV_FILE}"
+export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
+export GLOSSAPI_DEEPSEEK_OCR_DEVICE="mps"
+export GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON="${VENV_PATH}/bin/python"
+export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
+EOF
+    if [[ -n "${GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR:-}" ]]; then
+      echo "export GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR=\"${GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR}\"" >> "${ENV_FILE}"
+    fi
+  else
+    cat <<EOF
 DeepSeek OCR exports (add to your shell before running glossapi):
   export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
   export GLOSSAPI_DEEPSEEK_OCR_PYTHON="${VENV_PATH}/bin/python"
@@ -911,8 +955,7 @@ DeepSeek OCR exports (add to your shell before running glossapi):
   export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
   export LD_LIBRARY_PATH="\$GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH:\${LD_LIBRARY_PATH:-}"
 EOF
-  ENV_FILE="${SCRIPT_DIR}/.env_deepseek_ocr"
-  cat <<EOF > "${ENV_FILE}"
+    cat <<EOF > "${ENV_FILE}"
 export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
 export GLOSSAPI_DEEPSEEK_OCR_PYTHON="${VENV_PATH}/bin/python"
 export GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT="${DEEPSEEK_WEIGHTS_DIR}/run_pdf_ocr_vllm.py"
@@ -921,6 +964,7 @@ export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
 export GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI=1
 export LD_LIBRARY_PATH="\$GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH:\${LD_LIBRARY_PATH:-}"
 EOF
+  fi
   info "Wrote DeepSeek OCR env exports to ${ENV_FILE} (source it before running OCR)."
 fi
 
