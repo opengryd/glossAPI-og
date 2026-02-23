@@ -45,7 +45,17 @@ except Exception as exc:  # pragma: no cover
 # Constants
 # ---------------------------------------------------------------------------
 
-DEFAULT_PROMPT = "Text Recognition:"
+# GLM-OCR supports exactly three fine-tuned prompt types.
+# See https://huggingface.co/zai-org/GLM-OCR#prompt-limited
+PROMPT_TEXT = "Text Recognition:"
+PROMPT_FORMULA = "Formula Recognition:"
+PROMPT_TABLE = "Table Recognition:"
+
+# For backward compatibility and single-pass callers.
+DEFAULT_PROMPT = PROMPT_TEXT
+
+# All three prompts for maximum-quality multi-pass OCR.
+MULTI_PASS_PROMPTS = (PROMPT_TEXT, PROMPT_FORMULA, PROMPT_TABLE)
 
 DEFAULT_DPI = 150
 DEFAULT_MAX_TOKENS = 2048
@@ -265,7 +275,7 @@ def generate_page(
     prompt: str = DEFAULT_PROMPT,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> str:
-    """Run inference on a single page image and return the markdown text."""
+    """Run inference on a single page image and return the raw text for one prompt."""
     from mlx_vlm import generate
 
     result = generate(
@@ -282,7 +292,81 @@ def generate_page(
         text = result.strip()
     else:
         text = (getattr(result, "text", None) or str(result)).strip()
-    return text if text else "[[Blank page]]"
+    return text if text else ""
+
+
+def _is_blank(text: str) -> bool:
+    """Return True if *text* is empty or a blank-page sentinel."""
+    return not text or text == "[[Blank page]]"
+
+
+def generate_page_multipass(
+    model: Any,
+    processor: Any,
+    image: Any,
+    *,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+) -> str:
+    """Run all three GLM-OCR prompts on a page image and merge the results.
+
+    Execution order:
+    1. **Text Recognition** — primary content (text, headings, paragraphs).
+    2. **Formula Recognition** — LaTeX equations.
+    3. **Table Recognition** — markdown tables.
+
+    The merge strategy appends formula and table content that is not already
+    present in the text pass, avoiding duplication while ensuring nothing is
+    lost.
+    """
+    text_out = generate_page(
+        model, processor, image, prompt=PROMPT_TEXT, max_tokens=max_tokens,
+    )
+    formula_out = generate_page(
+        model, processor, image, prompt=PROMPT_FORMULA, max_tokens=max_tokens,
+    )
+    table_out = generate_page(
+        model, processor, image, prompt=PROMPT_TABLE, max_tokens=max_tokens,
+    )
+
+    return _merge_multipass(text_out, formula_out, table_out)
+
+
+def _merge_multipass(text_out: str, formula_out: str, table_out: str) -> str:
+    """Merge the outputs of the three GLM-OCR prompt passes.
+
+    Strategy:
+    - Start with the text pass as the base.
+    - If the formula pass produced LaTeX content not already in the text pass,
+      append it in a dedicated section.
+    - If the table pass produced table content not already in the text pass,
+      append it in a dedicated section.
+    - If *all* passes are blank, return the blank-page sentinel.
+    """
+    parts: list[str] = []
+
+    # --- Base text ---
+    if not _is_blank(text_out):
+        parts.append(text_out)
+
+    # --- Formulas ---
+    if not _is_blank(formula_out):
+        # Only append if the formula content adds something new.
+        # Simple heuristic: if the formula text is not a substring of the
+        # already-collected text, include it.
+        collected = "\n".join(parts)
+        if formula_out not in collected:
+            parts.append(formula_out)
+
+    # --- Tables ---
+    if not _is_blank(table_out):
+        collected = "\n".join(parts)
+        if table_out not in collected:
+            parts.append(table_out)
+
+    if not parts:
+        return "[[Blank page]]"
+
+    return "\n\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -308,8 +392,14 @@ def process_pdf(
     dpi: int = DEFAULT_DPI,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     content_debug: bool = False,
+    multipass: bool = True,
 ) -> int:
     """Process a single PDF and write markdown + metrics files.
+
+    When *multipass* is ``True`` (the default), every page is processed with
+    all three GLM-OCR prompts (Text / Formula / Table) and the results are
+    merged for maximum accuracy.  Set ``multipass=False`` to use only the
+    single *prompt* (faster, lower quality).
 
     Returns the number of pages processed.
     """
@@ -333,14 +423,17 @@ def process_pdf(
     lines: list[str] = []
     logger = logging.getLogger(__name__)
 
+    mode_label = "multi-pass" if multipass else "single-pass"
+    passes_per_page = len(MULTI_PASS_PROMPTS) if multipass else 1
+
     # tqdm progress bar with logging fallback
     try:
         from tqdm import tqdm as _tqdm
 
         progress = _tqdm(
-            total=page_count,
-            desc=f"OCR {pdf_path.name}",
-            unit="page",
+            total=page_count * passes_per_page,
+            desc=f"OCR {pdf_path.name} ({mode_label})",
+            unit="pass",
             dynamic_ncols=True,
         )
     except ImportError:
@@ -351,16 +444,29 @@ def process_pdf(
         if content_debug:
             lines.append(f"<!-- page:{page_index + 1} -->")
         image = render_page(doc, page_index, dpi)
-        text = generate_page(
-            model, processor, image, prompt=prompt, max_tokens=max_tokens
-        )
+
+        if multipass:
+            text = generate_page_multipass(
+                model, processor, image, max_tokens=max_tokens,
+            )
+            if progress is not None:
+                progress.update(passes_per_page)
+        else:
+            text = generate_page(
+                model, processor, image, prompt=prompt, max_tokens=max_tokens,
+            )
+            if not text:
+                text = "[[Blank page]]"
+            if progress is not None:
+                progress.update(1)
+
         lines.append(text)
         lines.append("")
-        if progress is not None:
-            progress.update(1)
-        else:
+
+        if progress is None:
             logger.info(
-                "GLM-OCR MLX: %s page %d/%d done",
+                "GLM-OCR MLX (%s): %s page %d/%d done",
+                mode_label,
                 pdf_path.name,
                 page_index + 1,
                 page_count,
@@ -371,7 +477,8 @@ def process_pdf(
 
     elapsed_total = time.time() - pdf_start
     logger.info(
-        "GLM-OCR MLX: %s complete — %d pages in %.1fs (%.2fs/page)",
+        "GLM-OCR MLX (%s): %s complete — %d pages in %.1fs (%.2fs/page)",
+        mode_label,
         pdf_path.name,
         page_count,
         elapsed_total,
@@ -401,13 +508,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--dpi", type=int, default=DEFAULT_DPI)
     parser.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
     parser.add_argument(
-        "--prompt", default=DEFAULT_PROMPT, help="Override the OCR prompt."
+        "--prompt", default=DEFAULT_PROMPT, help="Override the OCR prompt (single-pass only)."
+    )
+    parser.add_argument(
+        "--no-multipass",
+        action="store_true",
+        help="Disable multi-pass OCR (text+formula+table). Uses single prompt instead.",
     )
 
     args = parser.parse_args(argv)
 
     input_dir = Path(args.input_dir).expanduser()
     output_dir = Path(args.output_dir).expanduser()
+    use_multipass = not args.no_multipass
 
     if not input_dir.exists():
         raise SystemExit(f"Input dir not found: {input_dir}")
@@ -419,6 +532,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not pdfs:
         print("No PDFs found in input dir.")
         return 0
+
+    mode_label = "multi-pass" if use_multipass else "single-pass"
+    print(f"Processing {len(pdfs)} PDF(s) in {mode_label} mode")
 
     start = time.time()
     for pdf_path in pdfs:
@@ -432,9 +548,10 @@ def main(argv: Optional[list[str]] = None) -> int:
             dpi=args.dpi,
             max_tokens=args.max_tokens,
             content_debug=bool(args.content_debug),
+            multipass=use_multipass,
         )
     elapsed = time.time() - start
-    print(f"Processed {len(pdfs)} PDF(s) in {elapsed:.2f}s")
+    print(f"Processed {len(pdfs)} PDF(s) in {elapsed:.2f}s ({mode_label})")
     return 0
 
 
