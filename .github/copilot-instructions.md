@@ -230,8 +230,8 @@ the Rust extensions to ensure they integrate properly with the Python package.
 - DeepSeek-OCR/GLM-OCR/MinerU/OlmOCR backends inline equations — Phase-2 math enrichment is a no-op.
 - RapidOCR dispatches through `Corpus.extract()` with `force_ocr=True`,
   `phase1_backend="docling"`.
-- Stub runners are **allowed by default** (`*_ALLOW_STUB=1`). To force real OCR,
-  set `*_ALLOW_STUB=0` and `*_ALLOW_CLI=1`.
+- Stub runners are **allowed by default** (`*_ENABLE_STUB=1`). To force real OCR,
+  set `*_ENABLE_STUB=0` and `*_ENABLE_OCR=1`.
 - `ocr/__init__.py` uses lazy `__getattr__` — `import glossapi.ocr` must stay
   lightweight.
 
@@ -307,8 +307,8 @@ categories:
 
 | Variable | Purpose |
 |---|---|
-| `GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI` | Enable real CLI runner |
-| `GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB` | Allow stub fallback |
+| `GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR` | Enable real CLI runner |
+| `GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB` | Enable stub fallback (default `1`; set `0` to disable) |
 | `GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT` | Path to `run_pdf_ocr_vllm.py` |
 | `GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR` | Optional override for model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr`) |
 | `GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON` | Python binary for DeepSeek-OCR venv |
@@ -320,8 +320,8 @@ categories:
 
 | Variable | Purpose |
 |---|---|
-| `GLOSSAPI_DEEPSEEK2_ALLOW_CLI` | Enable real MLX CLI runner |
-| `GLOSSAPI_DEEPSEEK2_ALLOW_STUB` | Allow stub fallback (default `1`) |
+| `GLOSSAPI_DEEPSEEK2_ENABLE_OCR` | Enable real MLX CLI runner |
+| `GLOSSAPI_DEEPSEEK2_ENABLE_STUB` | Enable stub fallback (default `1`; set `0` to disable) |
 | `GLOSSAPI_DEEPSEEK2_MLX_SCRIPT` | Path to MLX inference script |
 | `GLOSSAPI_DEEPSEEK2_MODEL_DIR` | Optional override for MLX model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr-mlx`) |
 | `GLOSSAPI_DEEPSEEK2_PYTHON` | Python binary for DeepSeek v2 venv |
@@ -331,8 +331,8 @@ categories:
 
 | Variable | Purpose |
 |---|---|
-| `GLOSSAPI_MINERU_ALLOW_CLI` | Enable real CLI runner |
-| `GLOSSAPI_MINERU_ALLOW_STUB` | Allow stub fallback |
+| `GLOSSAPI_MINERU_ENABLE_OCR` | Enable real CLI runner |
+| `GLOSSAPI_MINERU_ENABLE_STUB` | Enable stub fallback (default `1`; set `0` to disable) |
 | `GLOSSAPI_MINERU_COMMAND` | Override `magic-pdf` path |
 | `GLOSSAPI_MINERU_MODE` | `auto` / `fast` / `accurate` |
 | `GLOSSAPI_MINERU_BACKEND` | Override MinerU internal backend selection |
@@ -342,8 +342,8 @@ categories:
 
 | Variable | Purpose |
 |---|---|
-| `GLOSSAPI_GLMOCR_ALLOW_CLI` | Enable real GLM-OCR MLX CLI subprocess |
-| `GLOSSAPI_GLMOCR_ALLOW_STUB` | Allow stub fallback |
+| `GLOSSAPI_GLMOCR_ENABLE_OCR` | Enable real GLM-OCR MLX CLI subprocess |
+| `GLOSSAPI_GLMOCR_ENABLE_STUB` | Enable stub fallback (default `1`; set `0` to disable) |
 | `GLOSSAPI_GLMOCR_PYTHON` | Python binary for GLM-OCR venv |
 | `GLOSSAPI_GLMOCR_MODEL_DIR` | Optional override for model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/glm-ocr-mlx`) |
 | `GLOSSAPI_GLMOCR_MLX_MODEL` | HuggingFace MLX model identifier (default `mlx-community/GLM-OCR-4bit`) |
@@ -354,8 +354,8 @@ categories:
 
 | Variable | Purpose |
 |---|---|
-| `GLOSSAPI_OLMOCR_ALLOW_CLI` | Enable real OlmOCR pipeline (external `olmocr` package) |
-| `GLOSSAPI_OLMOCR_ALLOW_STUB` | Allow stub fallback |
+| `GLOSSAPI_OLMOCR_ENABLE_OCR` | Enable real OlmOCR pipeline (external `olmocr` package) |
+| `GLOSSAPI_OLMOCR_ENABLE_STUB` | Enable stub fallback (default `1`; set `0` to disable) |
 | `GLOSSAPI_OLMOCR_PYTHON` | Python binary for OlmOCR venv |
 | `GLOSSAPI_OLMOCR_MODEL` | HuggingFace model identifier (default `allenai/olmOCR-2-7B-1025-FP8`) |
 | `GLOSSAPI_OLMOCR_MODEL_DIR` | Optional override for CUDA model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/olmocr`) |
@@ -578,9 +578,9 @@ Provisioning: `./dependency_setup/setup_glossapi.sh --mode <profile> [--venv <pa
    with `GLOSSAPI_SKIP_DOCLING_BOOT=1` in environments without Docling.
 6. **Enriched Markdown location:** Always at `markdown/<stem>.md` — phase-2
    enrichment **overwrites** the phase-1 output. Never create a second copy.
-7. **Stub runners default to ON:** `*_ALLOW_STUB=1` by default for DeepSeek and
+7. **Stub runners default to ON:** `*_ENABLE_STUB=1` by default for DeepSeek and
    MinerU. Tests may silently use stubs unless you explicitly set
-   `*_ALLOW_STUB=0`.
+   `*_ENABLE_STUB=0`.
 8. **FlashInfer JIT on DeepSeek:** Needs `nvcc` on `PATH` and `CUDA_HOME` set.
    If problematic, disable with `VLLM_USE_FLASHINFER=0`.
 9. **macOS ORT:** Use `onnxruntime==1.18.1` (no `-gpu` suffix) on macOS.

@@ -318,10 +318,10 @@ def run_for_files(
     output_dir: Optional[Path] = None,
     log_dir: Optional[Path] = None,  # unused placeholder to mirror rapidocr
     max_pages: Optional[int] = None,
-    allow_stub: bool = True,
-    allow_cli: bool = False,
-    allow_inproc: bool = True,
-    allow_mlx_cli: bool = True,
+    enable_stub: bool = True,
+    enable_ocr: bool = False,
+    enable_inproc: bool = True,
+    enable_mlx_ocr: bool = True,
     python_bin: Optional[Path] = None,
     vllm_script: Optional[Path] = None,
     mlx_script: Optional[Path] = None,
@@ -339,16 +339,16 @@ def run_for_files(
 
     **macOS / MPS path:**
 
-    1. In-process MLX (``allow_inproc=True``, macOS, ``mlx_vlm`` importable).
-    2. MLX CLI subprocess (``allow_mlx_cli=True``, macOS, script present).
+    1. In-process MLX (``enable_inproc=True``, macOS, ``mlx_vlm`` importable).
+    2. MLX CLI subprocess (``enable_mlx_ocr=True``, macOS, script present).
 
     **CUDA path (Linux / Windows):**
 
-    3. vLLM CLI subprocess (``allow_cli=True``, script present).
+    3. vLLM CLI subprocess (``enable_ocr=True``, script present).
 
     **Fallback (both paths):**
 
-    4. Stub output (``allow_stub=True``).
+    4. Stub output (``enable_stub=True``).
 
     The active device is resolved from ``GLOSSAPI_DEEPSEEK_OCR_DEVICE`` env var,
     then the *device* kwarg, then auto-detected (``mps`` on macOS, ``cuda`` otherwise).
@@ -371,18 +371,18 @@ def run_for_files(
 
     # ----- Env overrides -----
     env = os.environ
-    env_allow_stub = env.get("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "1") == "1"
-    # GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI controls the CUDA/vLLM CLI path.
-    env_allow_cli = env.get("GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI", "0") == "1"
-    # GLOSSAPI_DEEPSEEK_OCR_ALLOW_MLX_CLI controls the MPS/MLX CLI subprocess path
+    env_enable_stub = env.get("GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB", "1") == "1"
+    # GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR controls the CUDA/vLLM CLI path.
+    env_enable_ocr = env.get("GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR", "0") == "1"
+    # GLOSSAPI_DEEPSEEK_OCR_ENABLE_MLX_OCR controls the MPS/MLX CLI subprocess path
     # independently of the CUDA CLI flag.
-    env_allow_mlx_cli: Optional[str] = env.get("GLOSSAPI_DEEPSEEK_OCR_ALLOW_MLX_CLI")
+    env_enable_mlx_ocr: Optional[str] = env.get("GLOSSAPI_DEEPSEEK_OCR_ENABLE_MLX_OCR")
     env_device = env.get("GLOSSAPI_DEEPSEEK_OCR_DEVICE", "").strip().lower()
     env_python = env.get("GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON", "")
     env_mlx_model_dir = env.get("GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR", "")
     env_gpu_mem = env.get("GLOSSAPI_DEEPSEEK_OCR_GPU_MEMORY_UTILIZATION", "")
 
-    use_stub = allow_stub and env_allow_stub
+    use_stub = enable_stub and env_enable_stub
     if python_bin is None and env_python:
         python_bin = Path(env_python)
     if model_dir is None and env_mlx_model_dir:
@@ -432,7 +432,7 @@ def run_for_files(
     # =========================================================================
     if use_mps:
         # ----- Strategy 1: In-process MLX -----
-        if allow_inproc and is_macos and _can_import_mlx():
+        if enable_inproc and is_macos and _can_import_mlx():
             try:
                 LOGGER.info("DeepSeek OCR: using in-process MLX execution (MPS)")
                 return _run_inproc(
@@ -449,7 +449,7 @@ def run_for_files(
                 LOGGER.warning(
                     "DeepSeek OCR in-process MLX failed (%s); trying next strategy", exc
                 )
-                if not allow_mlx_cli and not use_stub:
+                if not enable_mlx_ocr and not use_stub:
                     raise
 
         # ----- Strategy 2: MLX CLI subprocess -----
@@ -457,10 +457,10 @@ def run_for_files(
             _resolve_mlx_cli_script() if mlx_script is None else Path(mlx_script)
         )
         # env var wins over kwarg; allows enabling the MLX CLI from the environment
-        # without touching code (mirrors GLOSSAPI_DEEPSEEK2_ALLOW_CLI for V2).
-        use_mlx_cli = allow_mlx_cli
-        if env_allow_mlx_cli is not None:
-            use_mlx_cli = env_allow_mlx_cli == "1"
+        # without touching code (mirrors GLOSSAPI_DEEPSEEK2_ENABLE_OCR for V2).
+        use_mlx_cli = enable_mlx_ocr
+        if env_enable_mlx_ocr is not None:
+            use_mlx_cli = env_enable_mlx_ocr == "1"
         if use_mlx_cli and mlx_script_path.exists():
             if not is_macos:
                 msg = "DeepSeek OCR MLX CLI requested on non-macOS"
@@ -502,7 +502,7 @@ def run_for_files(
             if vllm_script
             else Path.cwd() / "deepseek-ocr" / "run_pdf_ocr_vllm.py"
         )
-        use_cli = allow_cli or env_allow_cli
+        use_cli = enable_ocr or env_enable_ocr
         if use_cli and vllm_script_path.exists():
             try:
                 _run_cli_vllm(

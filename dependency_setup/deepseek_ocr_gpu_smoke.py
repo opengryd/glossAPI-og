@@ -67,7 +67,7 @@ def run_smoke(model_root: Path) -> None:
         parquet_path = dl_dir / "download_results.parquet"
         df.to_parquet(parquet_path, index=False)
 
-        os.environ.setdefault("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "0")
+        os.environ.setdefault("GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB", "0")
         os.environ.setdefault(
             "GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT",
             str(model_root / "run_pdf_ocr_vllm.py"),

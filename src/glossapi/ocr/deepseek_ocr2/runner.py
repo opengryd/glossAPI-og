@@ -2,17 +2,17 @@
 
 The runner tries the following strategies in order:
 
-1. **In-process** (``allow_inproc=True``, default on macOS when ``mlx_vlm`` is importable):
+1. **In-process** (``enable_inproc=True``, default on macOS when ``mlx_vlm`` is importable):
    Load the model once via :pymod:`glossapi.ocr.deepseek_ocr2.mlx_cli` and process
    every PDF without spawning a subprocess.  This is the fast path — the model stays
    loaded in memory across files.
 
-2. **CLI subprocess** (``allow_cli=True``):
+2. **CLI subprocess** (``enable_ocr=True``):
    Shell out to ``python -m glossapi.ocr.deepseek_ocr2.mlx_cli`` (or a user-specified
    script via ``GLOSSAPI_DEEPSEEK2_MLX_SCRIPT``).  Useful when the main venv lacks
    ``mlx-vlm`` but a separate venv does.
 
-3. **Stub** (``allow_stub=True``):
+3. **Stub** (``enable_stub=True``):
    Emit placeholder markdown + metrics.  Useful for dry-runs and testing.
 """
 
@@ -252,9 +252,9 @@ def run_for_files(
     output_dir: Optional[Path] = None,
     log_dir: Optional[Path] = None,  # unused, mirrors rapidocr signature
     max_pages: Optional[int] = None,
-    allow_stub: bool = True,
-    allow_cli: bool = True,
-    allow_inproc: bool = True,
+    enable_stub: bool = True,
+    enable_ocr: bool = True,
+    enable_inproc: bool = True,
     python_bin: Optional[Path] = None,
     mlx_script: Optional[Path] = None,
     content_debug: bool = False,
@@ -267,9 +267,9 @@ def run_for_files(
 
     Execution strategy (tried in order):
 
-    1. In-process if ``allow_inproc`` and ``mlx_vlm`` is importable.
-    2. CLI subprocess if ``allow_cli`` and the script exists.
-    3. Stub output if ``allow_stub``.
+    1. In-process if ``enable_inproc`` and ``mlx_vlm`` is importable.
+    2. CLI subprocess if ``enable_ocr`` and the script exists.
+    3. Stub output if ``enable_stub``.
 
     Returns a mapping of ``stem -> {"page_count": int}``.
     """
@@ -287,14 +287,14 @@ def run_for_files(
 
     # ----- Resolve env overrides -----
     env = os.environ
-    env_allow_stub = env.get("GLOSSAPI_DEEPSEEK2_ALLOW_STUB", "1") == "1"
-    env_cli_override = env.get("GLOSSAPI_DEEPSEEK2_ALLOW_CLI")
-    env_allow_cli = env_cli_override == "1"
+    env_enable_stub = env.get("GLOSSAPI_DEEPSEEK2_ENABLE_STUB", "1") == "1"
+    env_cli_override = env.get("GLOSSAPI_DEEPSEEK2_ENABLE_OCR")
+    env_enable_ocr = env_cli_override == "1"
     env_python = env.get("GLOSSAPI_DEEPSEEK2_PYTHON")
     env_model_dir = env.get("GLOSSAPI_DEEPSEEK2_MODEL_DIR")
     env_device = env.get("GLOSSAPI_DEEPSEEK2_DEVICE")
 
-    use_stub = allow_stub and env_allow_stub
+    use_stub = enable_stub and env_enable_stub
 
     if python_bin is None and env_python:
         python_bin = Path(env_python)
@@ -317,7 +317,7 @@ def run_for_files(
         )
 
     # ----- Strategy 1: In-process -----
-    if allow_inproc and platform.system() == "Darwin" and _can_import_mlx():
+    if enable_inproc and platform.system() == "Darwin" and _can_import_mlx():
         try:
             LOGGER.info("DeepSeek OCR v2: using in-process MLX execution")
             return _run_inproc(
@@ -332,11 +332,11 @@ def run_for_files(
             )
         except Exception as exc:
             LOGGER.warning("DeepSeek OCR v2 in-process execution failed (%s); trying next strategy", exc)
-            if not allow_cli and not use_stub:
+            if not enable_ocr and not use_stub:
                 raise
 
     # ----- Strategy 2: CLI subprocess -----
-    use_cli = allow_cli or env_allow_cli
+    use_cli = enable_ocr or env_enable_ocr
     script_path = _resolve_cli_script() if mlx_script is None else Path(mlx_script)
 
     if use_cli and script_path.exists():

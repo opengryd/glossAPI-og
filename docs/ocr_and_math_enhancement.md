@@ -154,7 +154,7 @@ The runner auto-detects the platform and selects the appropriate strategy:
 **Minimal env setup (MPS/Apple Silicon):**
 
 ```bash
-export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
+export GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0
 export GLOSSAPI_DEEPSEEK_OCR_DEVICE=mps
 # Optional: point to local MLX weights (otherwise auto-downloaded from HuggingFace)
 # export GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR=/path/to/deepseek-ocr-1-mlx
@@ -164,8 +164,8 @@ python -m glossapi.ocr.deepseek_ocr.preflight
 **Minimal env setup (CUDA/Linux):**
 
 ```bash
-export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
-export GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI=1
+export GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0
+export GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR=1
 export GLOSSAPI_DEEPSEEK_OCR_DEVICE=cuda
 export GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR=/path/to/model_weights/deepseek-ocr
 python -m glossapi.ocr.deepseek_ocr.preflight
@@ -186,7 +186,7 @@ The runner first tries **in-process MLX** (fast — model stays loaded across fi
 then falls back to **CLI subprocess**, then **stub**.  Minimal env setup:
 
 ```bash
-export GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0
+export GLOSSAPI_DEEPSEEK2_ENABLE_STUB=0
 export GLOSSAPI_DEEPSEEK2_DEVICE=mps
 # Optional: point to local weights (otherwise auto-downloaded from HuggingFace)
 # export GLOSSAPI_DEEPSEEK2_MODEL_DIR=/path/to/DeepSeek-OCR-MLX
@@ -242,10 +242,10 @@ c.ocr(backend='olmocr', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math
 
 ### macOS (MLX/MPS) minimal setup
 
-The runner tries **in-process MLX** first (model stays loaded across files), then **MLX CLI subprocess**, then fallback strategies. Set `GLOSSAPI_OLMOCR_ALLOW_STUB=0` to prevent silent placeholder output:
+The runner tries **in-process MLX** first (model stays loaded across files), then **MLX CLI subprocess**, then fallback strategies. Set `GLOSSAPI_OLMOCR_ENABLE_STUB=0` to prevent silent placeholder output:
 
 ```bash
-export GLOSSAPI_OLMOCR_ALLOW_STUB=0
+export GLOSSAPI_OLMOCR_ENABLE_STUB=0
 export GLOSSAPI_OLMOCR_DEVICE=mps
 # Optional: point to local MLX weights (otherwise auto-downloaded from HuggingFace)
 # export GLOSSAPI_OLMOCR_MLX_MODEL_DIR=/path/to/olmOCR-MLX
@@ -257,8 +257,8 @@ python -m glossapi.ocr.olmocr.preflight
 The runner tries **in-process vLLM** first (model stays loaded), then **vLLM CLI subprocess**, then the OlmOCR pipeline subprocess as a last resort before the stub:
 
 ```bash
-export GLOSSAPI_OLMOCR_ALLOW_STUB=0
-export GLOSSAPI_OLMOCR_ALLOW_CLI=1
+export GLOSSAPI_OLMOCR_ENABLE_STUB=0
+export GLOSSAPI_OLMOCR_ENABLE_OCR=1
 export GLOSSAPI_OLMOCR_DEVICE=cuda
 export GLOSSAPI_OLMOCR_MODEL_DIR=/path/to/model_weights/olmocr
 # Tune VRAM fraction (default 0.85); lower if you see OOM:
@@ -278,8 +278,8 @@ The OlmOCR runner tries strategies in this order:
 | 2 | MLX CLI subprocess | macOS only |
 | 3 | In-process vLLM | Linux/CUDA only (`vllm` importable) |
 | 4 | vLLM CLI subprocess | Linux/CUDA only |
-| 5 | OlmOCR CLI subprocess | Any (`GLOSSAPI_OLMOCR_ALLOW_CLI=1`) |
-| 6 | Stub | Any (default; `GLOSSAPI_OLMOCR_ALLOW_STUB=1`) |
+| 5 | OlmOCR CLI subprocess | Any (`GLOSSAPI_OLMOCR_ENABLE_OCR=1`) |
+| 6 | Stub | Any (default; `GLOSSAPI_OLMOCR_ENABLE_STUB=1`) |
 
 ### Using an external vLLM server
 

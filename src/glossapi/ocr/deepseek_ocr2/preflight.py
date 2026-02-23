@@ -74,22 +74,22 @@ def check_deepseek_ocr2_env(
     warnings: List[CheckResult] = []
     infos: List[CheckResult] = []
 
-    allow_cli = env.get("GLOSSAPI_DEEPSEEK2_ALLOW_CLI", "0") == "1"
-    allow_stub = env.get("GLOSSAPI_DEEPSEEK2_ALLOW_STUB", "1") == "1"
-    if not allow_cli:
+    enable_ocr = env.get("GLOSSAPI_DEEPSEEK2_ENABLE_OCR", "0") == "1"
+    enable_stub = env.get("GLOSSAPI_DEEPSEEK2_ENABLE_STUB", "1") == "1"
+    if not enable_ocr:
         warnings.append(
             CheckResult(
-                "allow_cli",
+                "enable_ocr",
                 False,
-                "Set GLOSSAPI_DEEPSEEK2_ALLOW_CLI=1 to force the real MLX CLI.",
+                "Set GLOSSAPI_DEEPSEEK2_ENABLE_OCR=1 to force the real MLX CLI.",
             )
         )
-    if allow_stub:
+    if enable_stub:
         warnings.append(
             CheckResult(
-                "allow_stub",
+                "enable_stub",
                 False,
-                "Set GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0 to fail instead of falling back to stub output.",
+                "Set GLOSSAPI_DEEPSEEK2_ENABLE_STUB=0 to fail instead of falling back to stub output.",
             )
         )
 

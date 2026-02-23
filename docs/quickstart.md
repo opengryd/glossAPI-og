@@ -154,7 +154,7 @@ c.ocr(backend='deepseek-ocr', fix_bad=True, math_enhance=True, mode='ocr_bad_the
 # → OCR only for bad files; math is included inline in the Markdown
 ```
 
-To avoid stub output, set `GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI=1` and `GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0`, and ensure the CLI bits are reachable:
+To avoid stub output, set `GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR=1` and `GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0`, and ensure the CLI bits are reachable:
 
 ```bash
 export GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT=/path/to/deepseek-ocr/run_pdf_ocr_vllm.py
@@ -175,10 +175,10 @@ c.ocr(backend='deepseek-ocr-2', fix_bad=True, math_enhance=True, mode='ocr_bad_t
 # → OCR only for bad files; math is included inline in the Markdown
 ```
 
-To avoid stub output, set `GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0`.  The runner tries in-process MLX first (fastest), then CLI subprocess, then stub.  Model weights are auto-downloaded from HuggingFace if not present locally:
+To avoid stub output, set `GLOSSAPI_DEEPSEEK2_ENABLE_STUB=0`.  The runner tries in-process MLX first (fastest), then CLI subprocess, then stub.  Model weights are auto-downloaded from HuggingFace if not present locally:
 
 ```bash
-export GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0
+export GLOSSAPI_DEEPSEEK2_ENABLE_STUB=0
 export GLOSSAPI_DEEPSEEK2_DEVICE=mps
 # Optional: point to local weights to skip the auto-download
 # export GLOSSAPI_DEEPSEEK2_MODEL_DIR=/path/to/DeepSeek-OCR-MLX
@@ -196,10 +196,10 @@ c.ocr(backend='glm-ocr', fix_bad=True, math_enhance=True, mode='ocr_bad_then_mat
 # → OCR only for bad files; math is included inline in the Markdown
 ```
 
-To avoid stub output, set `GLOSSAPI_GLMOCR_ALLOW_STUB=0`.  The runner tries in-process MLX first (fastest), then CLI subprocess, then stub.  Model weights are auto-downloaded from HuggingFace if not present locally:
+To avoid stub output, set `GLOSSAPI_GLMOCR_ENABLE_STUB=0`.  The runner tries in-process MLX first (fastest), then CLI subprocess, then stub.  Model weights are auto-downloaded from HuggingFace if not present locally:
 
 ```bash
-export GLOSSAPI_GLMOCR_ALLOW_STUB=0
+export GLOSSAPI_GLMOCR_ENABLE_STUB=0
 export GLOSSAPI_GLMOCR_DEVICE=mps
 # Optional: point to local weights to skip the auto-download
 # export GLOSSAPI_GLMOCR_MODEL_DIR=/path/to/GLM-OCR-MLX
@@ -219,12 +219,12 @@ c.ocr(backend='olmocr', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math
 # → OCR only for bad files; math is included inline in the Markdown
 ```
 
-**macOS (MLX/MPS):** set `GLOSSAPI_OLMOCR_ALLOW_STUB=0`.  The runner tries in-process MLX first
+**macOS (MLX/MPS):** set `GLOSSAPI_OLMOCR_ENABLE_STUB=0`.  The runner tries in-process MLX first
 (fastest), then MLX CLI subprocess, then stub.  Model weights are auto-downloaded from HuggingFace
 if not present locally:
 
 ```bash
-export GLOSSAPI_OLMOCR_ALLOW_STUB=0
+export GLOSSAPI_OLMOCR_ENABLE_STUB=0
 export GLOSSAPI_OLMOCR_DEVICE=mps
 # Optional: point to local MLX weights to skip the auto-download
 # export GLOSSAPI_OLMOCR_MLX_MODEL_DIR=/path/to/olmOCR-MLX
@@ -234,8 +234,8 @@ python -m glossapi.ocr.olmocr.preflight  # optional: validates env without runni
 **Linux (CUDA/vLLM):** enable the CLI runner and point to model weights:
 
 ```bash
-export GLOSSAPI_OLMOCR_ALLOW_STUB=0
-export GLOSSAPI_OLMOCR_ALLOW_CLI=1
+export GLOSSAPI_OLMOCR_ENABLE_STUB=0
+export GLOSSAPI_OLMOCR_ENABLE_OCR=1
 export GLOSSAPI_OLMOCR_MODEL_DIR=/path/to/model_weights/olmocr
 python -m glossapi.ocr.olmocr.preflight  # optional: validates env without running OCR
 ```
@@ -265,7 +265,7 @@ c.ocr(backend='mineru', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math
 # → OCR only for bad files; math is included inline in the Markdown
 ```
 
-To use the CLI directly, set `GLOSSAPI_MINERU_ALLOW_CLI=1` (and optionally `GLOSSAPI_MINERU_ALLOW_STUB=0`) and ensure `magic-pdf` is on PATH or set `GLOSSAPI_MINERU_COMMAND`.
+To use the CLI directly, set `GLOSSAPI_MINERU_ENABLE_OCR=1` (and optionally `GLOSSAPI_MINERU_ENABLE_STUB=0`) and ensure `magic-pdf` is on PATH or set `GLOSSAPI_MINERU_COMMAND`.
 
 To force the GPU backend on Apple Silicon:
 

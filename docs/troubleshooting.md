@@ -44,7 +44,7 @@
 - **Model not found:** Set `GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR` to point to your local MLX-formatted weights directory (`deepseek-ocr-1-mlx/`), or let it auto-download from `mlx-community/DeepSeek-OCR-8bit` on HuggingFace.
 - **Wrong Python:** If the MLX venv differs from the main venv, set `GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON` to the correct binary.
 - **MPS device error:** Ensure `GLOSSAPI_DEEPSEEK_OCR_DEVICE=mps` (default on macOS). Check `torch.backends.mps.is_available()`.
-- **Stub output (placeholder text instead of real OCR):** The stub runner is on by default. Set `GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0` to force real inference.
+- **Stub output (placeholder text instead of real OCR):** The stub runner is on by default. Set `GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0` to force real inference.
 - **Preflight checker:** Run `python -m glossapi.ocr.deepseek_ocr.preflight` to validate your environment.
 
 ## DeepSeek OCR v2 (MLX/macOS) issues
@@ -66,7 +66,7 @@
 ## OlmOCR-2 issues
 
 - **`mlx` import error on non-Apple Silicon:** The MLX inference path requires Apple Silicon (M1+). On Linux, only the vLLM path is supported.
-- **Stub output on CUDA:** The vLLM in-process and CLI strategies require `GLOSSAPI_OLMOCR_ALLOW_CLI=1` (for the OlmOCR pipeline subprocess) and `GLOSSAPI_OLMOCR_ALLOW_STUB=0`. Set both to force real inference.
+- **Stub output on CUDA:** The vLLM in-process and CLI strategies require `GLOSSAPI_OLMOCR_ENABLE_OCR=1` (for the OlmOCR pipeline subprocess) and `GLOSSAPI_OLMOCR_ENABLE_STUB=0`. Set both to force real inference.
 - **In-process vLLM not chosen on Linux:** Ensure `vllm` is importable in the active environment. The runner skips `vllm` gracefully if it is not importable.
 - **Model not found (CUDA):** Set `GLOSSAPI_OLMOCR_MODEL_DIR` to the local CUDA weights directory, or ensure `GLOSSAPI_WEIGHTS_ROOT` is set so the pipeline resolves `$GLOSSAPI_WEIGHTS_ROOT/olmocr`.
 - **Model not found (MLX):** Set `GLOSSAPI_OLMOCR_MLX_MODEL_DIR` to the local MLX-formatted weights directory. Without it, weights are auto-downloaded from `mlx-community/olmOCR-2-7B-1025-4bit`.
@@ -82,8 +82,8 @@
 
 ## Stub runners producing empty output
 
-- By default, DeepSeek-OCR, GLM-OCR, MinerU, and OlmOCR allow stub fallback (`*_ALLOW_STUB=1`). This means OCR may silently produce placeholder output instead of real results.
-- To force real OCR, set `GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0` (or `GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0`, `GLOSSAPI_GLMOCR_ALLOW_STUB=0`, `GLOSSAPI_OLMOCR_ALLOW_STUB=0`, `GLOSSAPI_MINERU_ALLOW_STUB=0`) **and** enable the CLI runner with `*_ALLOW_CLI=1`.
+- By default, DeepSeek-OCR, GLM-OCR, MinerU, and OlmOCR allow stub fallback (`*_ENABLE_STUB=1`). This means OCR may silently produce placeholder output instead of real results.
+- To force real OCR, set `GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0` (or `GLOSSAPI_DEEPSEEK2_ENABLE_STUB=0`, `GLOSSAPI_GLMOCR_ENABLE_STUB=0`, `GLOSSAPI_OLMOCR_ENABLE_STUB=0`, `GLOSSAPI_MINERU_ENABLE_STUB=0`) **and** enable the CLI runner with `*_ENABLE_OCR=1`.
 
 ## Docling import slow or crashes at startup
 

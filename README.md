@@ -190,8 +190,8 @@ Pass `--download-olmocr` to fetch OlmOCR weights into `$GLOSSAPI_WEIGHTS_ROOT/ol
 
 - Run `python -m glossapi.ocr.deepseek_ocr.preflight` (from your DeepSeek-OCR venv) to fail fast if the CLI would fall back to the stub.
 - Export these to force the real CLI and avoid silent stub output:
-  - `GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI=1`
-  - `GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0`
+  - `GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR=1`
+  - `GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0`
   - `GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT=/path/to/deepseek-ocr/run_pdf_ocr_vllm.py`
   - `GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON=/path/to/deepseek-ocr/venv/bin/python`
   - `GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR=/path/to/model_weights/deepseek-ocr` (or set `GLOSSAPI_WEIGHTS_ROOT`)
@@ -210,8 +210,8 @@ Pass `--download-olmocr` to fetch OlmOCR weights into `$GLOSSAPI_WEIGHTS_ROOT/ol
 - Prefer Python 3.11 for the MinerU venv (3.10–3.13 supported upstream).
 - MinerU's layout module imports Detectron2. If Detectron2 is unavailable (common on macOS), the setup script auto-enables stub fallback. To install Detectron2 when you have a wheel, set `DETECTRON2_WHL_URL` before running `setup_glossapi.sh`.
 - Export these to force the real CLI and avoid stub output:
-  - `GLOSSAPI_MINERU_ALLOW_CLI=1`
-  - `GLOSSAPI_MINERU_ALLOW_STUB=0`
+  - `GLOSSAPI_MINERU_ENABLE_OCR=1`
+  - `GLOSSAPI_MINERU_ENABLE_STUB=0`
   - `GLOSSAPI_MINERU_COMMAND=/path/to/magic-pdf` (optional override)
   - `GLOSSAPI_MINERU_MODE=auto` (or `fast`/`accurate` if your MinerU build supports it)
 

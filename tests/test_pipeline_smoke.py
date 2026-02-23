@@ -426,8 +426,8 @@ def test_deepseek_ocr_cli_pipeline_with_synthetic_pdfs(tmp_path, monkeypatch):
 
     # Force the CLI path (no stub fallback) and point to the desired interpreter/script.
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "0")
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI", "1")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB", "0")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR", "1")
     monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_PYTHON", str(python_bin))
     monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT", str(script))
     monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH", lib_path)

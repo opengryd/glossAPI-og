@@ -42,21 +42,21 @@ def test_preflight_stub_warnings(monkeypatch):
     from glossapi.ocr.glm_ocr.preflight import check_glmocr_env
 
     env = {
-        "GLOSSAPI_GLMOCR_ALLOW_CLI": "0",
-        "GLOSSAPI_GLMOCR_ALLOW_STUB": "1",
+        "GLOSSAPI_GLMOCR_ENABLE_OCR": "0",
+        "GLOSSAPI_GLMOCR_ENABLE_STUB": "1",
     }
     report = check_glmocr_env(env)
     names = [w.name for w in report.warnings]
-    assert "allow_cli" in names
-    assert "allow_stub" in names
+    assert "enable_ocr" in names
+    assert "enable_stub" in names
 
 
 def test_preflight_model_dir_missing(tmp_path, monkeypatch):
     from glossapi.ocr.glm_ocr.preflight import check_glmocr_env
 
     env = {
-        "GLOSSAPI_GLMOCR_ALLOW_CLI": "1",
-        "GLOSSAPI_GLMOCR_ALLOW_STUB": "0",
+        "GLOSSAPI_GLMOCR_ENABLE_OCR": "1",
+        "GLOSSAPI_GLMOCR_ENABLE_STUB": "0",
         "GLOSSAPI_GLMOCR_MODEL_DIR": str(tmp_path / "nonexistent"),
     }
     report = check_glmocr_env(env)
@@ -116,8 +116,8 @@ def test_run_for_files_stub_disabled_no_cli_raises(tmp_path, monkeypatch):
     """When both stub and CLI are disabled, runner should raise."""
     from glossapi.ocr.glm_ocr.runner import run_for_files
 
-    monkeypatch.setenv("GLOSSAPI_GLMOCR_ALLOW_STUB", "0")
-    monkeypatch.setenv("GLOSSAPI_GLMOCR_ALLOW_CLI", "0")
+    monkeypatch.setenv("GLOSSAPI_GLMOCR_ENABLE_STUB", "0")
+    monkeypatch.setenv("GLOSSAPI_GLMOCR_ENABLE_OCR", "0")
 
     input_dir = tmp_path / "in"
     output_dir = tmp_path / "out"
@@ -134,9 +134,9 @@ def test_run_for_files_stub_disabled_no_cli_raises(tmp_path, monkeypatch):
         run_for_files(
             FakeCorpus(),
             ["doc.pdf"],
-            allow_stub=False,
-            allow_cli=False,
-            allow_inproc=False,
+            enable_stub=False,
+            enable_ocr=False,
+            enable_inproc=False,
         )
 
 

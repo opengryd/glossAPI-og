@@ -46,10 +46,10 @@ pip install '.[deepseek-ocr-mlx]'
 **DeepSeek-OCR V1 MPS runtime checklist**
 - Run `python -m glossapi.ocr.deepseek_ocr.preflight` to validate the environment.
 - The runner tries in-process MLX first (fastest), then MLX CLI subprocess, then stub.
-- Set `GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0` to force real OCR.
+- Set `GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0` to force real OCR.
 - Override model path with `GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR` if needed.
 - Override device with `GLOSSAPI_DEEPSEEK_OCR_DEVICE` (`mps` or `cpu`, default `mps` on macOS).
-- Use `GLOSSAPI_DEEPSEEK_OCR_ALLOW_MLX_CLI` to control CLI subprocess strategy (`0` to disable, `1` to force).
+- Use `GLOSSAPI_DEEPSEEK_OCR_ENABLE_MLX_OCR` to control CLI subprocess strategy (`0` to disable, `1` to force).
 
 ### DeepSeek OCR v2 (MLX/MPS) setup
 
@@ -68,7 +68,7 @@ pip install '.[deepseek-ocr-mlx]'
 **DeepSeek OCR v2 runtime checklist**
 - Run `python -m glossapi.ocr.deepseek_ocr2.preflight` to validate the environment.
 - The runner tries in-process MLX first (fastest), then CLI subprocess, then stub.
-- Set `GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0` to force real OCR.
+- Set `GLOSSAPI_DEEPSEEK2_ENABLE_STUB=0` to force real OCR.
 - Override model path with `GLOSSAPI_DEEPSEEK2_MODEL_DIR` if needed.
 - Override device with `GLOSSAPI_DEEPSEEK2_DEVICE` (`mps` or `cpu`, default `mps`).
 
@@ -89,7 +89,7 @@ pip install '.[deepseek-ocr-mlx]'
 **GLM-OCR runtime checklist**
 - Run `python -m glossapi.ocr.glm_ocr.preflight` to validate the environment.
 - The runner tries in-process MLX first (fastest), then CLI subprocess, then stub.
-- Set `GLOSSAPI_GLMOCR_ALLOW_STUB=0` to force real OCR.
+- Set `GLOSSAPI_GLMOCR_ENABLE_STUB=0` to force real OCR.
 - Override model path with `GLOSSAPI_GLMOCR_MODEL_DIR` if needed.
 - Override device with `GLOSSAPI_GLMOCR_DEVICE` (`mps` or `cpu`, default `mps`).
 
@@ -115,8 +115,8 @@ both CUDA (via vLLM) and Apple Silicon MPS (via MLX).
 **OlmOCR-2 runtime checklist**
 - Run `python -m glossapi.ocr.olmocr.preflight` to validate the environment.
 - The runner cascade is: **in-process MLX** → **MLX CLI** (macOS) / **in-process vLLM** → **vLLM CLI** → **OlmOCR CLI** → **stub** (Linux).
-- Set `GLOSSAPI_OLMOCR_ALLOW_STUB=0` to fail instead of silently producing placeholder output.
-- Set `GLOSSAPI_OLMOCR_ALLOW_CLI=1` to enable the OlmOCR CLI subprocess (requires the `olmocr` package).
+- Set `GLOSSAPI_OLMOCR_ENABLE_STUB=0` to fail instead of silently producing placeholder output.
+- Set `GLOSSAPI_OLMOCR_ENABLE_OCR=1` to enable the OlmOCR CLI subprocess (requires the `olmocr` package).
 - Override model path with `GLOSSAPI_OLMOCR_MODEL_DIR` (CUDA) or `GLOSSAPI_OLMOCR_MLX_MODEL_DIR` (MLX).
 - Override device with `GLOSSAPI_OLMOCR_DEVICE` (`cuda`, `mps`, or `cpu`; auto-detected if unset).
 - For external vLLM servers, set `GLOSSAPI_OLMOCR_SERVER` and `GLOSSAPI_OLMOCR_API_KEY`.
@@ -139,14 +139,14 @@ both CUDA (via vLLM) and Apple Silicon MPS (via MLX).
 
 **MinerU runtime checklist**
 - Run `python -m glossapi.ocr.mineru.preflight` to validate CLI, config, device, and model paths.
-- Set `GLOSSAPI_MINERU_ALLOW_CLI=1` and `GLOSSAPI_MINERU_ALLOW_STUB=0` to force real OCR.
+- Set `GLOSSAPI_MINERU_ENABLE_OCR=1` and `GLOSSAPI_MINERU_ENABLE_STUB=0` to force real OCR.
 - For macOS GPU: set `GLOSSAPI_MINERU_BACKEND="hybrid-auto-engine"` and `GLOSSAPI_MINERU_DEVICE_MODE="mps"`.
 
 **DeepSeek-OCR runtime checklist**
 - Run `python -m glossapi.ocr.deepseek_ocr.preflight` from the DeepSeek-OCR venv to assert the CLI can run (env vars, model dir, flashinfer, cc1plus, libjpeg).
 - Force the real CLI and avoid stub fallback by setting:
-  - `GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI=1`
-  - `GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0`
+  - `GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR=1`
+  - `GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0`
   - `GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT=/path/to/deepseek-ocr/run_pdf_ocr_vllm.py`
   - `GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON=/path/to/deepseek-ocr/venv/bin/python`
   - `GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR=/path/to/deepseek-ocr/DeepSeek-OCR`

@@ -82,8 +82,8 @@ All three completed successfully after the following adjustments:
   export GLOSSAPI_DEEPSEEK2_PYTHON="dependency_setup/.venvs/deepseek-ocr-2/bin/python"
   export GLOSSAPI_DEEPSEEK2_MLX_SCRIPT="/mnt/data/glossAPI/deepseek-ocr-2/run_pdf_ocr_mlx.py"
   export GLOSSAPI_DEEPSEEK2_MODEL_DIR="/mnt/data/glossAPI/deepseek-ocr-2/DeepSeek-OCR-MLX"
-  export GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0
-  export GLOSSAPI_DEEPSEEK2_ALLOW_CLI=1
+  export GLOSSAPI_DEEPSEEK2_ENABLE_STUB=0
+  export GLOSSAPI_DEEPSEEK2_ENABLE_OCR=1
   export GLOSSAPI_DEEPSEEK2_DEVICE="mps"
   ```
 
@@ -92,8 +92,8 @@ All three completed successfully after the following adjustments:
   export GLOSSAPI_GLMOCR_PYTHON="dependency_setup/.venvs/glm-ocr/bin/python"
   export GLOSSAPI_GLMOCR_MLX_SCRIPT="/path/to/glossAPI/src/glossapi/ocr/glm_ocr/mlx_cli.py"
   export GLOSSAPI_GLMOCR_MODEL_DIR="/path/to/model_weights/glm-ocr-mlx"
-  export GLOSSAPI_GLMOCR_ALLOW_STUB=0
-  export GLOSSAPI_GLMOCR_ALLOW_CLI=1
+  export GLOSSAPI_GLMOCR_ENABLE_STUB=0
+  export GLOSSAPI_GLMOCR_ENABLE_OCR=1
   export GLOSSAPI_GLMOCR_DEVICE="mps"
   ```
 

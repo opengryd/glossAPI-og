@@ -6,34 +6,34 @@ supports both CUDA (via vLLM) and Apple Silicon MPS (via MLX).
 
 The runner tries the following strategies in order:
 
-1. **In-process MLX** (``allow_inproc=True``, default on macOS when ``mlx_vlm``
+1. **In-process MLX** (``enable_inproc=True``, default on macOS when ``mlx_vlm``
    is importable):
    Load the model once via :pymod:`glossapi.ocr.olmocr.mlx_cli` and process
    every PDF without spawning a subprocess.  This is the fast path on Apple
    Silicon — the model stays loaded in memory across files.
 
-2. **MLX CLI subprocess** (``allow_mlx_cli=True``):
+2. **MLX CLI subprocess** (``enable_mlx_ocr=True``):
    Shell out to ``python -m glossapi.ocr.olmocr.mlx_cli`` (or a user-specified
    script via ``GLOSSAPI_OLMOCR_MLX_SCRIPT``).  Useful when the main venv lacks
    ``mlx-vlm`` but a separate venv does.
 
-3. **In-process vLLM** (``allow_inproc_vllm=True``, default on Linux when
+3. **In-process vLLM** (``enable_inproc_vllm=True``, default on Linux when
    ``vllm`` is importable and CUDA is available):
    Load the model once via :pymod:`glossapi.ocr.olmocr.vllm_cli` and process
    every PDF without spawning a subprocess.  This is the fast path on CUDA —
    the model stays loaded in GPU memory across files.
 
-4. **vLLM CLI subprocess** (``allow_vllm_cli=True``):
+4. **vLLM CLI subprocess** (``enable_vllm_cli=True``):
    Shell out to ``python -m glossapi.ocr.olmocr.vllm_cli`` (or a user-specified
    script via ``GLOSSAPI_OLMOCR_VLLM_SCRIPT``).  Useful when the main venv
    lacks ``vllm`` but a separate venv does.
 
-5. **OlmOCR CLI subprocess** (``allow_cli=True``):
+5. **OlmOCR CLI subprocess** (``enable_ocr=True``):
    Shell out to ``python -m olmocr.pipeline <workspace> --markdown --pdfs ...``.
    The OlmOCR pipeline manages its own vLLM instance, renders PDF pages via
    poppler, and writes Markdown output.  Requires CUDA GPU.
 
-6. **Stub** (``allow_stub=True``):
+6. **Stub** (``enable_stub=True``):
    Emit placeholder markdown + metrics.  Useful for dry-runs and testing.
 
 OlmOCR inlines equations — Phase-2 math enrichment is not required.
@@ -626,10 +626,10 @@ def run_for_files(
     output_dir: Optional["Path"] = None,
     log_dir: Optional["Path"] = None,  # unused, mirrors other backend signatures
     max_pages: Optional[int] = None,  # reserved for future page-limit support
-    allow_stub: bool = True,
-    allow_cli: bool = False,
-    allow_inproc: bool = True,
-    allow_mlx_cli: bool = True,
+    enable_stub: bool = True,
+    enable_ocr: bool = False,
+    enable_inproc: bool = True,
+    enable_mlx_ocr: bool = True,
     python_bin: Optional["Path"] = None,
     mlx_script: Optional["Path"] = None,
     vllm_script: Optional["Path"] = None,
@@ -645,20 +645,20 @@ def run_for_files(
     target_longest_image_dim: Optional[int] = None,
     workers: Optional[int] = None,
     pages_per_group: Optional[int] = None,
-    allow_inproc_vllm: bool = True,
-    allow_vllm_cli: bool = True,
+    enable_inproc_vllm: bool = True,
+    enable_vllm_cli: bool = True,
     **_: Any,
 ) -> Dict[str, Any]:
     """Run OlmOCR-2 OCR for the provided files.
 
     Execution strategy (tried in order):
 
-    1. In-process MLX if ``allow_inproc`` and ``mlx_vlm`` is importable (macOS).
-    2. MLX CLI subprocess if ``allow_mlx_cli`` and the script exists (macOS).
-    3. In-process vLLM if ``allow_inproc_vllm`` and ``vllm`` is importable (CUDA).
-    4. vLLM CLI subprocess if ``allow_vllm_cli`` and the script exists (CUDA).
-    5. OlmOCR CLI subprocess if ``allow_cli`` (or ``GLOSSAPI_OLMOCR_ALLOW_CLI=1``).
-    6. Stub output if ``allow_stub`` (and ``GLOSSAPI_OLMOCR_ALLOW_STUB=1``).
+    1. In-process MLX if ``enable_inproc`` and ``mlx_vlm`` is importable (macOS).
+    2. MLX CLI subprocess if ``enable_mlx_ocr`` and the script exists (macOS).
+    3. In-process vLLM if ``enable_inproc_vllm`` and ``vllm`` is importable (CUDA).
+    4. vLLM CLI subprocess if ``enable_vllm_cli`` and the script exists (CUDA).
+    5. OlmOCR CLI subprocess if ``enable_ocr`` (or ``GLOSSAPI_OLMOCR_ENABLE_OCR=1``).
+    6. Stub output if ``enable_stub`` (and ``GLOSSAPI_OLMOCR_ENABLE_STUB=1``).
 
     Returns a mapping of ``stem -> {"page_count": int}``.
     """
@@ -678,8 +678,8 @@ def run_for_files(
 
     # ----- Env overrides -----
     env = os.environ
-    env_allow_stub = env.get("GLOSSAPI_OLMOCR_ALLOW_STUB", "1") == "1"
-    env_allow_cli = env.get("GLOSSAPI_OLMOCR_ALLOW_CLI", "0") == "1"
+    env_enable_stub = env.get("GLOSSAPI_OLMOCR_ENABLE_STUB", "1") == "1"
+    env_enable_ocr = env.get("GLOSSAPI_OLMOCR_ENABLE_OCR", "0") == "1"
     env_python = env.get("GLOSSAPI_OLMOCR_PYTHON")
     env_model = env.get("GLOSSAPI_OLMOCR_MODEL", "").strip()
     env_model_dir = env.get("GLOSSAPI_OLMOCR_MODEL_DIR", "").strip()
@@ -694,8 +694,8 @@ def run_for_files(
     env_pages_per_group = env.get("GLOSSAPI_OLMOCR_PAGES_PER_GROUP", "").strip()
     env_device = env.get("GLOSSAPI_OLMOCR_DEVICE", "").strip()
 
-    use_cli = allow_cli or env_allow_cli
-    use_stub = allow_stub and env_allow_stub
+    use_cli = enable_ocr or env_enable_ocr
+    use_stub = enable_stub and env_enable_stub
 
     # Resolve parameters (kwargs > env > defaults)
     if python_bin is None and env_python:
@@ -781,7 +781,7 @@ def run_for_files(
 
     # ----- Strategy 1: In-process MLX (macOS Apple Silicon) -----
     if (
-        allow_inproc
+        enable_inproc
         and platform.system() == "Darwin"
         and _can_import_mlx()
     ):
@@ -803,14 +803,14 @@ def run_for_files(
                 "OlmOCR in-process MLX execution failed (%s); trying next strategy",
                 exc,
             )
-            if not allow_mlx_cli and not allow_inproc_vllm and not allow_vllm_cli and not use_cli and not use_stub:
+            if not enable_mlx_ocr and not enable_inproc_vllm and not enable_vllm_cli and not use_cli and not use_stub:
                 raise
 
     # ----- Strategy 2: MLX CLI subprocess (macOS, separate venv) -----
     mlx_script_path = (
         _resolve_mlx_cli_script() if mlx_script is None else Path(mlx_script)
     )
-    if allow_mlx_cli and platform.system() == "Darwin" and mlx_script_path.exists():
+    if enable_mlx_ocr and platform.system() == "Darwin" and mlx_script_path.exists():
         cli_input_root = _pick_cli_input_root(
             file_list, resolved_paths, candidate_roots
         )
@@ -850,7 +850,7 @@ def run_for_files(
             return results
         except Exception as exc:
             _strategy_errors.append(("MLX CLI", exc))
-            if not use_cli and not use_stub and not allow_inproc_vllm and not allow_vllm_cli:
+            if not use_cli and not use_stub and not enable_inproc_vllm and not enable_vllm_cli:
                 raise
             LOGGER.warning(
                 "OlmOCR MLX CLI failed (%s); trying next strategy", exc,
@@ -858,7 +858,7 @@ def run_for_files(
 
     # ----- Strategy 3: In-process vLLM (CUDA) -----
     if (
-        allow_inproc_vllm
+        enable_inproc_vllm
         and platform.system() != "Darwin"
         and _can_import_vllm()
         and _cuda_available()
@@ -885,7 +885,7 @@ def run_for_files(
                 "OlmOCR in-process vLLM execution failed (%s); trying next strategy",
                 exc,
             )
-            if not allow_vllm_cli and not use_cli and not use_stub:
+            if not enable_vllm_cli and not use_cli and not use_stub:
                 raise
 
     # ----- Strategy 4: vLLM CLI subprocess (CUDA, separate venv) -----
@@ -893,7 +893,7 @@ def run_for_files(
         _resolve_vllm_cli_script() if vllm_script is None else Path(vllm_script)
     )
     if (
-        allow_vllm_cli
+        enable_vllm_cli
         and platform.system() != "Darwin"
         and vllm_script_path.exists()
     ):

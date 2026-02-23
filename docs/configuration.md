@@ -87,12 +87,12 @@ The runner auto-detects the platform and selects the right execution path:
 
 **Common controls:**
 
-- `GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
+- `GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
 - `GLOSSAPI_DEEPSEEK_OCR_DEVICE`: force device selection — `mps`, `cuda`, or `cpu`.  Auto-detected when unset (`mps` on macOS, `cuda` elsewhere).
 
 **MPS / MLX controls (Apple Silicon):**
 
-- `GLOSSAPI_DEEPSEEK_OCR_ALLOW_MLX_CLI` (`1` by default on the MPS path): set to `0` to skip the MLX CLI subprocess strategy, or `1` to force it even when the kwarg says otherwise.
+- `GLOSSAPI_DEEPSEEK_OCR_ENABLE_MLX_OCR` (`1` by default on the MPS path): set to `0` to skip the MLX CLI subprocess strategy, or `1` to force it even when the kwarg says otherwise.
 - `GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR`: local directory containing MLX-formatted weights and `config.json`. If unset, weights are resolved from `GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr-1-mlx/` or auto-downloaded from `mlx-community/DeepSeek-OCR-8bit`.
 - `GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL`: HuggingFace model ID for auto-download (default `mlx-community/DeepSeek-OCR-8bit`).
 - `GLOSSAPI_DEEPSEEK_OCR_MLX_SCRIPT`: override path to the MLX CLI inference script. By default the package-shipped `mlx_cli.py` is used.
@@ -100,7 +100,7 @@ The runner auto-detects the platform and selects the right execution path:
 
 **CUDA / vLLM controls (Linux):**
 
-- `GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI` (`0` by default): flip to `1` to force the real vLLM CLI even when the stub is allowed.
+- `GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR` (`0` by default): flip to `1` to force the real vLLM CLI even when the stub is allowed.
 - `GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT`: override path to the DeepSeek-OCR vLLM CLI script (defaults to `deepseek-ocr/run_pdf_ocr_vllm.py` under the repo).
 - `GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR`: path to CUDA model weights (must contain `config.json` + safetensors).
 - `GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH`: prepend extra library search paths (e.g., for `libjpeg-turbo`) when launching the CLI.
@@ -111,8 +111,8 @@ The runner auto-detects the platform and selects the right execution path:
 
 The runner tries three strategies in order: **in-process** (fast, model stays loaded), **CLI subprocess**, then **stub**.
 
-- `GLOSSAPI_DEEPSEEK2_ALLOW_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
-- `GLOSSAPI_DEEPSEEK2_ALLOW_CLI` (`0` by default): flip to `1` to force the CLI subprocess strategy.
+- `GLOSSAPI_DEEPSEEK2_ENABLE_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
+- `GLOSSAPI_DEEPSEEK2_ENABLE_OCR` (`0` by default): flip to `1` to force the CLI subprocess strategy.
 - `GLOSSAPI_DEEPSEEK2_MODEL_DIR`: model directory containing MLX-formatted weights and config. If unset, models are auto-downloaded from `mlx-community/DeepSeek-OCR-2-8bit` on HuggingFace.
 - `GLOSSAPI_DEEPSEEK2_DEVICE`: device override (`mps` or `cpu`, default `mps`).
 - `GLOSSAPI_DEEPSEEK2_MLX_SCRIPT`: override path to an external MLX CLI script. Only needed when using a separate venv or custom script. By default the package-shipped script is used.
@@ -120,8 +120,8 @@ The runner tries three strategies in order: **in-process** (fast, model stays lo
 
 ### MinerU runtime controls
 
-- `GLOSSAPI_MINERU_ALLOW_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
-- `GLOSSAPI_MINERU_ALLOW_CLI` (`0` by default): flip to `1` to run `magic-pdf` when available.
+- `GLOSSAPI_MINERU_ENABLE_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
+- `GLOSSAPI_MINERU_ENABLE_OCR` (`0` by default): flip to `1` to run `magic-pdf` when available.
 - `GLOSSAPI_MINERU_COMMAND`: override the `magic-pdf` executable path.
 - `GLOSSAPI_MINERU_MODE`: override the MinerU mode flag (passed to `magic-pdf -m`, default `auto`).
 - `GLOSSAPI_MINERU_BACKEND`: override the MinerU backend (passed to `magic-pdf -b`, e.g. `pipeline`, `hybrid-auto-engine`, `vlm`).
@@ -139,8 +139,8 @@ python -m glossapi.ocr.mineru.preflight
 
 GLM-OCR is a compact 0.5B VLM for document OCR, running on Apple Silicon via MLX.
 
-- `GLOSSAPI_GLMOCR_ALLOW_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
-- `GLOSSAPI_GLMOCR_ALLOW_CLI` (`0` by default): flip to `1` to run the GLM-OCR MLX CLI subprocess.
+- `GLOSSAPI_GLMOCR_ENABLE_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
+- `GLOSSAPI_GLMOCR_ENABLE_OCR` (`0` by default): flip to `1` to run the GLM-OCR MLX CLI subprocess.
 - `GLOSSAPI_GLMOCR_PYTHON`: Python executable for the GLM-OCR venv.
 - `GLOSSAPI_GLMOCR_MODEL_DIR`: local model weights directory (takes precedence over HF model ID).
 - `GLOSSAPI_GLMOCR_MLX_MODEL`: HuggingFace MLX model identifier (default `mlx-community/GLM-OCR-4bit`).
@@ -162,8 +162,8 @@ python -m glossapi.ocr.glm_ocr.preflight
 
 #### CUDA / vLLM
 
-- `GLOSSAPI_OLMOCR_ALLOW_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
-- `GLOSSAPI_OLMOCR_ALLOW_CLI` (`0` by default): flip to `1` to run the real OlmOCR pipeline (external `olmocr` package).
+- `GLOSSAPI_OLMOCR_ENABLE_STUB` (`1` by default): allow the builtin stub runner for tests and lightweight environments.
+- `GLOSSAPI_OLMOCR_ENABLE_OCR` (`0` by default): flip to `1` to run the real OlmOCR pipeline (external `olmocr` package).
 - `GLOSSAPI_OLMOCR_PYTHON`: Python executable for the OlmOCR venv.
 - `GLOSSAPI_OLMOCR_MODEL`: HuggingFace model identifier (default `allenai/olmOCR-2-7B-1025-FP8`).
 - `GLOSSAPI_OLMOCR_MODEL_DIR`: local CUDA model weights directory (takes precedence over HF model ID).
@@ -193,7 +193,7 @@ The runner tries strategies in this order:
 2. **MLX CLI subprocess** (macOS only)
 3. **In-process vLLM** (Linux/CUDA only, if `vllm` is importable and CUDA is available)
 4. **vLLM CLI subprocess** (Linux/CUDA only)
-5. **OlmOCR CLI subprocess** (requires `olmocr` package and `GLOSSAPI_OLMOCR_ALLOW_CLI=1`)
+5. **OlmOCR CLI subprocess** (requires `olmocr` package and `GLOSSAPI_OLMOCR_ENABLE_OCR=1`)
 6. **Stub** (default fallback for testing)
 
 On macOS, strategies 3–4 are skipped. On Linux, strategies 1–2 are skipped.

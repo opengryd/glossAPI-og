@@ -261,7 +261,7 @@ def _cuda_preflight(backend: str) -> None:
 
     label = _BACKEND_LABELS.get(backend, backend)
     env_var = _CUDA_BACKEND_PYTHON_ENV.get(backend)
-    stub_env = f"GLOSSAPI_{backend.upper().replace('-', '_')}_ALLOW_STUB"
+    stub_env = f"GLOSSAPI_{backend.upper().replace('-', '_')}_ENABLE_STUB"
 
     # Determine the Python binary to probe.
     env_python = os.environ.get(env_var, "").strip() if env_var else ""
@@ -409,11 +409,11 @@ def _run_pipeline(
                     policy = os.environ.get("GLOSSAPI_MINERU_MISSING_DETECTRON2", "rapidocr").lower()
                     console.print("[yellow]detectron2 not available for MinerU.[/yellow]")
                     if policy == "stop":
-                        console.print("Install detectron2, set GLOSSAPI_MINERU_ALLOW_STUB=0, then retry.")
+                        console.print("Install detectron2, set GLOSSAPI_MINERU_ENABLE_STUB=0, then retry.")
                         raise typer.Exit(code=1)
                     if policy == "stub":
-                        os.environ["GLOSSAPI_MINERU_ALLOW_STUB"] = "1"
-                        console.print("[yellow]Proceeding with stub output (set GLOSSAPI_MINERU_ALLOW_STUB=0 to disable).[/yellow]")
+                        os.environ["GLOSSAPI_MINERU_ENABLE_STUB"] = "1"
+                        console.print("[yellow]Proceeding with stub output (set GLOSSAPI_MINERU_ENABLE_STUB=0 to disable).[/yellow]")
                     else:
                         rapidocr_ok = True
                         if importlib.util.find_spec("docling") is None:
@@ -425,7 +425,7 @@ def _run_pipeline(
                                 rapidocr_ok = False
                         if not rapidocr_ok:
                             console.print("[yellow]RapidOCR not available; falling back to stub output.[/yellow]")
-                            os.environ["GLOSSAPI_MINERU_ALLOW_STUB"] = "1"
+                            os.environ["GLOSSAPI_MINERU_ENABLE_STUB"] = "1"
                         else:
                             console.print("[yellow]Switching to RapidOCR (set GLOSSAPI_MINERU_MISSING_DETECTRON2=stub to keep MinerU).[/yellow]")
                             ocr_kwargs["backend"] = "rapidocr"

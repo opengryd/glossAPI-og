@@ -4,7 +4,7 @@ Covers:
 - Multi-root PDF path resolution helpers
 - In-process MLX execution (monkeypatched mlx_cli)
 - MLX CLI subprocess path (monkeypatched)
-- GLOSSAPI_DEEPSEEK_OCR_ALLOW_MLX_CLI env-var routing
+- GLOSSAPI_DEEPSEEK_OCR_ENABLE_MLX_OCR env-var routing
 - GLOSSAPI_DEEPSEEK_OCR_DEVICE=mps device selection
 - resolve_weights_dir fallback for model_dir in runner
 - Stub fallback when MLX fails
@@ -148,7 +148,7 @@ def test_pick_cli_input_root_single_parent(tmp_path):
 def test_device_mps_when_env_set(tmp_path, monkeypatch):
     """GLOSSAPI_DEEPSEEK_OCR_DEVICE=mps must select the MPS inference path."""
     monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_DEVICE", "mps")
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "1")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB", "1")
 
     from glossapi.ocr.deepseek_ocr.runner import run_for_files
 
@@ -157,20 +157,20 @@ def test_device_mps_when_env_set(tmp_path, monkeypatch):
     _write_stub_pdf(pdf)
 
     # Stub allowed — should return without error even on non-macOS CI
-    results = run_for_files(fake, ["doc.pdf"], allow_stub=True, allow_inproc=False, allow_mlx_cli=False)
+    results = run_for_files(fake, ["doc.pdf"], enable_stub=True, enable_inproc=False, enable_mlx_ocr=False)
     assert "doc" in results
 
 
 # ---------------------------------------------------------------------------
-# 4. GLOSSAPI_DEEPSEEK_OCR_ALLOW_MLX_CLI env var routing
+# 4. GLOSSAPI_DEEPSEEK_OCR_ENABLE_MLX_OCR env var routing
 # ---------------------------------------------------------------------------
 
 
-def test_allow_mlx_cli_env_enables_cli(tmp_path, monkeypatch):
-    """When GLOSSAPI_DEEPSEEK_OCR_ALLOW_MLX_CLI=1, the MLX CLI path is attempted."""
+def test_enable_mlx_ocr_env_enables_cli(tmp_path, monkeypatch):
+    """When GLOSSAPI_DEEPSEEK_OCR_ENABLE_MLX_OCR=1, the MLX CLI path is attempted."""
     monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_DEVICE", "mps")
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_MLX_CLI", "1")
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "1")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ENABLE_MLX_OCR", "1")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB", "1")
 
     from glossapi.ocr.deepseek_ocr import runner
 
@@ -201,19 +201,19 @@ def test_allow_mlx_cli_env_enables_cli(tmp_path, monkeypatch):
     results = run_for_files(
         fake,
         ["doc.pdf"],
-        allow_stub=True,
-        allow_inproc=False,
-        allow_mlx_cli=False,  # kwarg says no — but env var should override to yes
+        enable_stub=True,
+        enable_inproc=False,
+        enable_mlx_ocr=False,  # kwarg says no — but env var should override to yes
     )
     assert cli_called, "MLX CLI should have been called via env var override"
     assert "doc" in results
 
 
-def test_allow_mlx_cli_env_disables_cli(tmp_path, monkeypatch):
-    """When GLOSSAPI_DEEPSEEK_OCR_ALLOW_MLX_CLI=0, MLX CLI is skipped even if kwarg allows it."""
+def test_enable_mlx_ocr_env_disables_cli(tmp_path, monkeypatch):
+    """When GLOSSAPI_DEEPSEEK_OCR_ENABLE_MLX_OCR=0, MLX CLI is skipped even if kwarg allows it."""
     monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_DEVICE", "mps")
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_MLX_CLI", "0")
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "1")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ENABLE_MLX_OCR", "0")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB", "1")
 
     from glossapi.ocr.deepseek_ocr import runner
 
@@ -233,9 +233,9 @@ def test_allow_mlx_cli_env_disables_cli(tmp_path, monkeypatch):
     results = run_for_files(
         fake,
         ["doc.pdf"],
-        allow_stub=True,
-        allow_inproc=False,
-        allow_mlx_cli=True,  # kwarg says yes — but env var overrides to no
+        enable_stub=True,
+        enable_inproc=False,
+        enable_mlx_ocr=True,  # kwarg says yes — but env var overrides to no
     )
     assert not cli_called, "MLX CLI should have been skipped via env var override"
     assert "doc" in results  # stub ran instead
@@ -249,7 +249,7 @@ def test_allow_mlx_cli_env_disables_cli(tmp_path, monkeypatch):
 def test_inproc_mlx_called_on_macos(tmp_path, monkeypatch):
     """On macOS when mlx_vlm is available, _run_inproc should be invoked."""
     monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_DEVICE", "mps")
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "0")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB", "0")
 
     from glossapi.ocr.deepseek_ocr import runner
 
@@ -278,9 +278,9 @@ def test_inproc_mlx_called_on_macos(tmp_path, monkeypatch):
     results = run_for_files(
         fake,
         ["doc.pdf"],
-        allow_stub=False,
-        allow_inproc=True,
-        allow_mlx_cli=False,
+        enable_stub=False,
+        enable_inproc=True,
+        enable_mlx_ocr=False,
     )
     assert inproc_called, "_run_inproc must be called on macOS with mlx available"
     assert results["doc"]["page_count"] == 2
@@ -289,7 +289,7 @@ def test_inproc_mlx_called_on_macos(tmp_path, monkeypatch):
 def test_inproc_mlx_falls_back_to_stub_on_failure(tmp_path, monkeypatch):
     """When in-process MLX raises, runner falls back to stub if allowed."""
     monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_DEVICE", "mps")
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "1")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB", "1")
 
     from glossapi.ocr.deepseek_ocr import runner
 
@@ -307,9 +307,9 @@ def test_inproc_mlx_falls_back_to_stub_on_failure(tmp_path, monkeypatch):
     results = run_for_files(
         fake,
         ["doc.pdf"],
-        allow_stub=True,
-        allow_inproc=True,
-        allow_mlx_cli=False,
+        enable_stub=True,
+        enable_inproc=True,
+        enable_mlx_ocr=False,
     )
     assert "doc" in results  # stub took over
 
@@ -317,7 +317,7 @@ def test_inproc_mlx_falls_back_to_stub_on_failure(tmp_path, monkeypatch):
 def test_inproc_mlx_raises_when_stub_disabled(tmp_path, monkeypatch):
     """When in-process MLX fails and stub is disabled, runner must propagate the error."""
     monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_DEVICE", "mps")
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "0")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB", "0")
 
     from glossapi.ocr.deepseek_ocr import runner
 
@@ -336,9 +336,9 @@ def test_inproc_mlx_raises_when_stub_disabled(tmp_path, monkeypatch):
         run_for_files(
             fake,
             ["doc.pdf"],
-            allow_stub=False,
-            allow_inproc=True,
-            allow_mlx_cli=False,
+            enable_stub=False,
+            enable_inproc=True,
+            enable_mlx_ocr=False,
         )
 
 
@@ -360,7 +360,7 @@ def test_model_dir_resolved_via_weights_root(tmp_path, monkeypatch):
     monkeypatch.setenv("GLOSSAPI_WEIGHTS_ROOT", str(tmp_path))
     monkeypatch.delenv("GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR", raising=False)
     monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_DEVICE", "mps")
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "1")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB", "1")
 
     from glossapi.ocr.deepseek_ocr import runner
 
@@ -383,9 +383,9 @@ def test_model_dir_resolved_via_weights_root(tmp_path, monkeypatch):
     run_for_files(
         fake,
         ["doc.pdf"],
-        allow_stub=True,
-        allow_inproc=True,
-        allow_mlx_cli=False,
+        enable_stub=True,
+        enable_inproc=True,
+        enable_mlx_ocr=False,
         model_dir=None,  # explicitly None — must pick up from weights root
     )
 
@@ -408,8 +408,8 @@ def test_cli_input_root_best_match_used(tmp_path, monkeypatch):
     _write_stub_pdf(pdf)
 
     monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_DEVICE", "mps")
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_MLX_CLI", "1")
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "1")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ENABLE_MLX_OCR", "1")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB", "1")
 
     from glossapi.ocr.deepseek_ocr import runner
 
@@ -435,9 +435,9 @@ def test_cli_input_root_best_match_used(tmp_path, monkeypatch):
     results = run_for_files(
         fake,
         ["sample.pdf"],
-        allow_stub=True,
-        allow_inproc=False,
-        allow_mlx_cli=False,  # env var overrides this to True
+        enable_stub=True,
+        enable_inproc=False,
+        enable_mlx_ocr=False,  # env var overrides this to True
         output_dir=tmp_path / "out",
     )
     assert cli_input_dirs, "CLI must have been invoked"
@@ -455,7 +455,7 @@ def test_cli_input_root_best_match_used(tmp_path, monkeypatch):
 def test_run_for_files_stub_mps_path(tmp_path, monkeypatch):
     """When on MPS path with no MLX available, stub output is emitted."""
     monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_DEVICE", "mps")
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "1")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB", "1")
 
     from glossapi.ocr.deepseek_ocr import runner
 
@@ -469,9 +469,9 @@ def test_run_for_files_stub_mps_path(tmp_path, monkeypatch):
     results = run_for_files(
         fake,
         ["doc.pdf"],
-        allow_stub=True,
-        allow_inproc=False,
-        allow_mlx_cli=False,
+        enable_stub=True,
+        enable_inproc=False,
+        enable_mlx_ocr=False,
     )
     assert "doc" in results
 
@@ -488,7 +488,7 @@ def test_run_for_files_stub_mps_path(tmp_path, monkeypatch):
 def test_run_for_files_no_strategy_raises(tmp_path, monkeypatch):
     """When every strategy is disabled + stub is off, a RuntimeError is raised."""
     monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_DEVICE", "mps")
-    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "0")
+    monkeypatch.setenv("GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB", "0")
 
     from glossapi.ocr.deepseek_ocr import runner
 
@@ -503,9 +503,9 @@ def test_run_for_files_no_strategy_raises(tmp_path, monkeypatch):
         run_for_files(
             fake,
             ["doc.pdf"],
-            allow_stub=False,
-            allow_inproc=False,
-            allow_mlx_cli=False,
+            enable_stub=False,
+            enable_inproc=False,
+            enable_mlx_ocr=False,
         )
 
 

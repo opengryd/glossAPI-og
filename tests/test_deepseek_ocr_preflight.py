@@ -7,8 +7,8 @@ from glossapi.ocr.deepseek_ocr.preflight import check_deepseek_ocr_env
 def test_preflight_reports_missing_components(tmp_path):
     env = {
         "GLOSSAPI_DEEPSEEK_OCR_DEVICE": "cuda",  # force CUDA path regardless of platform
-        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI": "0",
-        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB": "1",
+        "GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR": "0",
+        "GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB": "1",
         "GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON": str(tmp_path / "missing_python"),
         "GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT": str(tmp_path / "missing_script.py"),
         "GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR": str(tmp_path / "missing_model"),
@@ -42,8 +42,8 @@ def test_preflight_passes_with_complete_env(tmp_path):
 
     env = {
         "GLOSSAPI_DEEPSEEK_OCR_DEVICE": "cuda",  # force CUDA path regardless of platform
-        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI": "1",
-        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB": "0",
+        "GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR": "1",
+        "GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB": "0",
         "GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON": sys.executable,
         "GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT": str(script),
         "GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR": str(model_dir),
@@ -61,8 +61,8 @@ def test_preflight_mps_path_no_model_dir_is_info_not_error(tmp_path, monkeypatch
     monkeypatch.delenv("GLOSSAPI_WEIGHTS_ROOT", raising=False)
     env = {
         "GLOSSAPI_DEEPSEEK_OCR_DEVICE": "mps",
-        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI": "0",
-        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB": "1",
+        "GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR": "0",
+        "GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB": "1",
         # No model dir configured — should trigger auto-download info only.
     }
     report = check_deepseek_ocr_env(env, check_flashinfer=False)
@@ -79,8 +79,8 @@ def test_preflight_mps_path_invalid_model_dir_is_error(tmp_path):
     """On MPS path, an explicitly configured MLX model dir that doesn't exist is an error."""
     env = {
         "GLOSSAPI_DEEPSEEK_OCR_DEVICE": "mps",
-        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI": "0",
-        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB": "1",
+        "GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR": "0",
+        "GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB": "1",
         "GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR": str(tmp_path / "nonexistent_mlx"),
     }
     report = check_deepseek_ocr_env(env, check_flashinfer=False)
@@ -97,8 +97,8 @@ def test_preflight_mps_path_valid_model_dir_passes(tmp_path):
 
     env = {
         "GLOSSAPI_DEEPSEEK_OCR_DEVICE": "mps",
-        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI": "1",
-        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB": "0",
+        "GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR": "1",
+        "GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB": "0",
         "GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR": str(mlx_dir),
     }
     report = check_deepseek_ocr_env(env, check_flashinfer=False)

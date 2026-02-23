@@ -50,7 +50,7 @@ def check_glmocr_env(
     - MLX / ``mlx_vlm`` importability (macOS MPS path)
     - MPS device availability (macOS Apple Silicon)
     - Model path / identifier
-    - ``GLOSSAPI_GLMOCR_ALLOW_CLI`` / ``GLOSSAPI_GLMOCR_ALLOW_STUB`` env flags
+    - ``GLOSSAPI_GLMOCR_ENABLE_OCR`` / ``GLOSSAPI_GLMOCR_ENABLE_STUB`` env flags
     """
 
     env = dict(env or os.environ)
@@ -59,22 +59,22 @@ def check_glmocr_env(
     infos: List[CheckResult] = []
 
     # --- Stub / CLI flags ---
-    allow_cli = env.get("GLOSSAPI_GLMOCR_ALLOW_CLI", "0") == "1"
-    allow_stub = env.get("GLOSSAPI_GLMOCR_ALLOW_STUB", "1") == "1"
-    if not allow_cli:
+    enable_ocr = env.get("GLOSSAPI_GLMOCR_ENABLE_OCR", "0") == "1"
+    enable_stub = env.get("GLOSSAPI_GLMOCR_ENABLE_STUB", "1") == "1"
+    if not enable_ocr:
         warnings.append(
             CheckResult(
-                "allow_cli",
+                "enable_ocr",
                 False,
-                "Set GLOSSAPI_GLMOCR_ALLOW_CLI=1 to run the real GLM-OCR pipeline.",
+                "Set GLOSSAPI_GLMOCR_ENABLE_OCR=1 to run the real GLM-OCR pipeline.",
             )
         )
-    if allow_stub:
+    if enable_stub:
         warnings.append(
             CheckResult(
-                "allow_stub",
+                "enable_stub",
                 False,
-                "Set GLOSSAPI_GLMOCR_ALLOW_STUB=0 to fail instead of falling back to stub output.",
+                "Set GLOSSAPI_GLMOCR_ENABLE_STUB=0 to fail instead of falling back to stub output.",
             )
         )
 

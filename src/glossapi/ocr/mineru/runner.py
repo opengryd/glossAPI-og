@@ -186,8 +186,8 @@ def run_for_files(
     *,
     output_dir: Optional[Path] = None,
     max_pages: Optional[int] = None,
-    allow_stub: bool = True,
-    allow_cli: bool = False,
+    enable_stub: bool = True,
+    enable_ocr: bool = False,
     magic_pdf_bin: Optional[str] = None,
     mode: Optional[str] = None,
     backend: Optional[str] = None,
@@ -213,19 +213,31 @@ def run_for_files(
     metrics_dir.mkdir(parents=True, exist_ok=True)
 
     env = os.environ
-    env_allow_stub = env.get("GLOSSAPI_MINERU_ALLOW_STUB", "1") == "1"
-    env_allow_cli = env.get("GLOSSAPI_MINERU_ALLOW_CLI", "0") == "1"
+    env_enable_stub = env.get("GLOSSAPI_MINERU_ENABLE_STUB", "1") == "1"
+    env_enable_ocr = env.get("GLOSSAPI_MINERU_ENABLE_OCR", "0") == "1"
     env_mode = env.get("GLOSSAPI_MINERU_MODE")
     env_bin = env.get("GLOSSAPI_MINERU_COMMAND")
     env_backend = env.get("GLOSSAPI_MINERU_BACKEND")
     env_device = env.get("GLOSSAPI_MINERU_DEVICE_MODE") or env.get("GLOSSAPI_MINERU_DEVICE")
 
-    use_cli = allow_cli or env_allow_cli
-    use_stub = allow_stub and env_allow_stub
+    use_cli = enable_ocr or env_enable_ocr
+    use_stub = enable_stub and env_enable_stub
     mode = (mode or env_mode or "auto").strip()
     magic_pdf = _resolve_magic_pdf(magic_pdf_bin or env_bin)
     device_mode = _normalize_device_mode(device or env_device)
     backend_choice = _resolve_backend(device_mode, backend or env_backend)
+
+    if not use_cli:
+        LOGGER.warning(
+            "MinerU CLI is disabled (GLOSSAPI_MINERU_ENABLE_OCR=0). "
+            "Stub output will be produced. Set GLOSSAPI_MINERU_ENABLE_OCR=1 to run real OCR."
+        )
+    elif not magic_pdf:
+        LOGGER.warning(
+            "GLOSSAPI_MINERU_ENABLE_OCR is set but 'magic-pdf' binary was not found. "
+            "Install MinerU (pip install mineru) or set GLOSSAPI_MINERU_COMMAND to the "
+            "full path of the magic-pdf executable. Falling back to stub output."
+        )
 
     cli_env = _prepare_mineru_env(dict(env), tmp_root, device_mode) if use_cli else env
 

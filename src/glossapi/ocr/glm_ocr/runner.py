@@ -6,18 +6,18 @@ MLX-community quantised variant runs efficiently on Apple Silicon.
 
 The runner tries the following strategies in order:
 
-1. **In-process MLX** (``allow_inproc=True``, default on macOS when ``mlx_vlm``
+1. **In-process MLX** (``enable_inproc=True``, default on macOS when ``mlx_vlm``
    is importable):
    Load the model once via :pymod:`glossapi.ocr.glm_ocr.mlx_cli` and process
    every PDF without spawning a subprocess.  This is the fast path on Apple
    Silicon — the model stays loaded in memory across files.
 
-2. **MLX CLI subprocess** (``allow_cli=True``):
+2. **MLX CLI subprocess** (``enable_ocr=True``):
    Shell out to ``python -m glossapi.ocr.glm_ocr.mlx_cli`` (or a user-specified
    script via ``GLOSSAPI_GLMOCR_MLX_SCRIPT``).  Useful when the main venv lacks
    ``mlx-vlm`` but a separate venv does.
 
-3. **Stub** (``allow_stub=True``):
+3. **Stub** (``enable_stub=True``):
    Emit placeholder markdown + metrics.  Useful for dry-runs and testing.
 
 GLM-OCR inlines equations — Phase-2 math enrichment is not required.
@@ -276,9 +276,9 @@ def run_for_files(
     output_dir: Optional["Path"] = None,
     log_dir: Optional["Path"] = None,  # unused, mirrors other backend signatures
     max_pages: Optional[int] = None,
-    allow_stub: bool = True,
-    allow_cli: bool = True,
-    allow_inproc: bool = True,
+    enable_stub: bool = True,
+    enable_ocr: bool = True,
+    enable_inproc: bool = True,
     python_bin: Optional["Path"] = None,
     mlx_script: Optional["Path"] = None,
     content_debug: bool = False,
@@ -291,9 +291,9 @@ def run_for_files(
 
     Execution strategy (tried in order):
 
-    1. In-process MLX if ``allow_inproc`` and ``mlx_vlm`` is importable (macOS).
-    2. MLX CLI subprocess if ``allow_cli`` and the script exists (macOS).
-    3. Stub output if ``allow_stub`` (and ``GLOSSAPI_GLMOCR_ALLOW_STUB=1``).
+    1. In-process MLX if ``enable_inproc`` and ``mlx_vlm`` is importable (macOS).
+    2. MLX CLI subprocess if ``enable_ocr`` and the script exists (macOS).
+    3. Stub output if ``enable_stub`` (and ``GLOSSAPI_GLMOCR_ENABLE_STUB=1``).
 
     Returns a mapping of ``stem -> {"page_count": int}``.
     """
@@ -313,14 +313,14 @@ def run_for_files(
 
     # ----- Env overrides -----
     env = os.environ
-    env_allow_stub = env.get("GLOSSAPI_GLMOCR_ALLOW_STUB", "1") == "1"
-    env_allow_cli = env.get("GLOSSAPI_GLMOCR_ALLOW_CLI", "0") == "1"
+    env_enable_stub = env.get("GLOSSAPI_GLMOCR_ENABLE_STUB", "1") == "1"
+    env_enable_ocr = env.get("GLOSSAPI_GLMOCR_ENABLE_OCR", "0") == "1"
     env_python = env.get("GLOSSAPI_GLMOCR_PYTHON")
     env_model_dir = env.get("GLOSSAPI_GLMOCR_MODEL_DIR", "").strip()
     env_device = env.get("GLOSSAPI_GLMOCR_DEVICE", "").strip()
 
-    use_cli = allow_cli or env_allow_cli
-    use_stub = allow_stub and env_allow_stub
+    use_cli = enable_ocr or env_enable_ocr
+    use_stub = enable_stub and env_enable_stub
 
     # Resolve parameters (kwargs > env > defaults)
     if python_bin is None and env_python:
@@ -348,7 +348,7 @@ def run_for_files(
 
     # ----- Strategy 1: In-process MLX (macOS Apple Silicon) -----
     if (
-        allow_inproc
+        enable_inproc
         and platform.system() == "Darwin"
         and _can_import_mlx()
     ):

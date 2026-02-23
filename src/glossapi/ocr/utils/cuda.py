@@ -109,7 +109,7 @@ def raise_cuda_diagnosis(
     else:
         lines.append("       export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH")
     lines += [
-        f"  4. To use placeholder output instead, set GLOSSAPI_{backend.upper().replace('-', '_')}_ALLOW_STUB=1",
+        f"  4. To use placeholder output instead, set GLOSSAPI_{backend.upper().replace('-', '_')}_ENABLE_STUB=1",
     ]
     raise RuntimeError("\n".join(lines)) from (
         strategy_errors[-1][1] if strategy_errors else None

@@ -616,7 +616,7 @@ if [[ "${MODE}" == "deepseek-ocr" ]]; then
     pip_run install --no-deps "mlx-lm>=0.30.7"  || warn "mlx-lm upgrade failed"
     pip_run install --no-deps "mlx-vlm>=0.3.12" || warn "mlx-vlm install failed; DeepSeek OCR v1 in-process MLX mode will be unavailable."
     export GLOSSAPI_DEEPSEEK_OCR_DEVICE="mps"
-    export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
+    export GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0
     export GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON="${VENV_PATH}/bin/python"
 
     if [[ "${DOWNLOAD_DEEPSEEK_OCR}" -eq 1 ]]; then
@@ -632,7 +632,7 @@ if [[ "${MODE}" == "deepseek-ocr" ]]; then
     export GLOSSAPI_DEEPSEEK_OCR_PYTHON="${VENV_PATH}/bin/python"
     export GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT="${DEEPSEEK_WEIGHTS_DIR}/run_pdf_ocr_vllm.py"
     export GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH="${DEEPSEEK_WEIGHTS_DIR}/libjpeg-turbo/lib"
-    export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
+    export GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0
     export LD_LIBRARY_PATH="${GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH}:${LD_LIBRARY_PATH:-}"
 
     if [[ "${DOWNLOAD_DEEPSEEK_OCR}" -eq 1 ]]; then
@@ -648,7 +648,7 @@ if [[ "${MODE}" == "deepseek-ocr-2" ]]; then
   pip_run install --no-deps "mlx-vlm>=0.3.12" || warn "mlx-vlm install failed; DeepSeek OCR v2 in-process mode will be unavailable."
   # The MLX CLI script is now shipped inside the glossapi package.
   # GLOSSAPI_DEEPSEEK2_MLX_SCRIPT is only needed to override to an external script.
-  export GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0
+  export GLOSSAPI_DEEPSEEK2_ENABLE_STUB=0
   export GLOSSAPI_DEEPSEEK2_DEVICE="mps"
 
   if [[ "${DOWNLOAD_DEEPSEEK_OCR2}" -eq 1 ]]; then
@@ -700,8 +700,8 @@ if [[ "${MODE}" == "olmocr" ]]; then
   if [[ "$(uname -s)" == "Darwin" ]]; then
     info "Installing mlx-vlm without dependencies to avoid transformers conflicts"
     pip_run install --no-deps "mlx-vlm>=0.3.12" || warn "mlx-vlm install failed; OlmOCR in-process MLX mode will be unavailable."
-    export GLOSSAPI_OLMOCR_ALLOW_STUB=0
-    export GLOSSAPI_OLMOCR_ALLOW_CLI=1
+    export GLOSSAPI_OLMOCR_ENABLE_STUB=0
+    export GLOSSAPI_OLMOCR_ENABLE_OCR=1
     export GLOSSAPI_OLMOCR_DEVICE="mps"
   else
     # ── Linux / CUDA setup ──────────────────────────────────────────────
@@ -784,8 +784,8 @@ if [[ "${MODE}" == "olmocr" ]]; then
       warn "Could not auto-detect CUDA library path. If you hit 'libcudart.so.12 not found' errors, set GLOSSAPI_OLMOCR_LD_LIBRARY_PATH manually."
     fi
 
-    export GLOSSAPI_OLMOCR_ALLOW_STUB=0
-    export GLOSSAPI_OLMOCR_ALLOW_CLI=1
+    export GLOSSAPI_OLMOCR_ENABLE_STUB=0
+    export GLOSSAPI_OLMOCR_ENABLE_OCR=1
     export GLOSSAPI_OLMOCR_DEVICE="cuda"
   fi
 
@@ -826,8 +826,8 @@ fi
 
 if [[ "${MODE}" == "glm-ocr" ]]; then
   # Package installs already handled above in the main install block.
-  export GLOSSAPI_GLMOCR_ALLOW_STUB=0
-  export GLOSSAPI_GLMOCR_ALLOW_CLI=1
+  export GLOSSAPI_GLMOCR_ENABLE_STUB=0
+  export GLOSSAPI_GLMOCR_ENABLE_OCR=1
   export GLOSSAPI_GLMOCR_DEVICE="mps"
 
   if [[ "${DOWNLOAD_GLMOCR}" -eq 1 ]]; then
@@ -934,13 +934,13 @@ DeepSeek OCR v1 (MLX/MPS) exports (add to your shell before running glossapi):
   export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
   export GLOSSAPI_DEEPSEEK_OCR_DEVICE="mps"
   export GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON="${VENV_PATH}/bin/python"
-  export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
+  export GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0
 EOF
     cat <<EOF > "${ENV_FILE}"
 export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
 export GLOSSAPI_DEEPSEEK_OCR_DEVICE="mps"
 export GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON="${VENV_PATH}/bin/python"
-export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
+export GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0
 EOF
     if [[ -n "${GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR:-}" ]]; then
       echo "export GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR=\"${GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR}\"" >> "${ENV_FILE}"
@@ -952,7 +952,7 @@ DeepSeek OCR exports (add to your shell before running glossapi):
   export GLOSSAPI_DEEPSEEK_OCR_PYTHON="${VENV_PATH}/bin/python"
   export GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT="${DEEPSEEK_WEIGHTS_DIR}/run_pdf_ocr_vllm.py"
   export GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH="${DEEPSEEK_WEIGHTS_DIR}/libjpeg-turbo/lib"
-  export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
+  export GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0
   export LD_LIBRARY_PATH="\$GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH:\${LD_LIBRARY_PATH:-}"
 EOF
     cat <<EOF > "${ENV_FILE}"
@@ -960,8 +960,8 @@ export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
 export GLOSSAPI_DEEPSEEK_OCR_PYTHON="${VENV_PATH}/bin/python"
 export GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT="${DEEPSEEK_WEIGHTS_DIR}/run_pdf_ocr_vllm.py"
 export GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH="${DEEPSEEK_WEIGHTS_DIR}/libjpeg-turbo/lib"
-export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
-export GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI=1
+export GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0
+export GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR=1
 export LD_LIBRARY_PATH="\$GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH:\${LD_LIBRARY_PATH:-}"
 EOF
   fi
@@ -973,16 +973,16 @@ if [[ "${MODE}" == "deepseek-ocr-2" ]]; then
 DeepSeek OCR v2 (MLX/MPS) exports (add to your shell before running glossapi):
   export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
   export GLOSSAPI_DEEPSEEK2_PYTHON="${VENV_PATH}/bin/python"
-  export GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0
-  export GLOSSAPI_DEEPSEEK2_ALLOW_CLI=1
+  export GLOSSAPI_DEEPSEEK2_ENABLE_STUB=0
+  export GLOSSAPI_DEEPSEEK2_ENABLE_OCR=1
   export GLOSSAPI_DEEPSEEK2_DEVICE="mps"
 EOF
   ENV_FILE="${SCRIPT_DIR}/.env_deepseek_ocr2"
   cat <<EOF > "${ENV_FILE}"
 export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
 export GLOSSAPI_DEEPSEEK2_PYTHON="${VENV_PATH}/bin/python"
-export GLOSSAPI_DEEPSEEK2_ALLOW_STUB=0
-export GLOSSAPI_DEEPSEEK2_ALLOW_CLI=1
+export GLOSSAPI_DEEPSEEK2_ENABLE_STUB=0
+export GLOSSAPI_DEEPSEEK2_ENABLE_OCR=1
 export GLOSSAPI_DEEPSEEK2_DEVICE="mps"
 EOF
   info "Wrote DeepSeek OCR v2 env exports to ${ENV_FILE} (source it before running OCR)."
@@ -994,16 +994,16 @@ if [[ "${MODE}" == "olmocr" ]]; then
 OlmOCR-2 (MLX/MPS) exports (add to your shell before running glossapi):
   export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
   export GLOSSAPI_OLMOCR_PYTHON="${VENV_PATH}/bin/python"
-  export GLOSSAPI_OLMOCR_ALLOW_STUB=0
-  export GLOSSAPI_OLMOCR_ALLOW_CLI=1
+  export GLOSSAPI_OLMOCR_ENABLE_STUB=0
+  export GLOSSAPI_OLMOCR_ENABLE_OCR=1
   export GLOSSAPI_OLMOCR_DEVICE="mps"
 EOF
     ENV_FILE="${SCRIPT_DIR}/.env_olmocr"
     cat <<EOF > "${ENV_FILE}"
 export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
 export GLOSSAPI_OLMOCR_PYTHON="${VENV_PATH}/bin/python"
-export GLOSSAPI_OLMOCR_ALLOW_STUB=0
-export GLOSSAPI_OLMOCR_ALLOW_CLI=1
+export GLOSSAPI_OLMOCR_ENABLE_STUB=0
+export GLOSSAPI_OLMOCR_ENABLE_OCR=1
 export GLOSSAPI_OLMOCR_DEVICE="mps"
 EOF
     if [[ -n "${GLOSSAPI_OLMOCR_MLX_MODEL_DIR:-}" ]]; then
@@ -1019,8 +1019,8 @@ EOF
 OlmOCR-2 (CUDA/vLLM) exports (add to your shell before running glossapi):
   export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
   export GLOSSAPI_OLMOCR_PYTHON="${VENV_PATH}/bin/python"
-  export GLOSSAPI_OLMOCR_ALLOW_STUB=0
-  export GLOSSAPI_OLMOCR_ALLOW_CLI=1
+  export GLOSSAPI_OLMOCR_ENABLE_STUB=0
+  export GLOSSAPI_OLMOCR_ENABLE_OCR=1
   export GLOSSAPI_OLMOCR_DEVICE="cuda"
 EOF
     if [[ -n "${OLMOCR_LD_LINE}" ]]; then
@@ -1030,8 +1030,8 @@ EOF
     cat <<EOF > "${ENV_FILE}"
 export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
 export GLOSSAPI_OLMOCR_PYTHON="${VENV_PATH}/bin/python"
-export GLOSSAPI_OLMOCR_ALLOW_STUB=0
-export GLOSSAPI_OLMOCR_ALLOW_CLI=1
+export GLOSSAPI_OLMOCR_ENABLE_STUB=0
+export GLOSSAPI_OLMOCR_ENABLE_OCR=1
 export GLOSSAPI_OLMOCR_DEVICE="cuda"
 EOF
     if [[ -n "${GLOSSAPI_OLMOCR_LD_LIBRARY_PATH:-}" ]]; then
@@ -1049,16 +1049,16 @@ if [[ "${MODE}" == "glm-ocr" ]]; then
 GLM-OCR (MLX/MPS) exports (add to your shell before running glossapi):
   export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
   export GLOSSAPI_GLMOCR_PYTHON="${VENV_PATH}/bin/python"
-  export GLOSSAPI_GLMOCR_ALLOW_STUB=0
-  export GLOSSAPI_GLMOCR_ALLOW_CLI=1
+  export GLOSSAPI_GLMOCR_ENABLE_STUB=0
+  export GLOSSAPI_GLMOCR_ENABLE_OCR=1
   export GLOSSAPI_GLMOCR_DEVICE="mps"
 EOF
   ENV_FILE="${SCRIPT_DIR}/.env_glmocr"
   cat <<EOF > "${ENV_FILE}"
 export GLOSSAPI_WEIGHTS_ROOT="${GLOSSAPI_WEIGHTS_ROOT}"
 export GLOSSAPI_GLMOCR_PYTHON="${VENV_PATH}/bin/python"
-export GLOSSAPI_GLMOCR_ALLOW_STUB=0
-export GLOSSAPI_GLMOCR_ALLOW_CLI=1
+export GLOSSAPI_GLMOCR_ENABLE_STUB=0
+export GLOSSAPI_GLMOCR_ENABLE_OCR=1
 export GLOSSAPI_GLMOCR_DEVICE="mps"
 EOF
   info "Wrote GLM-OCR env exports to ${ENV_FILE} (source it before running OCR)."
@@ -1092,15 +1092,15 @@ if [[ "${MODE}" == "mineru" ]]; then
   }
 }
 EOF
-  MINERU_ALLOW_STUB_DEFAULT=0
+  MINERU_ENABLE_STUB_DEFAULT=0
   if [[ "${DETECTRON2_AVAILABLE}" -eq 0 ]]; then
-    warn "detectron2 not available; enabling MinerU stub fallback (set GLOSSAPI_MINERU_ALLOW_STUB=0 after installing detectron2)."
-    MINERU_ALLOW_STUB_DEFAULT=1
+    warn "detectron2 not available; enabling MinerU stub fallback (set GLOSSAPI_MINERU_ENABLE_STUB=0 after installing detectron2)."
+    MINERU_ENABLE_STUB_DEFAULT=1
   fi
   cat <<EOF
 MinerU-specific exports (optional):
-  export GLOSSAPI_MINERU_ALLOW_CLI=1
-  export GLOSSAPI_MINERU_ALLOW_STUB=${MINERU_ALLOW_STUB_DEFAULT}
+  export GLOSSAPI_MINERU_ENABLE_OCR=1
+  export GLOSSAPI_MINERU_ENABLE_STUB=${MINERU_ENABLE_STUB_DEFAULT}
   export GLOSSAPI_MINERU_COMMAND="${GLOSSAPI_MINERU_COMMAND:-}"
   export GLOSSAPI_MINERU_MODE="auto"
   export GLOSSAPI_SKIP_DOCLING_BOOT=1
@@ -1108,8 +1108,8 @@ MinerU-specific exports (optional):
 EOF
   ENV_FILE="${SCRIPT_DIR}/.env_mineru"
   cat <<EOF > "${ENV_FILE}"
-export GLOSSAPI_MINERU_ALLOW_CLI=1
-export GLOSSAPI_MINERU_ALLOW_STUB=${MINERU_ALLOW_STUB_DEFAULT}
+export GLOSSAPI_MINERU_ENABLE_OCR=1
+export GLOSSAPI_MINERU_ENABLE_STUB=${MINERU_ENABLE_STUB_DEFAULT}
 export GLOSSAPI_MINERU_COMMAND="${GLOSSAPI_MINERU_COMMAND:-}"
 export GLOSSAPI_MINERU_MODE="auto"
 export GLOSSAPI_SKIP_DOCLING_BOOT=1

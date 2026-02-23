@@ -42,21 +42,21 @@ def test_preflight_stub_warnings(monkeypatch):
     from glossapi.ocr.olmocr.preflight import check_olmocr_env
 
     env = {
-        "GLOSSAPI_OLMOCR_ALLOW_CLI": "0",
-        "GLOSSAPI_OLMOCR_ALLOW_STUB": "1",
+        "GLOSSAPI_OLMOCR_ENABLE_OCR": "0",
+        "GLOSSAPI_OLMOCR_ENABLE_STUB": "1",
     }
     report = check_olmocr_env(env, check_gpu=False)
     names = [w.name for w in report.warnings]
-    assert "allow_cli" in names
-    assert "allow_stub" in names
+    assert "enable_ocr" in names
+    assert "enable_stub" in names
 
 
 def test_preflight_model_dir_missing(tmp_path, monkeypatch):
     from glossapi.ocr.olmocr.preflight import check_olmocr_env
 
     env = {
-        "GLOSSAPI_OLMOCR_ALLOW_CLI": "1",
-        "GLOSSAPI_OLMOCR_ALLOW_STUB": "0",
+        "GLOSSAPI_OLMOCR_ENABLE_OCR": "1",
+        "GLOSSAPI_OLMOCR_ENABLE_STUB": "0",
         "GLOSSAPI_OLMOCR_MODEL_DIR": str(tmp_path / "nonexistent"),
     }
     report = check_olmocr_env(env, check_gpu=False)
@@ -116,8 +116,8 @@ def test_run_for_files_stub_disabled_no_cli_raises(tmp_path, monkeypatch):
     """When both stub and CLI are disabled, runner should raise."""
     from glossapi.ocr.olmocr.runner import run_for_files
 
-    monkeypatch.setenv("GLOSSAPI_OLMOCR_ALLOW_STUB", "0")
-    monkeypatch.setenv("GLOSSAPI_OLMOCR_ALLOW_CLI", "0")
+    monkeypatch.setenv("GLOSSAPI_OLMOCR_ENABLE_STUB", "0")
+    monkeypatch.setenv("GLOSSAPI_OLMOCR_ENABLE_OCR", "0")
 
     input_dir = tmp_path / "in"
     output_dir = tmp_path / "out"
@@ -134,10 +134,10 @@ def test_run_for_files_stub_disabled_no_cli_raises(tmp_path, monkeypatch):
         run_for_files(
             FakeCorpus(),
             ["doc.pdf"],
-            allow_stub=False,
-            allow_cli=False,
-            allow_inproc=False,
-            allow_mlx_cli=False,
+            enable_stub=False,
+            enable_ocr=False,
+            enable_inproc=False,
+            enable_mlx_ocr=False,
         )
 
 
@@ -270,7 +270,7 @@ def test_run_for_files_inproc_skipped_on_non_darwin(tmp_path, monkeypatch):
 
     # Should fall through to stub (default enabled)
     results = run_for_files(
-        FakeCorpus(), ["doc.pdf"], allow_inproc=True, allow_mlx_cli=False
+        FakeCorpus(), ["doc.pdf"], enable_inproc=True, enable_mlx_ocr=False
     )
     assert "doc" in results
 
@@ -283,8 +283,8 @@ def test_run_for_files_all_strategies_disabled_raises(tmp_path, monkeypatch):
     """When all strategies are disabled, runner should raise RuntimeError."""
     from glossapi.ocr.olmocr.runner import run_for_files
 
-    monkeypatch.setenv("GLOSSAPI_OLMOCR_ALLOW_STUB", "0")
-    monkeypatch.setenv("GLOSSAPI_OLMOCR_ALLOW_CLI", "0")
+    monkeypatch.setenv("GLOSSAPI_OLMOCR_ENABLE_STUB", "0")
+    monkeypatch.setenv("GLOSSAPI_OLMOCR_ENABLE_OCR", "0")
     monkeypatch.setattr("glossapi.ocr.olmocr.runner.platform.system", lambda: "Linux")
 
     input_dir = tmp_path / "in"
@@ -302,10 +302,10 @@ def test_run_for_files_all_strategies_disabled_raises(tmp_path, monkeypatch):
         run_for_files(
             FakeCorpus(),
             ["doc.pdf"],
-            allow_stub=False,
-            allow_cli=False,
-            allow_inproc=False,
-            allow_mlx_cli=False,
+            enable_stub=False,
+            enable_ocr=False,
+            enable_inproc=False,
+            enable_mlx_ocr=False,
         )
 
 
@@ -316,8 +316,8 @@ def test_preflight_mlx_checks_on_macos(monkeypatch):
     monkeypatch.setattr("glossapi.ocr.olmocr.preflight.platform.system", lambda: "Darwin")
 
     env = {
-        "GLOSSAPI_OLMOCR_ALLOW_CLI": "1",
-        "GLOSSAPI_OLMOCR_ALLOW_STUB": "0",
+        "GLOSSAPI_OLMOCR_ENABLE_OCR": "1",
+        "GLOSSAPI_OLMOCR_ENABLE_STUB": "0",
     }
     report = check_olmocr_env(env, check_gpu=False)
 
@@ -337,8 +337,8 @@ def test_preflight_mlx_model_dir_missing(tmp_path, monkeypatch):
     monkeypatch.setattr("glossapi.ocr.olmocr.preflight.platform.system", lambda: "Darwin")
 
     env = {
-        "GLOSSAPI_OLMOCR_ALLOW_CLI": "1",
-        "GLOSSAPI_OLMOCR_ALLOW_STUB": "0",
+        "GLOSSAPI_OLMOCR_ENABLE_OCR": "1",
+        "GLOSSAPI_OLMOCR_ENABLE_STUB": "0",
         "GLOSSAPI_OLMOCR_MLX_MODEL_DIR": str(tmp_path / "nonexistent_mlx"),
     }
     report = check_olmocr_env(env, check_gpu=False)
@@ -358,8 +358,8 @@ def test_preflight_mlx_model_dir_valid(tmp_path, monkeypatch):
     (model_dir / "model.safetensors").write_bytes(b"\x00")
 
     env = {
-        "GLOSSAPI_OLMOCR_ALLOW_CLI": "1",
-        "GLOSSAPI_OLMOCR_ALLOW_STUB": "0",
+        "GLOSSAPI_OLMOCR_ENABLE_OCR": "1",
+        "GLOSSAPI_OLMOCR_ENABLE_STUB": "0",
         "GLOSSAPI_OLMOCR_MLX_MODEL_DIR": str(model_dir),
     }
     report = check_olmocr_env(env, check_gpu=False)
@@ -374,8 +374,8 @@ def test_preflight_mlx_model_id_env(monkeypatch):
     monkeypatch.setattr("glossapi.ocr.olmocr.preflight.platform.system", lambda: "Darwin")
 
     env = {
-        "GLOSSAPI_OLMOCR_ALLOW_CLI": "1",
-        "GLOSSAPI_OLMOCR_ALLOW_STUB": "0",
+        "GLOSSAPI_OLMOCR_ENABLE_OCR": "1",
+        "GLOSSAPI_OLMOCR_ENABLE_STUB": "0",
         "GLOSSAPI_OLMOCR_MLX_MODEL": "custom-repo/olmocr-mlx-4bit",
     }
     report = check_olmocr_env(env, check_gpu=False)
@@ -463,10 +463,10 @@ def test_run_for_files_inproc_vllm_skipped_on_darwin(tmp_path, monkeypatch):
     results = run_for_files(
         FakeCorpus(),
         ["doc.pdf"],
-        allow_inproc=False,
-        allow_mlx_cli=False,
-        allow_inproc_vllm=True,
-        allow_vllm_cli=True,
+        enable_inproc=False,
+        enable_mlx_ocr=False,
+        enable_inproc_vllm=True,
+        enable_vllm_cli=True,
     )
     assert "doc" in results
     md = (output_dir / "markdown" / "doc.md").read_text(encoding="utf-8")
@@ -496,11 +496,11 @@ def test_run_for_files_vllm_strategies_on_linux(tmp_path, monkeypatch):
     results = run_for_files(
         FakeCorpus(),
         ["doc.pdf"],
-        allow_inproc=False,
-        allow_mlx_cli=False,
-        allow_inproc_vllm=True,
-        allow_vllm_cli=False,
-        allow_cli=False,
+        enable_inproc=False,
+        enable_mlx_ocr=False,
+        enable_inproc_vllm=True,
+        enable_vllm_cli=False,
+        enable_ocr=False,
     )
     assert "doc" in results
     md = (output_dir / "markdown" / "doc.md").read_text(encoding="utf-8")
@@ -511,8 +511,8 @@ def test_run_for_files_all_six_strategies_disabled_raises(tmp_path, monkeypatch)
     """When all six strategies are disabled, runner should raise RuntimeError."""
     from glossapi.ocr.olmocr.runner import run_for_files
 
-    monkeypatch.setenv("GLOSSAPI_OLMOCR_ALLOW_STUB", "0")
-    monkeypatch.setenv("GLOSSAPI_OLMOCR_ALLOW_CLI", "0")
+    monkeypatch.setenv("GLOSSAPI_OLMOCR_ENABLE_STUB", "0")
+    monkeypatch.setenv("GLOSSAPI_OLMOCR_ENABLE_OCR", "0")
     monkeypatch.setattr("glossapi.ocr.olmocr.runner.platform.system", lambda: "Linux")
 
     input_dir = tmp_path / "in"
@@ -530,12 +530,12 @@ def test_run_for_files_all_six_strategies_disabled_raises(tmp_path, monkeypatch)
         run_for_files(
             FakeCorpus(),
             ["doc.pdf"],
-            allow_stub=False,
-            allow_cli=False,
-            allow_inproc=False,
-            allow_mlx_cli=False,
-            allow_inproc_vllm=False,
-            allow_vllm_cli=False,
+            enable_stub=False,
+            enable_ocr=False,
+            enable_inproc=False,
+            enable_mlx_ocr=False,
+            enable_inproc_vllm=False,
+            enable_vllm_cli=False,
         )
 
 
@@ -546,8 +546,8 @@ def test_preflight_vllm_check_on_linux(monkeypatch):
     monkeypatch.setattr("glossapi.ocr.olmocr.preflight.platform.system", lambda: "Linux")
 
     env = {
-        "GLOSSAPI_OLMOCR_ALLOW_CLI": "1",
-        "GLOSSAPI_OLMOCR_ALLOW_STUB": "0",
+        "GLOSSAPI_OLMOCR_ENABLE_OCR": "1",
+        "GLOSSAPI_OLMOCR_ENABLE_STUB": "0",
     }
     report = check_olmocr_env(env, check_gpu=False)
     all_names = (
@@ -570,8 +570,8 @@ def test_preflight_cuda_model_dir_valid(tmp_path, monkeypatch):
     (model_dir / "model.safetensors").write_bytes(b"\x00")
 
     env = {
-        "GLOSSAPI_OLMOCR_ALLOW_CLI": "1",
-        "GLOSSAPI_OLMOCR_ALLOW_STUB": "0",
+        "GLOSSAPI_OLMOCR_ENABLE_OCR": "1",
+        "GLOSSAPI_OLMOCR_ENABLE_STUB": "0",
         "GLOSSAPI_OLMOCR_MODEL_DIR": str(model_dir),
     }
     report = check_olmocr_env(env, check_gpu=False)
