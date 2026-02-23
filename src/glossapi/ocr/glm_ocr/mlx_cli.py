@@ -45,9 +45,7 @@ except Exception as exc:  # pragma: no cover
 # Constants
 # ---------------------------------------------------------------------------
 
-DEFAULT_PROMPT = (
-    "Describe this image."
-)
+DEFAULT_PROMPT = "Convert the document to markdown."
 
 DEFAULT_DPI = 150
 DEFAULT_MAX_TOKENS = 2048
