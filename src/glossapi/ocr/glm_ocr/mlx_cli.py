@@ -566,6 +566,7 @@ def process_pdf(
     )
     out_md.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     _write_metrics(out_metrics, page_count)
+    doc.close()
     return page_count
 
 

@@ -42,7 +42,11 @@ def _page_count(pdf_path: Path) -> int:
     if _pypdfium2 is None:
         return 0
     try:
-        return len(_pypdfium2.PdfDocument(str(pdf_path)))
+        _doc = _pypdfium2.PdfDocument(str(pdf_path))
+        try:
+            return len(_doc)
+        finally:
+            _doc.close()
     except Exception:
         return 0
 

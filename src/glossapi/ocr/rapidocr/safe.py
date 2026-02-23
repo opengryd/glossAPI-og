@@ -178,7 +178,11 @@ def _resolve_page_total(conv_res: ConversionResult, page_list: list[Page]) -> in
         try:
             import pypdfium2 as _pypdfium2  # type: ignore
 
-            return len(_pypdfium2.PdfDocument(str(source)))
+            _doc = _pypdfium2.PdfDocument(str(source))
+            try:
+                return len(_doc)
+            finally:
+                _doc.close()
         except Exception:
             pass
     try:
