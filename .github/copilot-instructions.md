@@ -219,7 +219,7 @@ the Rust extensions to ensure they integrate properly with the Python package.
 | Backend | Module path | GPU | Math handling | When to use |
 |---|---|---|---|---|
 | **RapidOCR** (default) | `ocr.rapidocr` | CUDA / MPS / CPU | Separate Phase-2 enrichment from Docling JSON | Default; Docling + RapidOCR ONNX |
-| **DeepSeek-OCR** | `ocr.deepseek_ocr` | CUDA (vLLM) | Inline (no Phase-2) | High-accuracy OCR with CUDA GPU |
+| **DeepSeek-OCR** | `ocr.deepseek_ocr` | CUDA & MPS | Inline (no Phase-2) | CUDA: vLLM; MPS: MLX in-process/CLI |
 | **DeepSeek v2** | `ocr.deepseek_ocr2` | MPS (MLX) | Inline (no Phase-2) | macOS Apple Silicon |
 | **GLM-OCR** | `ocr.glm_ocr` | MPS (MLX) | Inline (no Phase-2) | Lightweight 0.5B VLM OCR on macOS Apple Silicon |
 | **MinerU** | `ocr.mineru` | CUDA / MPS / CPU | Inline (no Phase-2) | External `magic-pdf` CLI |
@@ -294,7 +294,16 @@ categories:
 | `GLOSSAPI_SKIP_DOCLING_BOOT` | Skip Docling patching at import (`1` to skip) |
 | `GLOSSAPI_OCR_LANGS` | Comma-separated OCR languages, e.g. `el,en` |
 
-### DeepSeek-OCR
+### DeepSeek-OCR (MPS/MLX — Apple Silicon)
+
+| Variable | Purpose |
+|---|---|
+| `GLOSSAPI_DEEPSEEK_OCR_DEVICE` | Force device: `cuda` / `mps` / `cpu` (auto-detected: `mps` on macOS, `cuda` elsewhere) |
+| `GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL` | HuggingFace MLX model identifier (default `mlx-community/DeepSeek-OCR-8bit`) |
+| `GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR` | Optional override for MLX model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr-1-mlx`) |
+| `GLOSSAPI_DEEPSEEK_OCR_MLX_SCRIPT` | Path to MLX inference script for subprocess execution (default: package-embedded `mlx_cli.py`) |
+
+### DeepSeek-OCR (CUDA/vLLM)
 
 | Variable | Purpose |
 |---|---|

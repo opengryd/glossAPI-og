@@ -6,6 +6,7 @@ from glossapi.ocr.deepseek_ocr.preflight import check_deepseek_ocr_env
 
 def test_preflight_reports_missing_components(tmp_path):
     env = {
+        "GLOSSAPI_DEEPSEEK_OCR_DEVICE": "cuda",  # force CUDA path regardless of platform
         "GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI": "0",
         "GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB": "1",
         "GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON": str(tmp_path / "missing_python"),
@@ -40,6 +41,7 @@ def test_preflight_passes_with_complete_env(tmp_path):
     cc1plus.chmod(0o755)
 
     env = {
+        "GLOSSAPI_DEEPSEEK_OCR_DEVICE": "cuda",  # force CUDA path regardless of platform
         "GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI": "1",
         "GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB": "0",
         "GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON": sys.executable,
@@ -51,3 +53,58 @@ def test_preflight_passes_with_complete_env(tmp_path):
     report = check_deepseek_ocr_env(env, check_flashinfer=False)
     assert report.ok
     assert not report.errors
+
+
+def test_preflight_mps_path_no_model_dir_is_info_not_error(tmp_path, monkeypatch):
+    """On macOS/MPS path, missing model dir is an info (auto-download), not an error."""
+    # Force MPS path and isolate from any real weights root on disk.
+    monkeypatch.delenv("GLOSSAPI_WEIGHTS_ROOT", raising=False)
+    env = {
+        "GLOSSAPI_DEEPSEEK_OCR_DEVICE": "mps",
+        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI": "0",
+        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB": "1",
+        # No model dir configured — should trigger auto-download info only.
+    }
+    report = check_deepseek_ocr_env(env, check_flashinfer=False)
+    # Should have no errors specifically about model_dir / mlx_model_dir.
+    error_names = {c.name for c in report.errors}
+    assert "model_dir" not in error_names
+    assert "mlx_model_dir" not in error_names
+    # The info about auto-download should be present.
+    info_names = {c.name for c in report.infos}
+    assert "mlx_model_dir" in info_names
+
+
+def test_preflight_mps_path_invalid_model_dir_is_error(tmp_path):
+    """On MPS path, an explicitly configured MLX model dir that doesn't exist is an error."""
+    env = {
+        "GLOSSAPI_DEEPSEEK_OCR_DEVICE": "mps",
+        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI": "0",
+        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB": "1",
+        "GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR": str(tmp_path / "nonexistent_mlx"),
+    }
+    report = check_deepseek_ocr_env(env, check_flashinfer=False)
+    error_names = {c.name for c in report.errors}
+    assert "mlx_model_dir" in error_names
+
+
+def test_preflight_mps_path_valid_model_dir_passes(tmp_path):
+    """On MPS path, a properly populated MLX model dir produces no errors."""
+    mlx_dir = tmp_path / "deepseek-ocr-mlx"
+    mlx_dir.mkdir()
+    (mlx_dir / "config.json").write_text("{}", encoding="utf-8")
+    (mlx_dir / "weights.safetensors").write_bytes(b"stub")
+
+    env = {
+        "GLOSSAPI_DEEPSEEK_OCR_DEVICE": "mps",
+        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI": "1",
+        "GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB": "0",
+        "GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR": str(mlx_dir),
+    }
+    report = check_deepseek_ocr_env(env, check_flashinfer=False)
+    # vLLM-specific checks (cc1plus, ld_library_path, etc.) must NOT appear as errors.
+    error_names = {c.name for c in report.errors}
+    assert "mlx_model_contents" not in error_names
+    assert "cc1plus" not in error_names
+    assert "ld_library_path" not in error_names
+    assert "vllm_script" not in error_names
