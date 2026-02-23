@@ -9,8 +9,8 @@ This page shows the most common tasks in a few lines each.
 ```python
 from glossapi import Corpus
 c = Corpus('IN', 'OUT')
-c.extract(input_format='pdf', accel_type='CUDA')  # OCR is off by default
-# macOS (Metal): use accel_type='MPS'
+c.extract(input_format='pdf', accel_type='CUDA')  # OCR is off by default (Linux/Windows)
+# macOS Apple Silicon (Metal/MPS): use accel_type='MPS'
 ```
 
 This keeps Docling’s native parser out of the hot path and is the recommended
@@ -21,8 +21,8 @@ mode when you prioritise stability.
 ```python
 from glossapi import Corpus
 c = Corpus('IN', 'OUT')
-c.extract(input_format='pdf', accel_type='CUDA', phase1_backend='docling')
-# macOS (Metal): use accel_type='MPS'
+c.extract(input_format='pdf', accel_type='CUDA', phase1_backend='docling')  # Linux/Windows
+# macOS Apple Silicon (Metal/MPS): use accel_type='MPS'
 ```
 
 `phase1_backend='docling'` streams multiple PDFs through Docling’s converter and
@@ -42,13 +42,26 @@ without losing progress (no extra checkpoint files required).
 
 ## GPU OCR (opt-in)
 
+> **RapidOCR / Docling path** — uses `accel_type` to select the GPU runtime:
+
 ```python
 from glossapi import Corpus
 c = Corpus('IN', 'OUT')
-c.extract(input_format='pdf', accel_type='CUDA', force_ocr=True)
-# macOS (Metal): accel_type='MPS'
-# or reuse multi-GPU batching
+c.extract(input_format='pdf', accel_type='CUDA', force_ocr=True)  # Linux/Windows
+# macOS Apple Silicon (Metal/MPS):
+c.extract(input_format='pdf', accel_type='MPS', force_ocr=True)
+# or multi-GPU batching:
 c.extract(input_format='pdf', use_gpus='multi', force_ocr=True)
+```
+
+> **VLM backends** (`deepseek-ocr-2`, `glm-ocr`, `olmocr`, `mineru`) — GPU is selected
+> automatically based on platform (MPS on macOS Apple Silicon, CUDA on Linux) or forced
+> via backend-specific env vars. Use `c.ocr(backend=...)` instead of `c.extract(accel_type=...)`:
+
+```python
+c.ocr(backend='glm-ocr')    # macOS: MLX/MPS auto-selected
+c.ocr(backend='olmocr')     # macOS: MLX/MPS; Linux: CUDA/vLLM
+c.ocr(backend='mineru')     # macOS: MPS; Linux: CUDA; CPU fallback available
 ```
 
 ## Phase‑2 Math Enrichment (from JSON)
@@ -58,11 +71,13 @@ from glossapi import Corpus
 c = Corpus('OUT', 'OUT')  # same folder for input/output is fine
 
 # Emit JSON/indices first (JSON now defaults on; request the index explicitly)
-c.extract(input_format='pdf', accel_type='CUDA', emit_formula_index=True)
+c.extract(input_format='pdf', accel_type='CUDA', emit_formula_index=True)   # Linux/Windows
+# c.extract(input_format='pdf', accel_type='MPS', emit_formula_index=True)  # macOS Apple Silicon
 
 # Enrich math/code on GPU and write enriched Markdown into markdown/<stem>.md
-c.formula_enrich_from_json(device='cuda', batch_size=12)
-# macOS (Metal): device='mps'
+# Phase-2 math enrichment only applies to RapidOCR (not VLM backends).
+c.formula_enrich_from_json(device='cuda', batch_size=12)   # Linux/Windows
+# c.formula_enrich_from_json(device='mps', batch_size=12)  # macOS Apple Silicon
 ```
 
 Progress (downloaded, OCRed, math-enriched) now lives in `download_results/download_results.parquet`; rerun `c.ocr(..., reprocess_completed=True)` whenever you need to force already successful rows back through OCR or math.
@@ -188,6 +203,40 @@ export GLOSSAPI_GLMOCR_DEVICE=mps
 # Optional: point to local weights to skip the auto-download
 # export GLOSSAPI_GLMOCR_MODEL_DIR=/path/to/GLM-OCR-MLX
 python -m glossapi.ocr.glm_ocr.preflight  # optional: validates env without running OCR
+```
+
+### OlmOCR-2 (vLLM / MLX)
+
+OlmOCR-2 is a high-accuracy VLM-based OCR (Qwen2.5-VL fine-tune). It supports CUDA (vLLM) and
+Apple Silicon (MLX). Equations are included inline in the OCR output, so Phase-2 math is not
+required and any math flags are ignored.
+
+```python
+from glossapi import Corpus
+c = Corpus('IN','OUT')
+c.ocr(backend='olmocr', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
+# → OCR only for bad files; math is included inline in the Markdown
+```
+
+**macOS (MLX/MPS):** set `GLOSSAPI_OLMOCR_ALLOW_STUB=0`.  The runner tries in-process MLX first
+(fastest), then MLX CLI subprocess, then stub.  Model weights are auto-downloaded from HuggingFace
+if not present locally:
+
+```bash
+export GLOSSAPI_OLMOCR_ALLOW_STUB=0
+export GLOSSAPI_OLMOCR_DEVICE=mps
+# Optional: point to local MLX weights to skip the auto-download
+# export GLOSSAPI_OLMOCR_MLX_MODEL_DIR=/path/to/olmOCR-MLX
+python -m glossapi.ocr.olmocr.preflight  # optional: validates env without running OCR
+```
+
+**Linux (CUDA/vLLM):** enable the CLI runner and point to model weights:
+
+```bash
+export GLOSSAPI_OLMOCR_ALLOW_STUB=0
+export GLOSSAPI_OLMOCR_ALLOW_CLI=1
+export GLOSSAPI_OLMOCR_MODEL_DIR=/path/to/model_weights/olmocr
+python -m glossapi.ocr.olmocr.preflight  # optional: validates env without running OCR
 ```
 
 ### MinerU OCR

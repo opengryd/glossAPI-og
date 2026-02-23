@@ -159,7 +159,7 @@ def _ask_preset() -> str:
 def _detect_os_label() -> str:
     system = platform.system()
     if system == "Darwin":
-        return "macOS (MPS/Metal supported)"
+        return "macOS Apple Silicon (MPS/Metal + MLX supported)"
     if system == "Linux":
         return "Linux (CUDA supported)"
     if system == "Windows":
@@ -220,10 +220,12 @@ def _maybe_confirm(phase: str, *, confirm_each: bool) -> bool:
     return _gum_confirm(f"Run phase: {phase}?", default=True)
 
 
-# Maps CUDA-dependent backend names to the env var that configures their
-# separate Python binary (if any).  When the env var is set, the wizard
-# probes that binary for ``torch.cuda.is_available()`` before launching
-# the pipeline.
+# Backend names that may run on CUDA, mapped to their configured Python binary.
+# The wizard probes the binary for ``torch.cuda.is_available()`` only when
+# ``device='cuda'`` is explicitly set for the backend (see _run_wizard logic).
+# OlmOCR is dual-platform: CUDA/vLLM on Linux, MLX/MPS on macOS. On macOS the
+# wizard sets device='mps' so CUDA probing is never triggered for OlmOCR there.
+# DeepSeek OCR v2 and GLM-OCR are MLX-only (macOS); they are never in this map.
 _CUDA_BACKEND_PYTHON_ENV: dict = {
     "olmocr": "GLOSSAPI_OLMOCR_PYTHON",
     "deepseek-ocr": "GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON",
@@ -239,7 +241,13 @@ _BACKEND_LABELS: dict = {
 
 
 def _cuda_preflight(backend: str) -> None:
-    """Pre-flight check: verify CUDA is available for a CUDA-dependent backend.
+    """Pre-flight check: verify CUDA is available when a backend is set to run on CUDA.
+
+    Only called when ``device='cuda'`` is explicitly selected by the wizard
+    (e.g. OlmOCR on Linux, DeepSeek-OCR on Linux).  On macOS, OlmOCR uses
+    MLX/MPS and DeepSeek OCR v2 / GLM-OCR use MLX — the wizard sets
+    ``device='mps'`` or ``device='cpu'`` for those combinations and this
+    function is never reached.
 
     Checks three things in order:
 

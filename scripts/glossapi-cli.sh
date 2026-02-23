@@ -14,7 +14,18 @@ cat <<'EOF'
 
 	Welcome to GlossAPI CLI
 	Unified setup + pipeline launcher for the academic PDF processing toolkit.
-	Profiles: vanilla, RapidOCR, MinerU, DeepSeek OCR, DeepSeek OCR v2, GLM-OCR, OlmOCR-2
+
+	┌──────────────────┬─────┬──────┬─────────┐
+	│ Backend          │ CPU │ CUDA │ MPS/MLX │
+	├──────────────────┼─────┼──────┼─────────┤
+	│ vanilla          │  ✓  │  —   │    —    │
+	│ rapidocr         │  ✓  │  ✓   │    ✓    │
+	│ mineru           │  ✓  │  ✓   │    ✓    │
+	│ deepseek-ocr     │  —  │  ✓   │    —    │
+	│ deepseek-ocr-2   │  —  │  —   │    ✓    │
+	│ glm-ocr          │  —  │  —   │    ✓    │
+	│ olmocr           │  —  │  ✓   │    ✓    │
+	└──────────────────┴─────┴──────┴─────────┘
 
 EOF
 PYTHON_BIN="${PYTHON:-}"
@@ -260,28 +271,15 @@ run_setup_wizard_interactive() {
 	fi
 
 
-	local modes=()
-	if [[ "${os_name}" == "Darwin" ]]; then
-		modes=(
-			"vanilla (Core pipeline; fastest setup)"
-			"rapidocr (Docling + RapidOCR; MPS/CPU on macOS)"
-			"mineru (External magic-pdf CLI + models)"
-			"deepseek-ocr (CUDA/vLLM only — NOT supported on macOS)"
-			"deepseek-ocr-2 (DeepSeek OCR v2; MLX/MPS — macOS native)"
-			"glm-ocr (GLM-OCR 0.5B VLM; MLX/MPS — macOS native)"
-			"olmocr (OlmOCR-2 VLM OCR; MLX/MPS — macOS native)"
-		)
-	else
-		modes=(
-			"vanilla (Core pipeline; fastest setup)"
-			"rapidocr (Docling + RapidOCR GPU stack)"
-			"mineru (External magic-pdf CLI + models)"
-			"deepseek-ocr (DeepSeek OCR; heaviest GPU stack — requires CUDA)"
-			"deepseek-ocr-2 (DeepSeek OCR v2 MLX/MPS — macOS only)"
-			"glm-ocr (GLM-OCR 0.5B VLM; MLX/MPS — macOS only)"
-			"olmocr (OlmOCR-2 VLM OCR; CUDA or MLX/MPS)"
-		)
-	fi
+	local modes=(
+		"vanilla        — Core pipeline, no GPU required"
+		"rapidocr       — Docling + RapidOCR OCR"
+		"mineru         — External magic-pdf client"
+		"deepseek-ocr   — DeepSeek-OCR via vLLM"
+		"deepseek-ocr-2 — DeepSeek OCR v2 via MLX"
+		"glm-ocr        — GLM-OCR 0.5B VLM via MLX"
+		"olmocr         — OlmOCR-2 VLM OCR"
+	)
 	local default_idx=1
 	local i=1
 	for mode in "${modes[@]}"; do

@@ -75,6 +75,36 @@ Add `--download-deepseek-ocr` if you need the script to fetch weights via Huggin
 - Override model path with `GLOSSAPI_GLMOCR_MODEL_DIR` if needed.
 - Override device with `GLOSSAPI_GLMOCR_DEVICE` (`mps` or `cpu`, default `mps`).
 
+### OlmOCR-2 setup
+
+OlmOCR-2 is a high-accuracy VLM-based OCR toolkit built on the Qwen2.5-VL model. It supports
+both CUDA (via vLLM) and Apple Silicon MPS (via MLX).
+
+```bash
+./dependency_setup/setup_glossapi.sh \
+  --mode olmocr \
+  --venv dependency_setup/.venvs/olmocr \
+  --download-olmocr \
+  --run-tests
+```
+
+- **CUDA path** (`olmocr[gpu]`): requires an NVIDIA GPU with ≥12 GB VRAM and `poppler-utils` on PATH.
+  vLLM is used for inference; model weights default to `allenai/olmOCR-2-7B-1025-FP8`.
+- **MLX path** (macOS Apple Silicon): uses `mlx-vlm` for in-process inference.
+  Weights are auto-downloaded from `mlx-community/olmOCR-2-7B-1025-4bit` if `--download-olmocr` is passed.
+- Equations are included inline — Phase-2 math enrichment is a no-op.
+
+**OlmOCR-2 runtime checklist**
+- Run `python -m glossapi.ocr.olmocr.preflight` to validate the environment.
+- The runner cascade is: **in-process MLX** → **MLX CLI** (macOS) / **in-process vLLM** → **vLLM CLI** → **OlmOCR CLI** → **stub** (Linux).
+- Set `GLOSSAPI_OLMOCR_ALLOW_STUB=0` to fail instead of silently producing placeholder output.
+- Set `GLOSSAPI_OLMOCR_ALLOW_CLI=1` to enable the OlmOCR CLI subprocess (requires the `olmocr` package).
+- Override model path with `GLOSSAPI_OLMOCR_MODEL_DIR` (CUDA) or `GLOSSAPI_OLMOCR_MLX_MODEL_DIR` (MLX).
+- Override device with `GLOSSAPI_OLMOCR_DEVICE` (`cuda`, `mps`, or `cpu`; auto-detected if unset).
+- For external vLLM servers, set `GLOSSAPI_OLMOCR_SERVER` and `GLOSSAPI_OLMOCR_API_KEY`.
+- Tune VRAM use with `GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION` (default `0.85`) and `GLOSSAPI_OLMOCR_MAX_MODEL_LEN` (default `8192`).
+- If CUDA runtime libraries are not in the default search path, set `GLOSSAPI_OLMOCR_LD_LIBRARY_PATH=/usr/local/cuda/lib64`.
+
 ### MinerU setup
 
 ```bash

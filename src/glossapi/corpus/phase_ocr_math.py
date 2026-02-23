@@ -116,7 +116,8 @@ class OcrMathPhaseMixin:
              'deepseek-ocr-2' uses the DeepSeek OCR v2 (MLX/MPS) path (no Docling JSON, math unsupported).
              'glm-ocr' uses the GLM-OCR (MLX/MPS) path (no Docling JSON, math unsupported).
              'mineru' uses the MinerU (magic-pdf) path (no Docling JSON, math unsupported).
-             'olmocr' uses the OlmOCR-2 (vLLM) path (no Docling JSON, math unsupported).
+             'olmocr' uses the OlmOCR-2 (vLLM/MLX) path (no Docling JSON, math unsupported).
+               Supports CUDA via vLLM (Linux) and Apple Silicon via MLX (macOS).
         - fix_bad: re-run OCR on documents marked bad by the cleaner (default True).
         - math_enhance: run math/code enrichment after OCR (default True).
         - force: [DEPRECATED] alias for fix_bad retained for backward compatibility.

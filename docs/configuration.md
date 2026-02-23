@@ -7,7 +7,7 @@ This page lists the main knobs you can use to tune GlossAPI.
 - `CUDA_VISIBLE_DEVICES`: restrict/assign visible GPUs, e.g. `export CUDA_VISIBLE_DEVICES=0,1`.
 - `GLOSSAPI_DOCLING_DEVICE`: preferred device for Docling (inside a worker), e.g. `cuda:0`.
 - `GLOSSAPI_GPU_BATCH_SIZE`: batch size for GPU extraction workers (multi-GPU mode).
-- macOS (Metal): use `accel_type='MPS'` or set `GLOSSAPI_DOCLING_DEVICE=mps` when forcing a device.
+- macOS Apple Silicon (Metal/MPS): use `accel_type='MPS'` or set `GLOSSAPI_DOCLING_DEVICE=mps` for the RapidOCR/Docling path.
 
 ## Model Weights
 
@@ -20,7 +20,8 @@ model_weights/              # $GLOSSAPI_WEIGHTS_ROOT
 ├── deepseek-ocr/           # DeepSeek CUDA weights
 ├── deepseek-ocr-mlx/       # DeepSeek OCR v2 MLX weights
 ├── glm-ocr-mlx/            # GLM-OCR MLX weights
-├── olmocr-mlx/             # OlmOCR-2 MLX weights
+├── olmocr/                 # OlmOCR-2 CUDA/vLLM weights
+├── olmocr-mlx/             # OlmOCR-2 MLX weights (macOS Apple Silicon)
 └── mineru/                 # MinerU PDF-Extract-Kit models
 ```
 

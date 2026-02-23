@@ -54,6 +54,18 @@
 - **MPS device error:** Ensure `GLOSSAPI_GLMOCR_DEVICE=mps` (default). Check `torch.backends.mps.is_available()`.
 - **Preflight checker:** Run `python -m glossapi.ocr.glm_ocr.preflight` to validate your environment.
 
+## OlmOCR-2 issues
+
+- **`mlx` import error on non-Apple Silicon:** The MLX inference path requires Apple Silicon (M1+). On Linux, only the vLLM path is supported.
+- **Stub output on CUDA:** The vLLM in-process and CLI strategies require `GLOSSAPI_OLMOCR_ALLOW_CLI=1` (for the OlmOCR pipeline subprocess) and `GLOSSAPI_OLMOCR_ALLOW_STUB=0`. Set both to force real inference.
+- **In-process vLLM not chosen on Linux:** Ensure `vllm` is importable in the active environment. The runner skips `vllm` gracefully if it is not importable.
+- **Model not found (CUDA):** Set `GLOSSAPI_OLMOCR_MODEL_DIR` to the local CUDA weights directory, or ensure `GLOSSAPI_WEIGHTS_ROOT` is set so the pipeline resolves `$GLOSSAPI_WEIGHTS_ROOT/olmocr`.
+- **Model not found (MLX):** Set `GLOSSAPI_OLMOCR_MLX_MODEL_DIR` to the local MLX-formatted weights directory. Without it, weights are auto-downloaded from `mlx-community/olmOCR-2-7B-1025-4bit`.
+- **`libcudart.so.12 not found`:** Set `GLOSSAPI_OLMOCR_LD_LIBRARY_PATH=/usr/local/cuda/lib64` (or wherever your CUDA runtime libraries live) to prepend it to `LD_LIBRARY_PATH` for CLI subprocesses.
+- **Out-of-memory (vLLM):** Lower `GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION` (default `0.85`) and/or `GLOSSAPI_OLMOCR_MAX_MODEL_LEN` (default `8192`). If running multi-GPU, increase `GLOSSAPI_OLMOCR_TENSOR_PARALLEL_SIZE`.
+- **Wrong Python for CLI:** If the OlmOCR venv differs from the main venv, set `GLOSSAPI_OLMOCR_PYTHON` to the correct interpreter path.
+- **Preflight checker:** Run `python -m glossapi.ocr.olmocr.preflight` to validate your environment (checks olmocr package, poppler, CUDA/MLX availability, and env flags).
+
 ## MinerU backend / device issues
 
 - **Backend selection:** Set `GLOSSAPI_MINERU_BACKEND` to override auto-detection. Set `GLOSSAPI_MINERU_DEVICE_MODE` (or `GLOSSAPI_MINERU_DEVICE`) to force `cuda`, `mps`, or `cpu`.

@@ -11,7 +11,7 @@ GlossAPI is a GPU-ready document processing pipeline from [GFOSS](https://gfoss.
 - **Greek-first design** — Metadata handling and section classification are tuned for academic Greek corpora, but the pipeline works for any language.
 - **Resumable & modular** — Phase methods respect skiplists and metadata parquet state, so you can resume from any stage or cherry-pick phases in custom scripts.
 - **Multi-GPU support** — Scale extraction and OCR across multiple GPUs with built-in queue-based dispatching.
-- **macOS Metal/MPS** — GPU acceleration on Apple Silicon via CoreML (RapidOCR/Docling), MinerU, and MPS-aware torch.
+- **macOS Metal/MPS** — GPU acceleration on Apple Silicon via CoreML (RapidOCR/Docling), MLX runtime (DeepSeek OCR v2, GLM-OCR, OlmOCR-2), MinerU, and MPS-aware torch.
 - **Sharded JSONL export** — Produce zstd-compressed shards ready for HuggingFace Datasets streaming.
 
 ## Quickstart (local repo)

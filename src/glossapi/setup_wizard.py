@@ -20,22 +20,24 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 _ALL_MODES = ["vanilla", "rapidocr", "mineru", "deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "olmocr"]
 
-# Platform annotations shown in interactive menus
+# Description labels shown in interactive menus (platform-independent; hardware
+# support is communicated via the banner checkmark table in glossapi-cli.sh and
+# via post-selection warnings for incompatible combinations).
 _MODE_LABELS: dict[str, dict[str, str]] = {
-    "vanilla":        {"Darwin": "vanilla (Core pipeline; fastest setup)",
-                       "Linux":  "vanilla (Core pipeline; fastest setup)"},
-    "rapidocr":       {"Darwin": "rapidocr (Docling + RapidOCR; MPS/CPU on macOS)",
-                       "Linux":  "rapidocr (Docling + RapidOCR GPU stack)"},
-    "mineru":         {"Darwin": "mineru (External magic-pdf CLI + models)",
-                       "Linux":  "mineru (External magic-pdf CLI + models)"},
-    "deepseek-ocr":   {"Darwin": "deepseek-ocr ⚠️  CUDA/vLLM only — NOT supported on macOS",
-                       "Linux":  "deepseek-ocr (DeepSeek OCR; requires CUDA)"},
-    "deepseek-ocr-2": {"Darwin": "deepseek-ocr-2 (DeepSeek OCR v2; MLX/MPS — macOS native)",
-                       "Linux":  "deepseek-ocr-2 (MLX/MPS — macOS only)"},
-    "glm-ocr":        {"Darwin": "glm-ocr (GLM-OCR 0.5B VLM; MLX/MPS — macOS native)",
-                       "Linux":  "glm-ocr (MLX/MPS — macOS only)"},
-    "olmocr":         {"Darwin": "olmocr (OlmOCR-2 VLM OCR; MLX/MPS — macOS native)",
-                       "Linux":  "olmocr (OlmOCR-2 VLM OCR; CUDA or MLX/MPS)"},
+    "vanilla":        {"Darwin": "vanilla        — Core pipeline, no GPU required",
+                       "Linux":  "vanilla        — Core pipeline, no GPU required"},
+    "rapidocr":       {"Darwin": "rapidocr       — Docling + RapidOCR OCR",
+                       "Linux":  "rapidocr       — Docling + RapidOCR OCR"},
+    "mineru":         {"Darwin": "mineru         — External magic-pdf client",
+                       "Linux":  "mineru         — External magic-pdf client"},
+    "deepseek-ocr":   {"Darwin": "deepseek-ocr   — DeepSeek-OCR via vLLM",
+                       "Linux":  "deepseek-ocr   — DeepSeek-OCR via vLLM"},
+    "deepseek-ocr-2": {"Darwin": "deepseek-ocr-2 — DeepSeek OCR v2 via MLX",
+                       "Linux":  "deepseek-ocr-2 — DeepSeek OCR v2 via MLX"},
+    "glm-ocr":        {"Darwin": "glm-ocr        — GLM-OCR 0.5B VLM via MLX",
+                       "Linux":  "glm-ocr        — GLM-OCR 0.5B VLM via MLX"},
+    "olmocr":         {"Darwin": "olmocr         — OlmOCR-2 VLM OCR",
+                       "Linux":  "olmocr         — OlmOCR-2 VLM OCR"},
 }
 
 
@@ -193,7 +195,7 @@ def _simple_text(label: str, default: str, tty: Optional[object]) -> str:
 def _detect_os_label() -> str:
     system = platform.system()
     if system == "Darwin":
-        return "macOS (MPS/Metal supported)"
+        return "macOS Apple Silicon (MPS/Metal + MLX supported)"
     if system == "Linux":
         return "Linux (CUDA supported)"
     if system == "Windows":
@@ -416,7 +418,7 @@ def main(
     if not run_tests:
         run_tests = _ask_bool("Run tests after setup? (slower)", default=False)
     if selected_mode == "deepseek-ocr" and not smoke_test:
-        smoke_test = _ask_bool("Run DeepSeek OCR smoke test? (requires GPU)", default=False)
+        smoke_test = _ask_bool("Run DeepSeek OCR smoke test? (requires CUDA GPU)", default=False)
 
     _run_setup(
         selected_mode,

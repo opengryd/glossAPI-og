@@ -11,7 +11,7 @@ Welcome to the docs for **GlossAPI**, the [GFOSS](https://gfoss.eu/) pipeline fo
 ## Learn the pipeline
 
 - [Pipeline Overview](pipeline.md) explains each stage, the `Corpus` orchestrator, and the emitted artifacts.
-- [OCR & Math Enrichment](ocr_and_math_enhancement.md) covers all four backends (RapidOCR, DeepSeek-OCR, DeepSeek OCR v2, MinerU) and Phase-2 formula enrichment.
+- [OCR & Math Enrichment](ocr_and_math_enhancement.md) covers all six OCR backends (RapidOCR, DeepSeek-OCR, DeepSeek OCR v2, GLM-OCR, OlmOCR-2, MinerU) and Phase-2 formula enrichment.
 - [Multi-GPU & Benchmarking](multi_gpu.md) shares scaling, worker management, and scheduling tips.
 
 ## Configure and debug
