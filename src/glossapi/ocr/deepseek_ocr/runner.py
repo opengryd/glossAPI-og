@@ -329,7 +329,8 @@ def run_for_files(
     else:
         active_device = "mps" if is_macos else "cuda"
 
-    use_mps = active_device == "mps" or (active_device not in ("cuda",) and is_macos)
+    # Explicitly requested "cpu" on macOS must not be coerced into MPS.
+    use_mps = active_device == "mps" or (is_macos and active_device not in ("cuda", "cpu"))
 
     # ----- Resolve input paths -----
     resolved_paths: List[Path] = []

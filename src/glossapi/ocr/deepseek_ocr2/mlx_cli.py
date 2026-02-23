@@ -16,6 +16,7 @@ import logging
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Optional
 
@@ -41,7 +42,7 @@ except Exception as exc:  # pragma: no cover
 # ---------------------------------------------------------------------------
 
 DEFAULT_PROMPT = "<image>\n<|grounding|>Convert the document to markdown."
-DEFAULT_DPI = 200
+DEFAULT_DPI = 150  # 150 DPI keeps A4 longest side ≤ ~1240px, matching the model's 1024px tile budget
 DEFAULT_MAX_TOKENS = 4096
 DEFAULT_MODEL_ID = "mlx-community/DeepSeek-OCR-2-8bit"
 
@@ -105,8 +106,20 @@ def _attach_detokenizer(processor: Any, tokenizer: Any) -> None:
 def load_model_and_processor(model_path: Path) -> tuple:
     """Load the MLX model and processor, with fallback for tokenizer issues.
 
+    Sets the Metal wired memory limit before weight allocation to prevent
+    unified-memory page-outs, then compiles Metal shaders with a dummy
+    inference so the first real page does not pay the JIT cost.
+
     Returns ``(model, processor)`` ready for :func:`generate_page`.
     """
+    _set_metal_wired_limit()
+    model, processor = _load_impl(model_path)
+    _warmup_metal_shaders(model, processor)
+    return model, processor
+
+
+def _load_impl(model_path: Path) -> tuple:
+    """Internal: raw model + processor load with tokenizer-class fallback."""
     from mlx_vlm import load
     from mlx_vlm.utils import load_model as _load_model
 
@@ -269,12 +282,69 @@ def resolve_model_dir(model_dir: Optional[str] = None) -> Path:
 # Page-level helpers
 # ---------------------------------------------------------------------------
 
-def render_page(doc: Any, page_index: int, dpi: int = DEFAULT_DPI) -> Any:
-    """Render a single PDF page to a PIL Image via pypdfium2."""
+
+def _flush_metal() -> None:
+    """Flush pending MLX computations and release cached Metal buffers.
+
+    ``mx.eval()`` forces lazy evaluation of the computation graph, freeing
+    intermediate activations.  ``mx.clear_cache()`` returns unretained
+    Metal buffer slabs to the OS allocator.  Model weights (held as live Python
+    objects) are never released by this call.
+    """
+    try:
+        import mlx.core as mx  # noqa: PLC0415
+        mx.eval()
+        mx.clear_cache()
+    except Exception:
+        pass
+
+
+def _set_metal_wired_limit(fraction: float = 0.8) -> None:
+    """Hint to the MLX Metal allocator to wire a large fraction of device memory.
+
+    Wiring model weights prevents the macOS memory compressor from reclaiming
+    them during batch inference under unified-memory pressure.  Must be called
+    *before* allocating model weights — only future allocations are affected.
+
+    *fraction* is applied to ``recommendedMaxWorkingSetSize`` (the OS-reported
+    safe upper bound for GPU allocations).  0.8 leaves headroom for the OS and
+    other Metal processes.
+    """
+    try:
+        import mlx.core as mx  # noqa: PLC0415
+        info = mx.device_info()
+        recommended = info.get("recommendedMaxWorkingSetSize", 0)
+        if recommended > 0:
+            mx.set_wired_limit(int(recommended * fraction))
+    except Exception:
+        pass
+
+
+def render_page(
+    doc: Any,
+    page_index: int,
+    dpi: int = DEFAULT_DPI,
+    max_side: int = 1344,
+) -> Any:
+    """Render a single PDF page to a PIL Image via pypdfium2.
+
+    *max_side* caps the longest edge of the rendered image before it is passed
+    to the VLM processor.  DeepSeek-OCR tiles images at 1024 px; keeping at or
+    below 1344 px avoids an over-sized render while preserving quality within
+    the model's effective resolution range.
+    """
     page = doc[page_index]
     scale = float(dpi) / 72.0
     bitmap = page.render(scale=scale)
-    return bitmap.to_pil()
+    image = bitmap.to_pil()
+    w, h = image.size
+    if max(w, h) > max_side:
+        factor = max_side / max(w, h)
+        image = image.resize(
+            (max(1, int(w * factor)), max(1, int(h * factor))),
+            resample=Image.LANCZOS,
+        )
+    return image
 
 
 def generate_page(
@@ -295,10 +365,36 @@ def generate_page(
         image=image,
         max_tokens=max_tokens,
         temperature=0.0,
+        repetition_penalty=1.05,
         skip_special_tokens=True,
     )
-    text = (result.text or "").strip()
+    # mlx_vlm.generate may return a plain str (older versions) or a
+    # GenerationOutput object with a .text attribute (newer versions).
+    if isinstance(result, str):
+        text = result.strip()
+    else:
+        text = (getattr(result, "text", None) or "").strip()
     return text if text else "[[Blank page]]"
+
+
+def _warmup_metal_shaders(model: Any, processor: Any) -> None:
+    """Run a tiny dummy inference to pre-compile Metal shaders.
+
+    MLX compiles Metal shaders JIT on first use.  For large models this makes
+    the first real page 3–5× slower than subsequent pages.  A single forward
+    pass on a 128×128 white image absorbs the compilation cost up front.
+    """
+    log = logging.getLogger(__name__)
+    if Image is None:
+        return
+    try:
+        dummy = Image.new("RGB", (128, 128), color=255)
+        log.debug("Warming up Metal shaders (first-inference JIT)…")
+        generate_page(model, processor, dummy, max_tokens=4)
+        _flush_metal()
+        log.debug("Metal shader warm-up complete.")
+    except Exception as exc:
+        log.debug("Metal shader warm-up skipped (%s).", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -361,20 +457,27 @@ def process_pdf(
         progress = None
 
     pdf_start = time.time()
-    for page_index in range(page_count):
-        if content_debug:
-            lines.append(f"<!-- page:{page_index + 1} -->")
-        image = render_page(doc, page_index, dpi)
-        text = generate_page(model, processor, image, prompt=prompt, max_tokens=max_tokens)
-        lines.append(text)
-        lines.append("")
-        if progress is not None:
-            progress.update(1)
-        else:
-            logger.info(
-                "DeepSeek OCR v2: %s page %d/%d done",
-                pdf_path.name, page_index + 1, page_count,
-            )
+    with ThreadPoolExecutor(max_workers=1) as _render_pool:
+        # Pre-render the first page to bootstrap the CPU/GPU pipeline.
+        _next_render = _render_pool.submit(render_page, doc, 0, dpi)
+        for page_index in range(page_count):
+            if content_debug:
+                lines.append(f"<!-- page:{page_index + 1} -->")
+            image = _next_render.result()
+            # Prefetch next page on CPU while Metal runs inference on current page.
+            if page_index + 1 < page_count:
+                _next_render = _render_pool.submit(render_page, doc, page_index + 1, dpi)
+            text = generate_page(model, processor, image, prompt=prompt, max_tokens=max_tokens)
+            _flush_metal()  # flush Metal command buffer and release activation slabs
+            lines.append(text)
+            lines.append("")
+            if progress is not None:
+                progress.update(1)
+            else:
+                logger.info(
+                    "DeepSeek OCR v2: %s page %d/%d done",
+                    pdf_path.name, page_index + 1, page_count,
+                )
 
     if progress is not None:
         progress.close()
