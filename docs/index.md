@@ -1,6 +1,6 @@
 # GlossAPI Documentation
 
-Welcome to the docs for **GlossAPI**, the [GFOSS](https://gfoss.eu/) pipeline for turning academic PDFs into clean Markdown and structured metadata artifacts. GlossAPI combines Python orchestration with Rust-powered quality metrics and supports four OCR backends for GPU-accelerated document processing.
+Welcome to the docs for **GlossAPI**, the [GFOSS](https://gfoss.eu/) pipeline for turning academic PDFs into clean Markdown and structured metadata artifacts. GlossAPI combines Python orchestration with Rust-powered quality metrics and supports six OCR backends for GPU-accelerated document processing.
 
 ## Start here
 

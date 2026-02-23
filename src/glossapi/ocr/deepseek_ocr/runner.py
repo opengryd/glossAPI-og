@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 try:
     import pypdfium2 as _pypdfium2
@@ -237,6 +237,75 @@ def _collect_cli_results(
     return results
 
 
+# ---------------------------------------------------------------------------
+# Path resolution helpers (multi-root, same pattern as deepseek_ocr2 / glm_ocr)
+# ---------------------------------------------------------------------------
+
+
+def _candidate_input_roots(input_root: Path, output_root: Path) -> List[Path]:
+    """Return directories to search for input PDFs, in priority order."""
+    return [input_root, output_root / "downloads", input_root / "downloads"]
+
+
+def _resolve_pdf_paths(
+    file_list: Sequence[str],
+    candidate_roots: Sequence[Path],
+) -> Tuple[List[Path], List[str]]:
+    """Resolve each filename to an absolute path by searching candidate roots.
+
+    Returns ``(resolved_paths, missing)`` where *missing* contains names that
+    could not be found in any candidate root.
+    """
+    resolved: List[Path] = []
+    missing: List[str] = []
+    for name in file_list:
+        raw = Path(name)
+        if raw.is_absolute():
+            resolved.append(raw)
+            if not raw.exists():
+                missing.append(name)
+            continue
+        found: Optional[Path] = None
+        for root in candidate_roots:
+            candidate = (root / name).resolve()
+            if candidate.exists():
+                found = candidate
+                break
+        if found is None:
+            candidate = raw.resolve()
+            if candidate.exists():
+                found = candidate
+        if found is None:
+            missing.append(name)
+            found = (candidate_roots[0] / name).resolve()
+        resolved.append(found)
+    return resolved, missing
+
+
+def _pick_cli_input_root(
+    file_list: Sequence[str],
+    resolved_paths: Sequence[Path],
+    candidate_roots: Sequence[Path],
+) -> Path:
+    """Pick the best input root directory for a CLI subprocess invocation.
+
+    If all resolved paths share a single parent directory that root is used.
+    Otherwise the candidate root that resolves the most filenames wins.
+    """
+    parents = {path.parent for path in resolved_paths if path.exists()}
+    if len(parents) == 1:
+        return next(iter(parents))
+    best_root = candidate_roots[0]
+    best_hits = -1
+    extra_roots = list(candidate_roots) + sorted(parents)
+    for root in extra_roots:
+        hits = sum(1 for name in file_list if (root / Path(name).name).exists())
+        if hits > best_hits:
+            best_hits = hits
+            best_root = root
+    return best_root
+
+
 def run_for_files(
     self_ref: Any,
     files: Iterable[str],
@@ -299,7 +368,11 @@ def run_for_files(
     # ----- Env overrides -----
     env = os.environ
     env_allow_stub = env.get("GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB", "1") == "1"
+    # GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI controls the CUDA/vLLM CLI path.
     env_allow_cli = env.get("GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI", "0") == "1"
+    # GLOSSAPI_DEEPSEEK_OCR_ALLOW_MLX_CLI controls the MPS/MLX CLI subprocess path
+    # independently of the CUDA CLI flag.
+    env_allow_mlx_cli: Optional[str] = env.get("GLOSSAPI_DEEPSEEK_OCR_ALLOW_MLX_CLI")
     env_device = env.get("GLOSSAPI_DEEPSEEK_OCR_DEVICE", "").strip().lower()
     env_python = env.get("GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON", "")
     env_mlx_model_dir = env.get("GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR", "")
@@ -310,6 +383,15 @@ def run_for_files(
         python_bin = Path(env_python)
     if model_dir is None and env_mlx_model_dir:
         model_dir = Path(env_mlx_model_dir)
+    # Fallback: locate weights under GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr-1-mlx/
+    if model_dir is None:
+        try:
+            from glossapi.ocr.utils.weights import resolve_weights_dir as _rwd
+            _resolved = _rwd("deepseek-ocr-1-mlx")
+            if _resolved is not None:
+                model_dir = _resolved
+        except Exception:
+            pass
 
     gpu_mem_fraction = gpu_memory_utilization
     if env_gpu_mem:
@@ -332,18 +414,14 @@ def run_for_files(
     # Explicitly requested "cpu" on macOS must not be coerced into MPS.
     use_mps = active_device == "mps" or (is_macos and active_device not in ("cuda", "cpu"))
 
-    # ----- Resolve input paths -----
-    resolved_paths: List[Path] = []
-    for name in file_list:
-        raw = Path(name)
-        if raw.is_absolute():
-            resolved_paths.append(raw)
-        else:
-            candidate = (input_root / name).resolve()
-            if not candidate.exists():
-                dl_candidate = (out_root / "downloads" / name).resolve()
-                candidate = dl_candidate if dl_candidate.exists() else candidate
-            resolved_paths.append(candidate)
+    # ----- Resolve input paths (multi-root search) -----
+    candidate_roots = _candidate_input_roots(input_root, out_root)
+    resolved_paths, missing_paths = _resolve_pdf_paths(file_list, candidate_roots)
+    if missing_paths:
+        LOGGER.warning(
+            "DeepSeek OCR: %d input file(s) not found in candidate roots; OCR may be incomplete.",
+            len(missing_paths),
+        )
 
     # =========================================================================
     # MPS / MLX path — Apple Silicon
@@ -374,7 +452,11 @@ def run_for_files(
         mlx_script_path = (
             _resolve_mlx_cli_script() if mlx_script is None else Path(mlx_script)
         )
+        # env var wins over kwarg; allows enabling the MLX CLI from the environment
+        # without touching code (mirrors GLOSSAPI_DEEPSEEK2_ALLOW_CLI for V2).
         use_mlx_cli = allow_mlx_cli
+        if env_allow_mlx_cli is not None:
+            use_mlx_cli = env_allow_mlx_cli == "1"
         if use_mlx_cli and mlx_script_path.exists():
             if not is_macos:
                 msg = "DeepSeek OCR MLX CLI requested on non-macOS"
@@ -383,8 +465,11 @@ def run_for_files(
                 LOGGER.warning("%s; falling back to stub output", msg)
             else:
                 try:
+                    cli_input_root = _pick_cli_input_root(
+                        file_list, resolved_paths, candidate_roots
+                    )
                     _run_cli_mlx(
-                        input_root,
+                        cli_input_root,
                         out_root,
                         python_bin=python_bin,
                         script=mlx_script_path,
@@ -394,7 +479,7 @@ def run_for_files(
                         device=active_device,
                     )
                     return _collect_cli_results(
-                        file_list, input_root, md_dir, metrics_dir,
+                        file_list, cli_input_root, md_dir, metrics_dir,
                         backend_label="DeepSeek OCR",
                     )
                 except Exception as exc:

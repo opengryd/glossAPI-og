@@ -3,7 +3,9 @@
 ## Environment Profiles
 - **Vanilla** – core GlossAPI pipeline without GPU OCR add-ons. Uses `dependency_setup/base/requirements-glossapi-vanilla.txt`.
 - **RapidOCR** – Docling + RapidOCR GPU stack. Builds on vanilla requirements and adds ONNX runtime (`dependency_setup/base/requirements-glossapi-rapidocr.txt`). On macOS, the installer switches to `dependency_setup/macos/requirements-glossapi-rapidocr-macos.txt` with `onnxruntime==1.18.1`.
-- **DeepSeek-OCR** – GPU OCR via DeepSeek/vLLM. Extends vanilla requirements with torch/cu128, nightly vLLM and supporting CUDA libs (`dependency_setup/base/requirements-glossapi-deepseek-ocr.txt`). `xformers` was dropped because the published wheels still pin Torch 2.8; the rest of the stack now installs cleanly on Torch 2.9.
+- **DeepSeek-OCR** – GPU OCR via DeepSeek. Two hardware paths are available:
+  - *CUDA/vLLM (Linux/Windows):* Extends vanilla requirements with torch/cu128, nightly vLLM and supporting CUDA libs (`dependency_setup/base/requirements-glossapi-deepseek-ocr.txt`). `xformers` was dropped because the published wheels still pin Torch 2.8; the rest of the stack now installs cleanly on Torch 2.9.
+  - *MPS/MLX (macOS Apple Silicon):* Install the `deepseek-ocr-mlx` extra (`pip install '.[deepseek-ocr-mlx]'`). No CUDA or vLLM required. Model (`mlx-community/DeepSeek-OCR-8bit`) is auto-downloaded from HuggingFace or cached under `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr-1-mlx/`.
 - **DeepSeek OCR v2** – MLX/MPS OCR on macOS. Uses `dependency_setup/macos/requirements-glossapi-deepseek-ocr-2-macos.txt` (vanilla + `mlx`).
 - **MinerU** – OCR via the external `magic-pdf` CLI. Uses `dependency_setup/base/requirements-glossapi-mineru.txt` (vanilla + CLI setup).
 - **GLM-OCR** – Lightweight 0.5B VLM OCR on macOS Apple Silicon via MLX. Uses `dependency_setup/base/requirements-glossapi-glm-ocr.txt` (vanilla + `mlx-lm`, `mlx-vlm`).

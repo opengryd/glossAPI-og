@@ -6,12 +6,12 @@ GlossAPI is a GPU-ready document processing pipeline from [GFOSS](https://gfoss.
 
 - **End-to-end pipeline** — download → extract → clean → OCR/math → section → annotate → export, all through one `Corpus` object.
 - **Multi-format extraction** — PDF, DOCX, HTML, XML/JATS, PowerPoint, CSV, and Markdown via Docling or the lightweight PyPDFium backend.
-- **Six OCR backends** — Docling + RapidOCR (default), DeepSeek-OCR (vLLM), DeepSeek-OCR v2 (MLX/MPS), GLM-OCR (MLX/MPS), OlmOCR-2 (vLLM/MLX), and MinerU (magic-pdf). Pick the one that fits your GPU and accuracy needs.
+- **Six OCR backends** — Docling + RapidOCR (default), DeepSeek-OCR (CUDA/vLLM **or** MPS/MLX), DeepSeek-OCR v2 (MLX/MPS), GLM-OCR (MLX/MPS), OlmOCR-2 (vLLM/MLX), and MinerU (magic-pdf). Pick the one that fits your GPU and accuracy needs.
 - **Rust-powered quality metrics** — Two Rust crates (`glossapi_rs_cleaner` for mojibake/noise cleaning, `glossapi_rs_noise` for quality scoring) keep Markdown quality predictable and fast.
 - **Greek-first design** — Metadata handling and section classification are tuned for academic Greek corpora, but the pipeline works for any language.
 - **Resumable & modular** — Phase methods respect skiplists and metadata parquet state, so you can resume from any stage or cherry-pick phases in custom scripts.
 - **Multi-GPU support** — Scale extraction and OCR across multiple GPUs with built-in queue-based dispatching.
-- **macOS Metal/MPS** — GPU acceleration on Apple Silicon via CoreML (RapidOCR/Docling), MLX runtime (DeepSeek OCR v2, GLM-OCR, OlmOCR-2), MinerU, and MPS-aware torch.
+- **macOS Metal/MPS** — GPU acceleration on Apple Silicon via CoreML (RapidOCR/Docling), MLX runtime (DeepSeek-OCR v1, DeepSeek OCR v2, GLM-OCR, OlmOCR-2), MinerU, and MPS-aware torch.
 - **Sharded JSONL export** — Produce zstd-compressed shards ready for HuggingFace Datasets streaming.
 
 ## Quickstart (local repo)
@@ -85,7 +85,7 @@ A convenience method `corpus.process_all()` chains extract → section → annot
 | Backend | Flag | GPU | Math handling | Notes |
 | --- | --- | --- | --- | --- |
 | **RapidOCR** | `backend="rapidocr"` | CUDA / MPS / CPU | Separate math enrichment from Docling JSON | Default. Docling + RapidOCR ONNX stack. |
-| **DeepSeek-OCR** | `backend="deepseek-ocr"` | CUDA (vLLM) | Inline (equations embedded in OCR output) | Requires DeepSeek-OCR weights + vLLM. |
+| **DeepSeek-OCR** | `backend="deepseek-ocr"` | CUDA (vLLM) / MPS (MLX) | Inline (equations embedded in OCR output) | CUDA: requires DeepSeek-OCR weights + vLLM. MPS: `pip install '.[deepseek-ocr-mlx]'` on Apple Silicon. |
 | **DeepSeek v2** | `backend="deepseek-ocr-2"` | MPS (MLX) | Inline (equations embedded in OCR output) | Requires MLX-formatted DeepSeek-OCR v2 weights. |
 | **GLM-OCR** | `backend="glm-ocr"` | MPS (MLX) | Inline (equations embedded in OCR output) | Lightweight 0.5B VLM on Apple Silicon. |
 | **OlmOCR-2** | `backend="olmocr"` | CUDA (vLLM) / MPS (MLX) | Inline (equations embedded in OCR output) | High-accuracy VLM-based OCR. |
@@ -124,7 +124,7 @@ This script provisions the selected profile, sources the virtualenv, and launche
 | Pip users | `pip install glossapi` | Fast vanilla evaluation with minimal dependencies. |
 | Mode automation (recommended) | `./dependency_setup/setup_glossapi.sh --mode {vanilla\|rapidocr\|deepseek-ocr\|deepseek-ocr-2\|glm-ocr\|olmocr\|mineru}` | Creates an isolated venv per mode, installs Rust crates, and can run the relevant pytest subset. |
 | Manual editable install | `pip install -e .` after cloning | Keep this if you prefer to manage dependencies by hand. |
-| Optional extras | `pip install glossapi[rapidocr]` / `[cuda]` / `[deepseek-ocr]` / `[docs]` | Install specific optional dependency groups only. |
+| Optional extras | `pip install glossapi[rapidocr]` / `[cuda]` / `[deepseek-ocr]` / `[deepseek-ocr-mlx]` / `[docs]` | Install specific optional dependency groups only. |
 
 See `docs/index.md` for detailed environment notes, CUDA/ORT combinations, and troubleshooting tips.
 

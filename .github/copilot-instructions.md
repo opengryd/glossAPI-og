@@ -63,7 +63,7 @@ glossAPI/
 │   │   │   └── phase_export.py          # ExportPhaseMixin
 │   │   ├── ocr/                   # OCR backend wrappers
 │   │   │   ├── rapidocr/          # Docling + RapidOCR ONNX (default backend)
-│   │   │   ├── deepseek_ocr/      # DeepSeek-OCR via vLLM (CUDA)
+│   │   │   ├── deepseek_ocr/      # DeepSeek-OCR via vLLM (CUDA) or MLX (MPS/macOS)
 │   │   │   ├── deepseek_ocr2/     # DeepSeek-OCR v2 via MLX (MPS/macOS)
 │   │   │   ├── glm_ocr/           # GLM-OCR via MLX (MPS/macOS)
 │   │   │   ├── mineru/            # MinerU / magic-pdf CLI wrapper

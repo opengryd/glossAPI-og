@@ -38,6 +38,15 @@
 - When a GPU crashes repeatedly, the controller stops respawning it after `GLOSSAPI_MATH_RESPAWN_CAP` attempts. Any pending stems are added to the skip‑list and their inputs are copied to `downloads/problematic_math/` (PDFs) and `json/problematic_math/` (Docling artifacts); inspect those folders, address the issue, then rerun `Corpus.ocr(..., reprocess_completed=True)` or move the quarantined files back into `downloads/`.
 - Check the corresponding worker log under `logs/math_workers/` (or the directory set via `GLOSSAPI_WORKER_LOG_DIR`) for stack traces and the active stem list stored in `gpu<N>.current`.
 
+## DeepSeek-OCR V1 (MLX/macOS) issues
+
+- **`mlx` import error on non-Apple Silicon:** The MLX path requires Apple Silicon (M1+). On Linux/Windows use the CUDA/vLLM path instead (`pip install '.[deepseek-ocr]'`).
+- **Model not found:** Set `GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR` to point to your local MLX-formatted weights directory (`deepseek-ocr-1-mlx/`), or let it auto-download from `mlx-community/DeepSeek-OCR-8bit` on HuggingFace.
+- **Wrong Python:** If the MLX venv differs from the main venv, set `GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON` to the correct binary.
+- **MPS device error:** Ensure `GLOSSAPI_DEEPSEEK_OCR_DEVICE=mps` (default on macOS). Check `torch.backends.mps.is_available()`.
+- **Stub output (placeholder text instead of real OCR):** The stub runner is on by default. Set `GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0` to force real inference.
+- **Preflight checker:** Run `python -m glossapi.ocr.deepseek_ocr.preflight` to validate your environment.
+
 ## DeepSeek OCR v2 (MLX/macOS) issues
 
 - **`mlx` import error on non-Apple Silicon:** DeepSeek OCR v2 requires Apple Silicon (M1+) and the MLX framework. It won't work on Intel Macs or Linux.

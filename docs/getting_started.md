@@ -23,7 +23,7 @@ Use `dependency_setup/setup_glossapi.sh` to build an isolated virtualenv with th
 # RapidOCR GPU stack
 ./dependency_setup/setup_glossapi.sh --mode rapidocr --venv dependency_setup/.venvs/rapidocr --run-tests
 
-# DeepSeek-OCR on GPU (weights stored under $GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr)
+# DeepSeek-OCR CUDA path (Linux/Windows — weights under $GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr)
 ./dependency_setup/setup_glossapi.sh \
   --mode deepseek-ocr \
   --venv dependency_setup/.venvs/deepseek-ocr \
@@ -32,6 +32,24 @@ Use `dependency_setup/setup_glossapi.sh` to build an isolated virtualenv with th
 ```
 
 Add `--download-deepseek-ocr` if you need the script to fetch weights via Hugging Face; otherwise set `GLOSSAPI_WEIGHTS_ROOT` so the pipeline finds weights at `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr`. Inspect `dependency_setup/dependency_notes.md` for the latest pins, caveats, and validation runs. The script auto-detects Python (preferring 3.12 → 3.11 → 3.13) and installs GlossAPI with its Rust crates in editable mode so source changes are picked up immediately.
+
+### DeepSeek-OCR V1 (MLX/MPS) setup
+
+```bash
+pip install '.[deepseek-ocr-mlx]'
+```
+
+- Targets macOS Apple Silicon via MLX (`mlx-vlm`). No CUDA, no vLLM required.
+- Weights are auto-downloaded from `mlx-community/DeepSeek-OCR-8bit` on first use, or place pre-downloaded weights under `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr-1-mlx/`.
+- Equations are included inline — Phase-2 math enrichment is a no-op.
+
+**DeepSeek-OCR V1 MPS runtime checklist**
+- Run `python -m glossapi.ocr.deepseek_ocr.preflight` to validate the environment.
+- The runner tries in-process MLX first (fastest), then MLX CLI subprocess, then stub.
+- Set `GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0` to force real OCR.
+- Override model path with `GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR` if needed.
+- Override device with `GLOSSAPI_DEEPSEEK_OCR_DEVICE` (`mps` or `cpu`, default `mps` on macOS).
+- Use `GLOSSAPI_DEEPSEEK_OCR_ALLOW_MLX_CLI` to control CLI subprocess strategy (`0` to disable, `1` to force).
 
 ### DeepSeek OCR v2 (MLX/MPS) setup
 

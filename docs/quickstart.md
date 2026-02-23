@@ -54,14 +54,15 @@ c.extract(input_format='pdf', accel_type='MPS', force_ocr=True)
 c.extract(input_format='pdf', use_gpus='multi', force_ocr=True)
 ```
 
-> **VLM backends** (`deepseek-ocr-2`, `glm-ocr`, `olmocr`, `mineru`) — GPU is selected
+> **VLM backends** (`deepseek-ocr`, `deepseek-ocr-2`, `glm-ocr`, `olmocr`, `mineru`) — GPU is selected
 > automatically based on platform (MPS on macOS Apple Silicon, CUDA on Linux) or forced
 > via backend-specific env vars. Use `c.ocr(backend=...)` instead of `c.extract(accel_type=...)`:
 
 ```python
-c.ocr(backend='glm-ocr')    # macOS: MLX/MPS auto-selected
-c.ocr(backend='olmocr')     # macOS: MLX/MPS; Linux: CUDA/vLLM
-c.ocr(backend='mineru')     # macOS: MPS; Linux: CUDA; CPU fallback available
+c.ocr(backend='deepseek-ocr')  # macOS: MLX/MPS auto-selected; Linux/Windows: CUDA/vLLM
+c.ocr(backend='glm-ocr')       # macOS: MLX/MPS auto-selected
+c.ocr(backend='olmocr')        # macOS: MLX/MPS; Linux: CUDA/vLLM
+c.ocr(backend='mineru')        # macOS: MPS; Linux: CUDA; CPU fallback available
 ```
 
 ## Phase‑2 Math Enrichment (from JSON)

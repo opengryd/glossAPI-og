@@ -21,7 +21,7 @@ cat <<'EOF'
 	│ vanilla          │  ✓  │  —   │    —    │
 	│ rapidocr         │  ✓  │  ✓   │    ✓    │
 	│ mineru           │  ✓  │  ✓   │    ✓    │
-	│ deepseek-ocr     │  —  │  ✓   │    —    │
+	│ deepseek-ocr     │  —  │  ✓   │    ✓    │
 	│ deepseek-ocr-2   │  —  │  —   │    ✓    │
 	│ glm-ocr          │  —  │  —   │    ✓    │
 	│ olmocr           │  —  │  ✓   │    ✓    │
@@ -272,13 +272,13 @@ run_setup_wizard_interactive() {
 
 
 	local modes=(
-		"vanilla        — Core pipeline, no GPU required"
+		"vanilla        — Core pipeline"
 		"rapidocr       — Docling + RapidOCR OCR"
 		"mineru         — External magic-pdf client"
-		"deepseek-ocr   — DeepSeek-OCR via vLLM"
-		"deepseek-ocr-2 — DeepSeek OCR v2 via MLX"
-		"glm-ocr        — GLM-OCR 0.5B VLM via MLX"
-		"olmocr         — OlmOCR-2 VLM OCR"
+		"deepseek-ocr   — DeepSeek-OCR v1"
+		"deepseek-ocr-2 — DeepSeek-OCR v2"
+		"glm-ocr        — GLM-OCR 0.5B VLM"
+		"olmocr         — OlmOCR-2 VLM"
 	)
 	local default_idx=1
 	local i=1
@@ -294,17 +294,6 @@ run_setup_wizard_interactive() {
 	selected_mode="$(gum_select "Environment profile" "${modes[@]}")"
 	selected_mode="${selected_mode%% *}"
 
-	# Warn if user selects a CUDA-only profile on macOS
-	if [[ "${os_name}" == "Darwin" && "${selected_mode}" == "deepseek-ocr" ]]; then
-		echo ""
-		echo "⚠️  WARNING: deepseek-ocr requires CUDA + vLLM which are NOT available on macOS."
-		echo "   Consider 'deepseek-ocr-2' (MLX/MPS) or 'glm-ocr' instead."
-		echo ""
-		if ! gum_confirm "Continue with deepseek-ocr anyway?" 0; then
-			echo "Aborted. Re-run to select a different profile."
-			exit 0
-		fi
-	fi
 	# Warn if user selects macOS-only MLX profiles on Linux
 	if [[ "${os_name}" == "Linux" && ("${selected_mode}" == "deepseek-ocr-2" || "${selected_mode}" == "glm-ocr") ]]; then
 		echo ""

@@ -12,7 +12,7 @@ Backends
 | Backend | GPU platform | Math handling |
 |---|---|---|
 | `backend='rapidocr'` (default) | CUDA (Linux/Windows), CoreML/MPS (macOS) | Separate Phase-2 enrichment from Docling JSON |
-| `backend='deepseek-ocr'` | CUDA/vLLM (Linux/Windows only) | Inline — Phase-2 is a no-op |
+| `backend='deepseek-ocr'` | CUDA/vLLM (Linux/Windows) **or** MPS/MLX (macOS Apple Silicon) | Inline — Phase-2 is a no-op |
 | `backend='deepseek-ocr-2'` | MLX/MPS (macOS Apple Silicon only) | Inline — Phase-2 is a no-op |
 | `backend='glm-ocr'` | MLX/MPS (macOS Apple Silicon only) | Inline — Phase-2 is a no-op |
 | `backend='olmocr'` | CUDA/vLLM (Linux) **or** MLX/MPS (macOS Apple Silicon) | Inline — Phase-2 is a no-op |
@@ -43,11 +43,19 @@ Policy: never OCR and math on the same file
 - Packaged RapidOCR models/keys under `glossapi/models/rapidocr/{onnx,keys}` (or `GLOSSAPI_RAPIDOCR_ONNX_DIR`)
 - Optional for Phase-2 JSON: `pypdfium2`, `zstandard`
 
-### DeepSeek-OCR (CUDA/vLLM — Linux/Windows only)
+### DeepSeek-OCR (CUDA/vLLM on Linux/Windows **or** MPS/MLX on macOS Apple Silicon)
+
+**CUDA path (Linux/Windows):**
 
 - Install: `pip install '.[deepseek-ocr]'` in a dedicated venv
 - Requires: NVIDIA GPU, CUDA 12.x toolkit with `nvcc`, `torch==2.5.1+cu121`, `vllm`
-- Not supported on macOS (use `deepseek-ocr-2` or `glm-ocr` on Apple Silicon instead)
+
+**MPS path (macOS Apple Silicon):**
+
+- Install: `pip install '.[deepseek-ocr-mlx]'`
+- Requires: Apple Silicon Mac (M1+) with macOS 13+; will not work on Intel Macs or Linux
+- Weights: auto-downloaded from `mlx-community/DeepSeek-OCR-8bit` or set `GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR`
+- No CUDA, no vLLM required
 
 ### DeepSeek OCR v2 (MLX — macOS Apple Silicon only)
 
@@ -83,7 +91,7 @@ python -c "import onnxruntime as ort; print(ort.get_available_providers())"     
 python -c "import torch; print(getattr(torch.backends, 'mps', None) and torch.backends.mps.is_available())"
 python -c "import onnxruntime as ort; print(ort.get_available_providers())"            # must include CoreMLExecutionProvider
 
-# macOS (Apple Silicon) — MLX (DeepSeek OCR v2, GLM-OCR, OlmOCR-2 MLX path)
+# macOS (Apple Silicon) — MLX (DeepSeek-OCR V1 MLX, DeepSeek OCR v2, GLM-OCR, OlmOCR-2 MLX path)
 python -c "import mlx.core as mx; print(mx.default_device())"                          # expects Device(gpu, 0)
 ```
 
@@ -137,6 +145,30 @@ from glossapi import Corpus
 c = Corpus('IN','OUT')
 c.ocr(backend='deepseek-ocr', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
 # → runs OCR only for bad files; equations are included inline; Phase-2 is skipped
+```
+
+The runner auto-detects the platform and selects the appropriate strategy:
+- **macOS (Apple Silicon):** in-process MLX → MLX CLI subprocess → stub
+- **Linux/Windows (CUDA):** vLLM CLI subprocess → stub
+
+**Minimal env setup (MPS/Apple Silicon):**
+
+```bash
+export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
+export GLOSSAPI_DEEPSEEK_OCR_DEVICE=mps
+# Optional: point to local MLX weights (otherwise auto-downloaded from HuggingFace)
+# export GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR=/path/to/deepseek-ocr-1-mlx
+python -m glossapi.ocr.deepseek_ocr.preflight
+```
+
+**Minimal env setup (CUDA/Linux):**
+
+```bash
+export GLOSSAPI_DEEPSEEK_OCR_ALLOW_STUB=0
+export GLOSSAPI_DEEPSEEK_OCR_ALLOW_CLI=1
+export GLOSSAPI_DEEPSEEK_OCR_DEVICE=cuda
+export GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR=/path/to/model_weights/deepseek-ocr
+python -m glossapi.ocr.deepseek_ocr.preflight
 ```
 
 ## DeepSeek OCR v2 (MLX/MPS) usage
