@@ -7,7 +7,6 @@ import re
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Iterable, List, Optional
 
@@ -30,12 +29,6 @@ PHASE_CHOICES = [
     "section",
     "annotate",
     "export-jsonl",
-]
-
-PRESET_CHOICES = [
-    "Lightweight PDF smoke test",
-    "MinerU demo (samples/eellak)",
-    "Custom",
 ]
 
 ACCEL_CHOICES = [
@@ -149,11 +142,6 @@ def _ask_input_format(value: Optional[str]) -> str:
         return _normalize_input_format(value)
     choice = _gum_choose("Input format", ["pdf", "markdown"], default="pdf")
     return _normalize_input_format(choice[0])
-
-
-def _ask_preset() -> str:
-    choice = _gum_choose("Workflow preset", PRESET_CHOICES, default="Custom")
-    return choice[0]
 
 
 def _detect_os_label() -> str:
@@ -375,9 +363,6 @@ def _run_pipeline(
             console.print(
                 "Run glossapi setup and choose the RapidOCR profile to install dependencies."
             )
-            console.print(
-                "Or choose the 'MinerU demo' preset for the sample OCR flow."
-            )
             raise typer.Exit(code=1)
         try:
             from transformers import AutoModelForImageTextToText  # type: ignore  # noqa: F401
@@ -463,73 +448,6 @@ def _run_pipeline(
         pass
 
 
-def _run_mineru_demo() -> None:
-    input_dir = Path("samples") / "eellak"
-    ocr_dir = input_dir / "ocr"
-    text_dir = input_dir / "text"
-    ts = time.strftime("%Y%m%d_%H%M%S")
-    output_dir = Path(f"artifacts/mineru_demo_run_{ts}")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    accel_type = "MPS" if platform.system() == "Darwin" else "CUDA"
-    mineru_device = "mps" if accel_type == "MPS" else "cuda"
-    mineru_backend = "hybrid-auto-engine" if accel_type == "MPS" else "pipeline"
-    corpus = Corpus(input_dir, output_dir)
-
-    ocr_files = [p.name for p in sorted(ocr_dir.glob("*.pdf"))] if ocr_dir.exists() else []
-    text_files = [p.name for p in sorted(text_dir.glob("*.pdf"))] if text_dir.exists() else []
-
-    downloads_dir = output_dir / "downloads"
-    downloads_dir.mkdir(parents=True, exist_ok=True)
-
-    def _stage_downloads(src_dir: Path, names: list[str]) -> None:
-        for name in names:
-            src = src_dir / name
-            dst = downloads_dir / name
-            if not dst.exists():
-                shutil.copy2(src, dst)
-
-    _stage_downloads(ocr_dir, ocr_files)
-    _stage_downloads(text_dir, text_files)
-
-    if ocr_files:
-        corpus.extract(
-            input_format="pdf",
-            accel_type=accel_type,
-            force_ocr=False,
-            phase1_backend="safe",
-            filenames=ocr_files,
-            file_paths=[ocr_dir / name for name in ocr_files],
-            skip_existing=False,
-        )
-
-    if text_files:
-        corpus.extract(
-            input_format="pdf",
-            accel_type=accel_type,
-            phase1_backend="safe",
-            filenames=text_files,
-            file_paths=[text_dir / name for name in text_files],
-            skip_existing=False,
-        )
-
-    corpus.clean(drop_bad=False)
-    corpus.ocr(
-        backend="mineru",
-        math_enhance=True,
-        reprocess_completed=True,
-        mode="ocr_bad_then_math",
-        device=mineru_device,
-        mineru_backend=mineru_backend,
-    )
-    # Emit consolidated Performance & Power Report after the demo run.
-    try:
-        corpus.perf_report()
-    except Exception:
-        pass
-    console.print(f"[green]Done! Check results in: {output_dir.resolve()}[/green]")
-
-
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -576,27 +494,6 @@ def _run_wizard(
 ) -> None:
     console.print(Panel.fit("GlossAPI Wizard", title="Welcome"))
     console.print(f"[dim]Detected OS: {_detect_os_label()}[/dim]")
-    preset = _ask_preset()
-
-    if preset == "MinerU demo (samples/eellak)":
-        _run_mineru_demo()
-        return
-
-    if preset == "Lightweight PDF smoke test":
-        resolved_format = "pdf"
-        resolved_input = Path("samples") / "lightweight_pdf_corpus" / "pdfs"
-        resolved_output = Path("artifacts") / "lightweight_pdf_run"
-        resolved_phases = ["extract"]
-        level = getattr(logging, log_level.upper(), logging.INFO)
-        _run_pipeline(
-            input_dir=resolved_input,
-            output_dir=resolved_output,
-            input_format=resolved_format,
-            phases=resolved_phases,
-            confirm_each=False,
-            log_level=level,
-        )
-        return
 
     resolved_format = _ask_input_format(input_format)
     resolved_input = _ensure_path(
