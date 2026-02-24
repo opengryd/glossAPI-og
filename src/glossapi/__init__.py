@@ -57,6 +57,9 @@ __all__ = [
     'Section',
     'GlossDownloader',
     'patch_docling_rapidocr',
+    'PipelineProfiler',
+    'count_pages_for_run',
+    'count_pages_from_files',
 ]
 
 def __getattr__(name: str):
@@ -79,6 +82,15 @@ def __getattr__(name: str):
     if name == 'GlossDownloader':
         from .gloss_downloader import GlossDownloader  # type: ignore
         return GlossDownloader
+    if name == 'PipelineProfiler':
+        from .perf_metrics import PipelineProfiler  # type: ignore
+        return PipelineProfiler
+    if name == 'count_pages_for_run':
+        from .perf_metrics import count_pages_for_run  # type: ignore
+        return count_pages_for_run
+    if name == 'count_pages_from_files':
+        from .perf_metrics import count_pages_from_files  # type: ignore
+        return count_pages_from_files
     raise AttributeError(name)
 
 # Derive version dynamically from installed package metadata if possible

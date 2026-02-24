@@ -77,7 +77,10 @@ def _run_cli(
     elif backend and not supports_backend:
         LOGGER.info("MinerU CLI does not support -b/--backend; ignoring backend=%s", backend)
     LOGGER.info("Running MinerU CLI: %s", " ".join(cmd))
-    subprocess.run(cmd, check=True, env=env)  # nosec: controlled arguments
+    # Suppress magic-pdf's loguru INFO/WARNING noise; only propagate ERROR+.
+    quiet_env = dict(env) if env else dict(os.environ)
+    quiet_env.setdefault("LOGURU_LEVEL", "ERROR")
+    subprocess.run(cmd, check=True, env=quiet_env)  # nosec: controlled arguments
 
 
 def _supports_backend_flag(magic_pdf_bin: str) -> bool:

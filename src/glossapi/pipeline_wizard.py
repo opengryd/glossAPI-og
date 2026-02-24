@@ -456,6 +456,12 @@ def _run_pipeline(
         console.print(Panel.fit(f"Running phase: {phase}", title="GlossAPI"))
         phase_map[phase]()
 
+    # Emit a single consolidated Performance & Power Report at the end of the run.
+    try:
+        corpus.perf_report()
+    except Exception:
+        pass
+
 
 def _run_mineru_demo() -> None:
     input_dir = Path("samples") / "eellak"
@@ -516,6 +522,11 @@ def _run_mineru_demo() -> None:
         device=mineru_device,
         mineru_backend=mineru_backend,
     )
+    # Emit consolidated Performance & Power Report after the demo run.
+    try:
+        corpus.perf_report()
+    except Exception:
+        pass
     console.print(f"[green]Done! Check results in: {output_dir.resolve()}[/green]")
 
 

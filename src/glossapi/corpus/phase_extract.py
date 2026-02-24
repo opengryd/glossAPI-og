@@ -546,6 +546,17 @@ class ExtractPhaseMixin:
                 procs: List[Any] = []
                 proc_gpu: Dict[int, int] = {}
                 marker_files: Dict[int, Path] = {dev_id: marker_base / f"gpu{dev_id}.current" for dev_id in devs}
+                # Perf metrics: start timing multi-GPU extraction
+                _perf_profiler = getattr(self, '_profiler', None)
+                _perf_sampler = None
+                _perf_t0_mgpu = time.monotonic()
+                if _perf_profiler is not None:
+                    try:
+                        from glossapi.perf_metrics import PowerSampler as _PowerSamplerExtract
+                        _perf_sampler = _PowerSamplerExtract()
+                        _perf_sampler.start()
+                    except Exception:
+                        pass
                 for dev_id in devs:
                     p = ctx.Process(
                         target=gpu_extract_worker_queue,
@@ -772,6 +783,35 @@ class ExtractPhaseMixin:
                         len(processed_files),
                         len(problematic_files),
                     )
+                # Perf metrics: stop timing and record sample
+                if _perf_profiler is not None:
+                    try:
+                        from glossapi.perf_metrics import count_pages_from_files as _cpf_mgpu
+                        _perf_elapsed_mgpu = time.monotonic() - _perf_t0_mgpu
+                        if _perf_sampler is not None:
+                            _perf_energy_mgpu, _perf_src_mgpu, _perf_avgw_mgpu = _perf_sampler.stop()
+                        else:
+                            _perf_energy_mgpu, _perf_src_mgpu, _perf_avgw_mgpu = 0.0, "unavailable", None
+                        _perf_pages_mgpu = _cpf_mgpu(input_files)
+                        _perf_profiler.record_sample(
+                            "extract",
+                            active_sec=_perf_elapsed_mgpu,
+                            pages=_perf_pages_mgpu,
+                            energy_joules=_perf_energy_mgpu if _perf_src_mgpu != "unavailable" else None,
+                            avg_watts=_perf_avgw_mgpu,
+                            power_source=_perf_src_mgpu,
+                            backend=backend_choice,
+                        )
+                    except Exception as _perf_exc:
+                        try:
+                            self.logger.debug("perf_metrics: multi-GPU extract recording failed: %s", _perf_exc)
+                        except Exception:
+                            pass
+                # Auto-emit perf snapshot after completed multi-GPU extraction
+                try:
+                    self._maybe_emit_perf_report()
+                except Exception:
+                    pass
                 return
 
         # Single GPU path
@@ -845,10 +885,29 @@ class ExtractPhaseMixin:
             setattr(self.extractor, "benchmark_mode", bool(benchmark_mode))
         except Exception:
             pass
-        # Extract files to markdown
+        # Extract files to markdown — time only the active processing segment
         os.makedirs(self.markdown_dir, exist_ok=True)
-        self.extractor.extract_path(input_files, self.markdown_dir, skip_existing=skip_existing)
+        _perf_profiler_sg = getattr(self, '_profiler', None)
+        if _perf_profiler_sg is not None:
+            try:
+                from glossapi.perf_metrics import count_pages_from_files as _cpf_sg
+                _perf_pages_sg = _cpf_sg(input_files)
+                with _perf_profiler_sg.measure("extract", backend=backend_choice, pages=_perf_pages_sg):
+                    self.extractor.extract_path(input_files, self.markdown_dir, skip_existing=skip_existing)
+            except Exception as _perf_exc_sg:
+                try:
+                    self.logger.debug("perf_metrics: single-GPU extract recording failed: %s", _perf_exc_sg)
+                except Exception:
+                    pass
+                self.extractor.extract_path(input_files, self.markdown_dir, skip_existing=skip_existing)
+        else:
+            self.extractor.extract_path(input_files, self.markdown_dir, skip_existing=skip_existing)
         self.logger.info(f"Extraction complete. Markdown files saved to {self.markdown_dir}")
+        # Auto-emit perf snapshot after completed extraction
+        try:
+            self._maybe_emit_perf_report()
+        except Exception:
+            pass
         try:
             release = getattr(self.extractor, "release_resources", None)
             if callable(release):

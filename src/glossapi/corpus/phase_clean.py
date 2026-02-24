@@ -333,6 +333,18 @@ class CleanPhaseMixin:
             f"{'True' if write_cleaned_files else 'False'})\n"
         )
 
+        # Perf metrics: start timing for clean phase (only active Rust subprocess)
+        _perf_profiler_clean = getattr(self, '_profiler', None)
+        _perf_sampler_clean = None
+        _perf_t0_clean = time.monotonic()
+        if _perf_profiler_clean is not None:
+            try:
+                from glossapi.perf_metrics import PowerSampler as _PowerSamplerClean
+                _perf_sampler_clean = _PowerSamplerClean()
+                _perf_sampler_clean.start()
+            except Exception:
+                pass
+
         process = subprocess.Popen(
             [sys.executable, "-c", cmd],
             stdout=subprocess.PIPE,
@@ -352,6 +364,31 @@ class CleanPhaseMixin:
             if process.stdout is not None:
                 process.stdout.close()
             progress.finalize()
+
+        # Perf metrics: stop timing and record clean sample
+        if _perf_profiler_clean is not None:
+            try:
+                from glossapi.perf_metrics import count_pages_for_run as _cpf_clean
+                _perf_elapsed_clean = time.monotonic() - _perf_t0_clean
+                if _perf_sampler_clean is not None:
+                    _perf_energy_clean, _perf_src_clean, _perf_avgw_clean = _perf_sampler_clean.stop()
+                else:
+                    _perf_energy_clean, _perf_src_clean, _perf_avgw_clean = 0.0, "unavailable", None
+                _perf_pages_clean = _cpf_clean(self.output_dir)
+                _perf_profiler_clean.record_sample(
+                    "clean",
+                    active_sec=_perf_elapsed_clean,
+                    pages=_perf_pages_clean,
+                    energy_joules=_perf_energy_clean if _perf_src_clean != "unavailable" else None,
+                    avg_watts=_perf_avgw_clean,
+                    power_source=_perf_src_clean,
+                    backend="rust-cleaner",
+                )
+            except Exception as _perf_exc_clean:
+                try:
+                    self.logger.debug("perf_metrics: clean recording failed: %s", _perf_exc_clean)
+                except Exception:
+                    pass
 
         if return_code != 0:
             # Do not abort the entire cleaning pass – proceed to evaluate gates
@@ -695,6 +732,12 @@ class CleanPhaseMixin:
                 self.good_files = [canonical_stem(f) for f in filenames.dropna().astype(str).tolist()]
         else:
             self.good_files = []
+
+        # Auto-emit perf snapshot after completed clean phase
+        try:
+            self._maybe_emit_perf_report()
+        except Exception:
+            pass
 
         # Keep markdown_dir pointing at raw markdown; downstream stages should
         # explicitly use cleaned_markdown_dir when available.

@@ -581,14 +581,40 @@ class OcrMathPhaseMixin:
                         else:
                             os.environ.pop("GLOSSAPI_WORKER_LOG_DIR", None)
                     return
-            # Single-GPU path
-            self.formula_enrich_from_json(
-                files=stems,
-                device=self._resolve_math_device(device),
-                batch_size=int(math_batch_size),
-                dpi_base=int(math_dpi_base),
-                targets_by_stem=local_targets,
-            )
+            # Single-GPU path — measure math enrichment time
+            _perf_profiler_math = getattr(self, '_profiler', None)
+            if _perf_profiler_math is not None:
+                try:
+                    from glossapi.perf_metrics import count_pages_for_run as _cpf_math
+                    _perf_pages_math = _cpf_math(self.output_dir)
+                    with _perf_profiler_math.measure("math_enrich", backend="docling", pages=_perf_pages_math):
+                        self.formula_enrich_from_json(
+                            files=stems,
+                            device=self._resolve_math_device(device),
+                            batch_size=int(math_batch_size),
+                            dpi_base=int(math_dpi_base),
+                            targets_by_stem=local_targets,
+                        )
+                except Exception as _perf_exc_math:
+                    try:
+                        self.logger.debug("perf_metrics: math_enrich wrap failed: %s", _perf_exc_math)
+                    except Exception:
+                        pass
+                    self.formula_enrich_from_json(
+                        files=stems,
+                        device=self._resolve_math_device(device),
+                        batch_size=int(math_batch_size),
+                        dpi_base=int(math_dpi_base),
+                        targets_by_stem=local_targets,
+                    )
+            else:
+                self.formula_enrich_from_json(
+                    files=stems,
+                    device=self._resolve_math_device(device),
+                    batch_size=int(math_batch_size),
+                    dpi_base=int(math_dpi_base),
+                    targets_by_stem=local_targets,
+                )
 
         # Branches
         if mode_norm == "math_only":
@@ -626,9 +652,12 @@ class OcrMathPhaseMixin:
                             removed,
                         )
             _run_math(stems)
+            # Auto-emit perf snapshot after math-only run
+            try:
+                self._maybe_emit_perf_report()
+            except Exception:
+                pass
             return
-
-        # 'ocr_bad' and 'ocr_bad_then_math' paths: OCR bad files first
         if mode_norm in {"ocr_bad", "ocr_bad_then_math"} and not bad_files:
             self.logger.info("OCR: no bad documents flagged by cleaner; skipping OCR fix")
             if mode_norm == "ocr_bad_then_math":
@@ -637,6 +666,11 @@ class OcrMathPhaseMixin:
                 if json_dir.exists():
                     stems = sorted({canonical_stem(p) for p in json_dir.glob("*.docling.json*")})
                 _run_math(stems)
+            # Auto-emit perf snapshot (no bad files path)
+            try:
+                self._maybe_emit_perf_report()
+            except Exception:
+                pass
             return
 
         reran_ocr = False
@@ -656,19 +690,55 @@ class OcrMathPhaseMixin:
                     from glossapi.ocr.mineru import runner as _runner  # type: ignore
 
                 try:
-                    _runner.run_for_files(
-                        self,
-                        bad_files,
-                        model_dir=Path(model_dir) if model_dir else None,
-                        content_debug=bool(content_debug),
-                        device=device,
-                        backend=mineru_backend if backend_norm == "mineru" else None,
-                    )
+                    # Perf metrics: wrap non-Docling OCR runner
+                    _perf_profiler_ocr = getattr(self, '_profiler', None)
+                    if _perf_profiler_ocr is not None:
+                        try:
+                            from glossapi.perf_metrics import count_pages_from_files as _cpf_ocr
+                            _pdf_paths_ocr = []
+                            for _ocr_f in bad_files:
+                                for _ocr_cand in [
+                                    self.output_dir / "downloads" / _ocr_f,
+                                    self.input_dir / _ocr_f,
+                                ]:
+                                    if _ocr_cand.exists():
+                                        _pdf_paths_ocr.append(_ocr_cand)
+                                        break
+                            _perf_pages_ocr = _cpf_ocr(_pdf_paths_ocr) if _pdf_paths_ocr else len(bad_files)
+                            with _perf_profiler_ocr.measure("ocr", backend=backend_norm, pages=_perf_pages_ocr):
+                                _runner.run_for_files(
+                                    self,
+                                    bad_files,
+                                    model_dir=Path(model_dir) if model_dir else None,
+                                    content_debug=bool(content_debug),
+                                    device=device,
+                                    backend=mineru_backend if backend_norm == "mineru" else None,
+                                )
+                        except Exception:
+                            _runner.run_for_files(
+                                self,
+                                bad_files,
+                                model_dir=Path(model_dir) if model_dir else None,
+                                content_debug=bool(content_debug),
+                                device=device,
+                                backend=mineru_backend if backend_norm == "mineru" else None,
+                            )
+                    else:
+                        _runner.run_for_files(
+                            self,
+                            bad_files,
+                            model_dir=Path(model_dir) if model_dir else None,
+                            content_debug=bool(content_debug),
+                            device=device,
+                            backend=mineru_backend if backend_norm == "mineru" else None,
+                        )
                 except Exception as _e:
                     self.logger.error("%s OCR runner failed: %s", backend_norm, _e)
                     raise
             else:
                 # RapidOCR/Docling path via Phase-1 extract
+                # Wrap with profiler so OCR time is labelled as 'ocr', not 'extract'.
+                # We suppress the inner extract() profiler to avoid double-counting.
                 accel_override = os.getenv("GLOSSAPI_OCR_ACCEL", "").strip()
                 if accel_override:
                     accel_type = accel_override
@@ -684,22 +754,78 @@ class OcrMathPhaseMixin:
                             accel_type = "CPU"
                     else:
                         accel_type = "CUDA"
-                self.extract(
-                    input_format="pdf",
-                    num_threads=os.cpu_count() or 4,
-                    accel_type=accel_type,
-                    force_ocr=True,
-                    formula_enrichment=False,
-                    code_enrichment=False,
-                    filenames=bad_files,
-                    skip_existing=False,
-                    use_gpus=use_gpus,
-                    devices=devices,
-                    # Emit Docling JSON when math enrichment is requested to recover formulas
-                    export_doc_json=bool(math_enhance),
-                    emit_formula_index=False,
-                    phase1_backend="docling",
-                )
+                _perf_profiler_rapid = getattr(self, '_profiler', None)
+                if _perf_profiler_rapid is not None:
+                    try:
+                        from glossapi.perf_metrics import count_pages_from_files as _cpf_rapid
+                        _pdf_paths_rapid = []
+                        for _roc_f in bad_files:
+                            for _roc_cand in [
+                                self.output_dir / "downloads" / _roc_f,
+                                self.input_dir / _roc_f,
+                            ]:
+                                if _roc_cand.exists():
+                                    _pdf_paths_rapid.append(_roc_cand)
+                                    break
+                        _perf_pages_rapid = _cpf_rapid(_pdf_paths_rapid) if _pdf_paths_rapid else len(bad_files)
+                        # Temporarily suppress inner extract() profiling to avoid double-counting
+                        setattr(self, '_profiler', None)
+                        try:
+                            with _perf_profiler_rapid.measure("ocr", backend="rapidocr", pages=_perf_pages_rapid):
+                                self.extract(
+                                    input_format="pdf",
+                                    num_threads=os.cpu_count() or 4,
+                                    accel_type=accel_type,
+                                    force_ocr=True,
+                                    formula_enrichment=False,
+                                    code_enrichment=False,
+                                    filenames=bad_files,
+                                    skip_existing=False,
+                                    use_gpus=use_gpus,
+                                    devices=devices,
+                                    export_doc_json=bool(math_enhance),
+                                    emit_formula_index=False,
+                                    phase1_backend="docling",
+                                )
+                        finally:
+                            setattr(self, '_profiler', _perf_profiler_rapid)
+                    except Exception as _perf_exc_rapid:
+                        try:
+                            self.logger.debug("perf_metrics: rapidocr wrap failed: %s", _perf_exc_rapid)
+                        except Exception:
+                            pass
+                        self.extract(
+                            input_format="pdf",
+                            num_threads=os.cpu_count() or 4,
+                            accel_type=accel_type,
+                            force_ocr=True,
+                            formula_enrichment=False,
+                            code_enrichment=False,
+                            filenames=bad_files,
+                            skip_existing=False,
+                            use_gpus=use_gpus,
+                            devices=devices,
+                            export_doc_json=bool(math_enhance),
+                            emit_formula_index=False,
+                            phase1_backend="docling",
+                        )
+                else:
+                    self.extract(
+                        input_format="pdf",
+                        num_threads=os.cpu_count() or 4,
+                        accel_type=accel_type,
+                        force_ocr=True,
+                        formula_enrichment=False,
+                        code_enrichment=False,
+                        filenames=bad_files,
+                        skip_existing=False,
+                        use_gpus=use_gpus,
+                        devices=devices,
+                        # Emit Docling JSON when math enrichment is requested to recover formulas
+                        export_doc_json=bool(math_enhance),
+                        emit_formula_index=False,
+                        phase1_backend="docling",
+                    )
             reran_ocr = True
             # Update metadata to reflect successful OCR reruns
             try:
@@ -828,6 +954,11 @@ class OcrMathPhaseMixin:
                     pass
             except Exception as _e:
                 self.logger.warning("Phase‑2 enrichment after OCR failed: %s", _e)
+        # Auto-emit perf snapshot after completed OCR phase
+        try:
+            self._maybe_emit_perf_report()
+        except Exception:
+            pass
 
     def formula_enrich_from_json(
         self,

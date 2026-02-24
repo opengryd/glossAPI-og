@@ -167,6 +167,16 @@ class Corpus(
         os.makedirs(self.sections_dir, exist_ok=True)
         os.makedirs(self.cleaned_markdown_dir, exist_ok=True)
         os.makedirs(self.logs_dir, exist_ok=True)
+
+        # Performance & Power Profiler — records timing and energy per phase.
+        # Lazily imported to keep the vanilla install lightweight.
+        try:
+            from glossapi.perf_metrics import PipelineProfiler as _PipelineProfiler
+            self._profiler = _PipelineProfiler(output_dir=self.output_dir)
+        except Exception:
+            self._profiler = None  # type: ignore[assignment]
+        # Tracks how many samples existed at the last auto-emit (avoids duplicate reports).
+        self._perf_last_reported_count: int = 0
         
         # Setup output files
         self.sections_parquet = self.sections_dir / "sections_for_annotation.parquet"
@@ -177,6 +187,67 @@ class Corpus(
         self.filename_to_doctype = {}
         
         self._load_metadata()
+
+    # ------------------------------------------------------------------
+    # Performance & Power Metrics
+    # ------------------------------------------------------------------
+
+    def perf_report(self, *, backend: Optional[str] = None) -> Dict[str, Any]:
+        """Generate and save a Performance & Power Report for all recorded phases.
+
+        Returns a structured dict with per-phase and end-to-end metrics::
+
+            {
+              "run_id": "...",
+              "backend": "deepseek-ocr",
+              "total_pages": 120,
+              "power_source": "nvml",       # or 'rapl' / 'unavailable'
+              "phases": {
+                "extract": {"active_sec": 45.2, "pps": 2.65, "ppw": 0.012, ...},
+                "ocr":     {"active_sec": 210.5, "pps": 0.57, ...},
+                "clean":   {"active_sec": 3.1,   "pps": 38.7, ...}
+              },
+              "end_to_end": {"pps": 0.46, "ppw": 0.009, ...}
+            }
+
+        The report JSON is also saved to
+        ``output_dir/logs/perf_report_<backend>_<timestamp>.json``.
+
+        Call this after running one or more pipeline phases::
+
+            corpus.extract()
+            corpus.clean()
+            corpus.ocr(backend="deepseek-ocr")
+            report = corpus.perf_report(backend="deepseek-ocr")
+        """
+        if self._profiler is None:
+            self.logger.warning("perf_report(): profiler not initialised (perf_metrics unavailable).")
+            return {}
+        try:
+            return self._profiler.report(backend=backend)
+        except Exception as exc:
+            self.logger.warning("perf_report() failed: %s", exc)
+            return {}
+
+    def reset_perf_metrics(self) -> None:
+        """Clear all accumulated phase samples and start fresh.
+
+        Call this before re-running the pipeline on a different dataset to
+        avoid mixing measurements from separate runs.
+        """
+        if self._profiler is not None:
+            self._profiler.reset()
+        self._perf_last_reported_count = 0
+
+    def _maybe_emit_perf_report(self, backend: Optional[str] = None) -> None:
+        """No-op placeholder — the final report is emitted once at the end of the
+        full pipeline run via :py:meth:`perf_report` rather than after every
+        intermediate phase."""
+        # Intentionally suppressed: intermediate per-phase reports are noisy.
+        # The wizard calls corpus.perf_report() after all phases complete.
+        # Callers that use the Corpus API directly should call perf_report()
+        # explicitly at the end of their pipeline sequence.
+        pass
 
     def _get_cached_metadata_parquet(self) -> Optional[Path]:
         """Return cached metadata parquet path if it still exists."""
