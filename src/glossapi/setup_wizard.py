@@ -333,7 +333,32 @@ def _run_setup(
         env["DETECTRON2_AUTO_INSTALL"] = "1"
 
     console.print(Panel.fit("Running setup", title="GlossAPI"))
-    raise typer.Exit(code=subprocess.run(args, env=env).returncode)
+    result = subprocess.run(args, env=env)
+    if result.returncode == 0:
+        weights_downloaded: list[str] = []
+        if download_deepseek_ocr:
+            weights_downloaded.append("deepseek-ocr")
+        if download_deepseek_ocr2:
+            weights_downloaded.append("deepseek-ocr-2")
+        if download_glmocr:
+            weights_downloaded.append("glm-ocr")
+        if download_olmocr:
+            weights_downloaded.append("olmocr")
+        if download_mineru:
+            weights_downloaded.append("mineru")
+        from . import _state  # late import to avoid circular deps at module load
+        _state.record_setup(
+            mode,
+            venv,
+            python_bin=python_bin,
+            weights_downloaded=weights_downloaded or None,
+        )
+        console.print(
+            f"[green]✓ Backend '{mode}' recorded in state.[/green] "
+            f"[dim](dependency_setup/.glossapi_state.json)[/dim]"
+        )
+        console.print("[dim]  Run [bold]glossapi status[/bold] to view all installed backends.[/dim]")
+    raise typer.Exit(code=result.returncode)
 
 
 @app.callback(invoke_without_command=True)

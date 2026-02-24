@@ -43,6 +43,10 @@ dependency_setup/.venvs/
 dependency_setup/.env_*
 !dependency_setup/.env_*.example
 
+# ----- Backend state file (written by 'glossapi setup'; contains local paths) -----
+dependency_setup/.glossapi_state.json
+dependency_setup/.glossapi_state.tmp
+
 # ----- Model weights (downloaded, never committed) -----
 model_weights/
 dependency_setup/mineru/

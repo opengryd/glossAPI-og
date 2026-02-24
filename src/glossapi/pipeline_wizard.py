@@ -192,14 +192,161 @@ def _default_input_dir(input_format: str) -> Path:
     return Path("samples")
 
 
+_ALL_OCR_BACKENDS = ["none", "rapidocr", "mineru", "deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "olmocr"]
+
+
+def _find_venv_for_backend(mode: str) -> Optional[Path]:
+    """Return the venv Path for *mode* if a valid one exists on disk, else None.
+
+    The setup script creates venvs at::
+
+        dependency_setup/.venvs/{mode}[-py{tag}]/
+
+    e.g. ``deepseek-ocr-py312/``, ``rapidocr/``, ``mineru-py311/``.
+    We glob for any directory whose name starts with ``{mode}`` and contains a
+    working ``bin/python`` executable, preferring an exact match over tagged ones.
+    """
+    # Try the path recorded in the state file first (most precise).
+    try:
+        from . import _state as _st
+        recorded = _st.get_backend_venv(mode)
+        if recorded and (recorded / "bin" / "python").exists():
+            return recorded
+    except Exception:
+        pass
+
+    # Fall back to scanning the default .venvs directory.
+    venvs_root = Path("dependency_setup") / ".venvs"
+    if not venvs_root.is_dir():
+        return None
+
+    candidates = sorted(venvs_root.iterdir())
+    # Exact match first, then prefix-tagged variants (e.g. deepseek-ocr-py312).
+    for d in candidates:
+        if d.name == mode and (d / "bin" / "python").exists():
+            return d
+    for d in candidates:
+        if d.name.startswith(f"{mode}-py") and (d / "bin" / "python").exists():
+            return d
+    return None
+
+
+def _backend_readiness() -> dict[str, bool | None]:
+    """Return a {backend: ready?} mapping.
+
+    Priority order per backend:
+    1. State file entry (set by ``glossapi setup``) — authoritative.
+    2. Filesystem probe: does ``dependency_setup/.venvs/{mode}*/bin/python`` exist?
+    3. Last-resort heuristic only when *neither* a state file *nor* a discoverable
+       venv exists (covers vanilla installs where everything shares one env).
+
+    Values:
+    ``True``  — definitely installed/ready.
+    ``False`` — definitely not set up.
+    ``None``  — genuinely unknown (no evidence either way).
+    """
+    try:
+        from . import _state
+        record = _state.get_installed_backends()
+        has_file = _state.has_state_file()
+    except Exception:
+        record = {}
+        has_file = False
+
+    result: dict[str, bool | None] = {}
+
+    # 1. State file is authoritative for backends it records.
+    for b, info in record.items():
+        result[b] = bool(info.get("installed"))
+
+    # 2. For backends not yet in the state file, check the venvs directory.
+    #    If the state file exists but a backend has no entry there AND no venv
+    #    is found on disk → it's not installed.
+    for b in _ALL_OCR_BACKENDS:
+        if b == "none" or b in result:
+            continue
+        venv = _find_venv_for_backend(b)
+        if venv is not None:
+            result[b] = True
+        elif has_file:
+            # State file exists; this backend was never set up.
+            result[b] = False
+        # else: no state file and no venv found → leave as None (unknown).
+
+    # 3. Last-resort import/CLI heuristic: only when there is no state file
+    #    AND no backend venv was found anywhere on disk.  If the .venvs dir
+    #    has any backend entry it means the setup script has been used before,
+    #    so presence of docling in the current env is NOT evidence that
+    #    rapidocr was set up (it could be a transitive dep of another backend).
+    any_venv_found = any(v is True for v in result.values())
+    if not has_file and not any_venv_found:
+        if "rapidocr" not in result:
+            result["rapidocr"] = importlib.util.find_spec("docling") is not None
+
+        if "mineru" not in result:
+            env_cmd = os.environ.get("GLOSSAPI_MINERU_COMMAND")
+            candidate = Path(env_cmd).expanduser() if env_cmd else None
+            if (candidate and candidate.exists()) or shutil.which("magic-pdf"):
+                result["mineru"] = True
+    elif any_venv_found:
+        # The setup script has been used — any backend we couldn't find a venv
+        # for (and that the state file doesn't mention) is definitively not installed.
+        for b in _ALL_OCR_BACKENDS:
+            if b != "none" and b not in result:
+                result[b] = False
+
+    return result
+
+
 def _ask_ocr_backend() -> str:
+    """Prompt for OCR backend, annotating each option with its readiness."""
     default_backend = "mineru" if platform.system() == "Darwin" else "rapidocr"
-    choice = _gum_choose(
-        "OCR backend",
-        ["none", "rapidocr", "mineru", "deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "olmocr"],
-        default=default_backend,
+    readiness = _backend_readiness()
+    has_any_info = bool(readiness)
+
+    # Build annotated labels and a reverse map label → bare backend name.
+    labels: list[str] = []
+    label_to_backend: dict[str, str] = {}
+    for b in _ALL_OCR_BACKENDS:
+        if not has_any_info or b == "none":
+            label = b
+        elif readiness.get(b) is True:
+            label = f"✓  {b}"
+        elif readiness.get(b) is False:
+            label = f"✗  {b}  (not set up — run: glossapi setup --mode {b})"
+        else:
+            label = b  # unknown
+        labels.append(label)
+        label_to_backend[label] = b
+
+    # Prefer the first ready backend as default, fall back to platform default.
+    default_label: str
+    ready_default = next(
+        (lbl for lbl in labels if label_to_backend[lbl] == default_backend and readiness.get(default_backend) is True),
+        None,
     )
-    return choice[0]
+    if ready_default:
+        default_label = ready_default
+    else:
+        # Fall back: whichever label corresponds to the platform default.
+        default_label = next(
+            (lbl for lbl in labels if label_to_backend[lbl] == default_backend),
+            labels[0],
+        )
+
+    if has_any_info:
+        n_ready = sum(1 for b in _ALL_OCR_BACKENDS if b != "none" and readiness.get(b) is True)
+        if n_ready == 0:
+            console.print(
+                "[yellow]No OCR backends are set up yet.[/yellow] "
+                "Run [bold]glossapi setup[/bold] first, or choose a backend to run with stub output."
+            )
+        else:
+            console.print(f"[dim]{n_ready} backend(s) ready (✓). Others need 'glossapi setup'.[/dim]")
+
+    choice = _gum_choose("OCR backend", labels, default=default_label)
+    raw_label = choice[0]
+    return label_to_backend.get(raw_label, raw_label.split()[0].lstrip("✓✗ "))
 
 
 def _maybe_confirm(phase: str, *, confirm_each: bool) -> bool:
