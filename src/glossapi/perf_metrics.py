@@ -490,6 +490,43 @@ _SENSOR_CACHE_RESOLVED: bool = False
 _POWERMETRICS_SUDO_PASSWORD: Optional[str] = None  # pre-supplied via set_powermetrics_sudo_password()
 
 
+def invalidate_sensor_cache() -> None:
+    """Reset the module-level sensor cache so the next probe re-detects hardware.
+
+    Useful when GPU drivers or passwordless-sudo credentials become available
+    *after* the initial import (e.g. after a partial CUDA init or in test
+    teardown).
+    """
+    global _SENSOR_CACHE, _SENSOR_CACHE_RESOLVED
+    _SENSOR_CACHE = None
+    _SENSOR_CACHE_RESOLVED = False
+
+
+# Mapping from sensor name → human-readable power-coverage label.
+# Used in reports so consumers know which system components are included.
+_SENSOR_COVERAGE: Dict[str, str] = {
+    "nvml":         "gpu_only",
+    "rapl":         "cpu_package_only",
+    "iokit":        "gpu_only",
+    "powermetrics": "full_chip_cpu_gpu_ane",
+    "unavailable":  "none",
+}
+
+
+def _sensor_coverage(sensor_name: str) -> str:
+    """Return a human-readable coverage label for *sensor_name*.
+
+    Possible values and their meanings:
+
+    * ``"gpu_only"``              — GPU wattage only (NVML, IOKit)
+    * ``"cpu_package_only"``      — CPU + integrated DRAM, no discrete GPU (RAPL)
+    * ``"full_chip_cpu_gpu_ane"`` — CPU + GPU + ANE, whole SoC (powermetrics)
+    * ``"none"``                  — no power data available
+    * ``"partial_unknown"``       — sensor present but coverage unknown
+    """
+    return _SENSOR_COVERAGE.get(sensor_name, "partial_unknown")
+
+
 def _build_sensor() -> Optional[_BasePowerSensor]:
     """Return the best available power sensor or None.
 
@@ -623,12 +660,20 @@ class PowerSampler:
         energy_j, source, avg_watts = sampler.stop()
     """
 
-    def __init__(self, interval_sec: float = 0.5) -> None:
+    def __init__(
+        self,
+        interval_sec: float = 0.5,
+        sensor: Optional[_BasePowerSensor] = None,
+    ) -> None:
         self._interval = interval_sec
-        self._sensor: Optional[_BasePowerSensor] = _build_sensor()
+        # Accept an externally supplied sensor (e.g. from PipelineProfiler's
+        # cached probe) so we avoid re-probing (and re-prompting for sudo) on
+        # every measure() call.  Falls back to _build_sensor() when None.
+        self._sensor: Optional[_BasePowerSensor] = sensor if sensor is not None else _build_sensor()
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
-        self._samples: List[float] = []
+        # Stored as (timestamp, watts) tuples for trapezoidal integration.
+        self._samples: List[Tuple[float, float]] = []
         self._lock = threading.Lock()
         self._start_time: float = 0.0
         self._stop_time: float = 0.0
@@ -659,8 +704,9 @@ class PowerSampler:
                 break
             try:
                 w = self._sensor.read_watts()
+                t = time.monotonic()
                 with self._lock:
-                    self._samples.append(w)
+                    self._samples.append((t, w))
             except Exception:
                 pass
 
@@ -689,9 +735,23 @@ class PowerSampler:
         if not samples:
             return 0.0, self._sensor.name, None
 
-        avg_watts = sum(samples) / len(samples)
         elapsed = max(0.0, self._stop_time - self._start_time)
-        energy_j = avg_watts * elapsed
+        avg_watts = sum(w for _, w in samples) / len(samples)
+
+        if len(samples) == 1:
+            # Single sample: rectangular approximation
+            energy_j = avg_watts * elapsed
+        else:
+            # Trapezoidal integration over the full measurement window.
+            # Extend the sample series to the start/stop boundaries using the
+            # nearest observed wattage (zero-order hold at boundaries).
+            ts = [self._start_time] + [t for t, _ in samples] + [self._stop_time]
+            ws = [samples[0][1]] + [w for _, w in samples] + [samples[-1][1]]
+            energy_j = sum(
+                (ts[i + 1] - ts[i]) * (ws[i] + ws[i + 1]) / 2.0
+                for i in range(len(ts) - 1)
+            )
+
         return energy_j, self._sensor.name, avg_watts
 
 
@@ -710,6 +770,10 @@ class PhaseSample:
     energy_joules: Optional[float]
     avg_watts: Optional[float]
     power_source: str
+    # Optional note that qualifies what the timer covers — e.g.
+    # ``"includes_orchestration_overhead"`` for multi-GPU coordination loops or
+    # ``"includes_subprocess_startup"`` for Rust subprocess phases.
+    timing_note: Optional[str] = None
 
     # --- derived metrics ---
 
@@ -732,6 +796,11 @@ class PhaseSample:
         base["pps"] = self.pps
         base["ppw"] = self.ppw
         return base
+
+    @property
+    def power_coverage(self) -> str:
+        """Human-readable label for the fraction of system power measured."""
+        return _sensor_coverage(self.power_source)
 
 
 # ---------------------------------------------------------------------------
@@ -756,6 +825,12 @@ class PipelineProfiler:
         self._samples: List[PhaseSample] = []
         self._lock = threading.Lock()
         self._run_id: str = uuid.uuid4().hex[:12]
+        # Probe the best available power sensor *once* at construction time and
+        # reuse the same instance for every measure() call.  This avoids
+        # re-probing (and re-prompting for sudo) on each phase.  A fresh
+        # PipelineProfiler will get up-to-date detection; call
+        # invalidate_sensor_cache() beforehand if hardware conditions changed.
+        self._sensor: Optional[_BasePowerSensor] = _build_sensor()
 
     def reset(self) -> None:
         """Clear all accumulated samples (call before a fresh pipeline run)."""
@@ -773,11 +848,20 @@ class PipelineProfiler:
         avg_watts: Optional[float],
         power_source: str,
         backend: str = "unknown",
+        timing_note: Optional[str] = None,
     ) -> None:
         """Record a pre-computed phase sample directly.
 
         Use this when you need manual start/stop control (e.g. wrapping code
         that spans a try/finally).  Prefer :meth:`measure` when possible.
+
+        Parameters
+        ----------
+        timing_note:
+            Optional qualification of what the timer covers, e.g.
+            ``"includes_orchestration_overhead"`` or
+            ``"includes_subprocess_startup"``.  Appears in the JSON report so
+            consumers know the figure may include non-processing time.
         """
         sample = PhaseSample(
             phase=phase,
@@ -787,8 +871,17 @@ class PipelineProfiler:
             energy_joules=energy_joules,
             avg_watts=avg_watts,
             power_source=power_source,
+            timing_note=timing_note,
         )
         with self._lock:
+            existing_phases = {s.phase for s in self._samples}
+            if phase in existing_phases:
+                logger.info(
+                    "perf_metrics: phase '%s' already recorded; appending another sample. "
+                    "Call reset_perf_metrics() between separate pipeline runs to avoid "
+                    "mixing measurements from different datasets.",
+                    phase,
+                )
             self._samples.append(sample)
 
         logger.info(
@@ -824,7 +917,7 @@ class PipelineProfiler:
         backend:
             Backend label, e.g. ``"deepseek-ocr"``, ``"rapidocr"``.
         """
-        sampler = PowerSampler(interval_sec=self._poll_interval)
+        sampler = PowerSampler(interval_sec=self._poll_interval, sensor=self._sensor)
         sampler.start()
         t0 = time.monotonic()
         try:
@@ -841,8 +934,17 @@ class PipelineProfiler:
                 energy_joules=energy_j if source != "unavailable" else None,
                 avg_watts=avg_watts,
                 power_source=source,
+                timing_note=None,
             )
             with self._lock:
+                existing_phases = {s.phase for s in self._samples}
+                if phase in existing_phases:
+                    logger.info(
+                        "perf_metrics: phase '%s' already recorded; appending another sample. "
+                        "Call reset_perf_metrics() between separate pipeline runs to avoid "
+                        "mixing measurements from different datasets.",
+                        phase,
+                    )
                 self._samples.append(sample)
 
             logger.info(
@@ -897,7 +999,6 @@ class PipelineProfiler:
         total_energy_j = 0.0
         has_power = False
         power_source = "unavailable"
-        avg_watts_list: List[float] = []
 
         for s in samples:
             total_active_sec += s.active_sec
@@ -907,8 +1008,6 @@ class PipelineProfiler:
                 total_energy_j += s.energy_joules
                 has_power = True
                 power_source = s.power_source
-            if s.avg_watts is not None:
-                avg_watts_list.append(s.avg_watts)
 
             phase_reports[s.phase] = {
                 "active_sec": round(s.active_sec, 3),
@@ -917,13 +1016,23 @@ class PipelineProfiler:
                 "energy_joules": round(s.energy_joules, 3) if s.energy_joules is not None else None,
                 "avg_watts": round(s.avg_watts, 2) if s.avg_watts is not None else None,
                 "ppw": round(s.ppw, 6) if s.ppw is not None else None,
+                "power_coverage": _sensor_coverage(s.power_source),
+                "timing_note": s.timing_note,
             }
 
         # End-to-end aggregates
         e2e_pps = (total_pages / total_active_sec) if total_active_sec > 0 and total_pages > 0 else None
         e2e_energy = total_energy_j if has_power else None
         e2e_ppw = (total_pages / total_energy_j) if total_energy_j > 0 and total_pages > 0 else None
-        e2e_avg_watts = (sum(avg_watts_list) / len(avg_watts_list)) if avg_watts_list else None
+        # Time-weighted average watts: weight each phase by its duration so that
+        # long high-power phases dominate over short low-power ones.
+        _timed_with_power = [(s.active_sec, s.avg_watts) for s in samples if s.avg_watts is not None]
+        if _timed_with_power:
+            _weighted_sum = sum(t * w for t, w in _timed_with_power)
+            _total_timed = sum(t for t, _ in _timed_with_power)
+            e2e_avg_watts = _weighted_sum / _total_timed if _total_timed > 0 else None
+        else:
+            e2e_avg_watts = None
 
         report: Dict[str, Any] = {
             "run_id": self._run_id,
@@ -931,6 +1040,7 @@ class PipelineProfiler:
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()),
             "total_pages": total_pages,
             "power_source": power_source,
+            "power_coverage": _sensor_coverage(power_source),
             "phases": phase_reports,
             "end_to_end": {
                 "total_active_sec": round(total_active_sec, 3),
@@ -952,6 +1062,34 @@ class PipelineProfiler:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _log_phase_snapshot(self) -> None:
+        """Log a compact one-line summary for the most recently recorded phase.
+
+        Called after each pipeline phase completes (via
+        :py:meth:`_maybe_emit_perf_report`) so operators see intermediate
+        progress without waiting for the final full JSON report.
+        """
+        with self._lock:
+            if not self._samples:
+                return
+            sample = self._samples[-1]
+        pps_str = f"{sample.pps:.3f}" if sample.pps is not None else "N/A"
+        ppw_str = f"{sample.ppw:.5f}" if sample.ppw is not None else "N/A"
+        note = f"  [{sample.timing_note}]" if sample.timing_note else ""
+        logger.info(
+            "perf_metrics snapshot [%s/%s]: active=%.2fs  pages=%d  "
+            "pps=%s  ppw=%s  source=%s  coverage=%s%s",
+            sample.backend,
+            sample.phase,
+            sample.active_sec,
+            sample.pages,
+            pps_str,
+            ppw_str,
+            sample.power_source,
+            _sensor_coverage(sample.power_source),
+            note,
+        )
 
     def _save_report(self, report: Dict[str, Any], backend_label: str) -> None:
         """Save *report* to ``output_dir/logs/perf_report_<backend>_<ts>.json``."""

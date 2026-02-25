@@ -332,6 +332,7 @@ class CleanPhaseMixin:
                     avg_watts=_perf_avgw_clean,
                     power_source=_perf_src_clean,
                     backend="rust-cleaner",
+                    timing_note="includes_subprocess_startup",
                 )
             except Exception as _perf_exc_clean:
                 try:

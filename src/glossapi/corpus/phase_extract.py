@@ -772,6 +772,7 @@ class ExtractPhaseMixin:
                             avg_watts=_perf_avgw_mgpu,
                             power_source=_perf_src_mgpu,
                             backend=backend_choice,
+                            timing_note="includes_orchestration_overhead",
                         )
                     except Exception as _perf_exc:
                         try:

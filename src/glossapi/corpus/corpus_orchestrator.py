@@ -230,14 +230,19 @@ class Corpus(
         self._perf_last_reported_count = 0
 
     def _maybe_emit_perf_report(self, backend: Optional[str] = None) -> None:
-        """No-op placeholder — the final report is emitted once at the end of the
-        full pipeline run via :py:meth:`perf_report` rather than after every
-        intermediate phase."""
-        # Intentionally suppressed: intermediate per-phase reports are noisy.
-        # The wizard calls corpus.perf_report() after all phases complete.
-        # Callers that use the Corpus API directly should call perf_report()
-        # explicitly at the end of their pipeline sequence.
-        pass
+        """Log a compact snapshot for the most recently completed phase.
+
+        Provides per-phase progress visibility without writing a full JSON
+        report after every phase.  The full JSON report is only written when
+        :py:meth:`perf_report` is called explicitly (or by the pipeline wizard)
+        at the end of the full pipeline sequence.
+        """
+        if self._profiler is None:
+            return
+        try:
+            self._profiler._log_phase_snapshot()
+        except Exception:
+            pass
 
     def _get_cached_metadata_parquet(self) -> Optional[Path]:
         """Return cached metadata parquet path if it still exists."""
