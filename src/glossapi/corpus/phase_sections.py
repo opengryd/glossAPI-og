@@ -1,30 +1,13 @@
 """Section extraction helpers split from Corpus."""
 from __future__ import annotations
 
-import json
-import logging
-import math
 import os
-import queue
-import random
-import re
-import shutil
-import subprocess
-import sys
-import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import List
 
-import numpy as np
 import pandas as pd
 
-from .._naming import canonical_stem
-from ..gloss_downloader import GlossDownloader
-from ..gloss_section import GlossSection
-# Avoid importing classifier here; section phase does not require it at import time.
-from .corpus_skiplist import _SkiplistManager, _resolve_skiplist_path
-from .corpus_state import _ProcessingStateManager, _mark_processing_stage
-from .corpus_utils import _maybe_import_torch
+from .corpus_state import _mark_processing_stage
 
 
 class SectionPhaseMixin:
@@ -48,7 +31,7 @@ class SectionPhaseMixin:
 
         if getattr(self, "good_files", None):
             good_filenames = self.good_files
-            self.logger.info(f"Using {len(good_filenames)} good filenames from clean()")
+            self.logger.info("Using %d good filenames from clean()", len(good_filenames))
         else:
             # Fallback path: derive good filenames from parquet metadata
             self.logger.info("No good_files from clean(); using parquet filter/ocr_success if available")
@@ -72,7 +55,7 @@ class SectionPhaseMixin:
                             good_rows = legacy_rows
                     if not good_rows.empty and 'filename' in good_rows.columns:
                         good_filenames = [os.path.splitext(fn)[0] for fn in good_rows['filename'].astype(str).tolist() if fn]
-                        self.logger.info(f"Selected {len(good_filenames)} files via metadata from {parquet_path}")
+                        self.logger.info("Selected %d files via metadata from %s", len(good_filenames), parquet_path)
                         # Update processing_stage for selected rows
                         try:
                             if 'processing_stage' not in df_meta.columns:
@@ -85,15 +68,15 @@ class SectionPhaseMixin:
                             self._cache_metadata_parquet(parquet_path)
                             parquet_schema.write_metadata_parquet(df_meta, parquet_path)
                         except Exception as e:
-                            self.logger.warning(f"Failed to update processing_stage in {parquet_path}: {e}")
+                            self.logger.warning("Failed to update processing_stage in %s: %s", parquet_path, e)
                 except Exception as e:
-                    self.logger.warning(f"Error reading parquet file {parquet_path}: {e}")
+                    self.logger.warning("Error reading parquet file %s: %s", parquet_path, e)
             else:
                 self.logger.info("No metadata parquet found for section selection; will fall back to all markdown files")
 
-        self.logger.info(f"Found {len(good_filenames)} good quality files for sectioning")
+        self.logger.info("Found %d good quality files for sectioning", len(good_filenames))
         if good_filenames:
-            self.logger.info(f"Good filenames: {good_filenames}")
+            self.logger.debug("Good filenames: %s", good_filenames)
 
         # Prefer cleaned markdown if available; otherwise fall back to raw markdown.
         markdown_root = self.cleaned_markdown_dir if self.cleaned_markdown_dir.exists() else self.markdown_dir
@@ -119,5 +102,5 @@ class SectionPhaseMixin:
             filenames_to_process=good_filenames,
         )
 
-        self.logger.info(f"Finished sectioning {len(good_filenames)} good quality files")
-        self.logger.info(f"Section extraction complete. Parquet file saved to {self.sections_parquet}")
+        self.logger.info("Finished sectioning %d good quality files", len(good_filenames))
+        self.logger.info("Section extraction complete. Parquet file saved to %s", self.sections_parquet)

@@ -68,10 +68,7 @@ class _ProcessingStateManager:
             return None
 
     def _mark_stage(self, current: str, stage: str) -> str:
-        parts = [p for p in (current or "").split(",") if p]
-        if stage and stage not in parts:
-            parts.append(stage)
-        return ",".join(parts)
+        return _mark_processing_stage(current, stage)
 
     def _guess_filename(self, stem: str) -> tuple[str, bool]:
         """Return a plausible filename for a stem and whether it exists on disk."""

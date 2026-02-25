@@ -85,39 +85,15 @@ class Corpus(
             log_level: Logging level (default: logging.INFO)
             verbose: Whether to enable verbose logging for debugging (default: False)
         """
-        # Setup module logger without forcing global configuration
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(log_level)
-        try:
-            if not self.logger.handlers:
-                _handler = logging.StreamHandler()
-                _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s:%(name)s: %(message)s", "%H:%M:%S"))
-                self.logger.addHandler(_handler)
-            self.logger.propagate = False
-        except Exception:
-            pass
-        
         # Verbose flag for detailed logging
         self.verbose = verbose
-        
-        # Store paths
         self.input_dir = Path(input_dir)
         self.output_dir = Path(output_dir)
         self._metadata_parquet_path: Optional[Path] = None
-        
-        # Models live under src/glossapi/models/, one level above corpus/
-        models_dir = Path(__file__).resolve().parent.parent / "models"
-        if section_classifier_model_path:
-            self.section_classifier_model_path = Path(section_classifier_model_path)
-        else:
-            self.section_classifier_model_path = models_dir / "section_classifier.joblib"
-        
-        # Handle extraction model path
-        if extraction_model_path:
-            self.extraction_model_path = Path(extraction_model_path)
-        else:
-            self.extraction_model_path = models_dir / "kmeans_weights.joblib"
-            
+
+        self._setup_logging(log_level if not verbose else logging.DEBUG)
+        self._resolve_model_paths(section_classifier_model_path, extraction_model_path)
+
         self.metadata_path = Path(metadata_path) if metadata_path else None
         if self.metadata_path is not None:
             try:
@@ -128,19 +104,11 @@ class Corpus(
                     self.metadata_path = None
             except Exception:
                 self.metadata_path = None
-        
-        # Store annotation mapping - default is to treat 'Κεφάλαιο' as chapter
+
         self.annotation_mapping = annotation_mapping or {'Κεφάλαιο': 'chapter'}
-        
-        # Create output directory if it doesn't exist
-        os.makedirs(self.output_dir, exist_ok=True)
-        
-        # Initialize downloader config first
         self.downloader_config = downloader_config or {}
-        
-        # Initialize component classes
-        # Get the URL column from downloader config or use default 'url'
         self.url_column = self.downloader_config.get('url_column', 'url')
+
         # Lazy-create extractor to avoid heavy imports unless needed
         self.extractor = None
         self.sectioner = GlossSection()
@@ -149,43 +117,75 @@ class Corpus(
         except Exception:
             self.classifier = None
 
-        self.downloads_dir = self.output_dir / "downloads"
-        self.markdown_dir = self.output_dir / "markdown"
-        self.sections_dir = self.output_dir / "sections"
-        # Directory that will hold cleaned markdown after Rust-powered cleaning
-        self.cleaned_markdown_dir = self.output_dir / "clean_markdown"
-        # Define models_dir path but don't create the directory yet - only create it when needed
-        self.models_dir = self.output_dir / "models"
-        self.logs_dir = self.output_dir / "logs"
-
-        # Track whether we've already printed the GPU setup banner in this process
         self._gpu_banner_logged = False
         self._phase1_backend = "safe"
 
-        os.makedirs(self.markdown_dir, exist_ok=True)
-        os.makedirs(self.sections_dir, exist_ok=True)
-        os.makedirs(self.cleaned_markdown_dir, exist_ok=True)
-        os.makedirs(self.logs_dir, exist_ok=True)
+        self._create_output_dirs()
 
-        # Performance & Power Profiler — records timing and energy per phase.
-        # Lazily imported to keep the vanilla install lightweight.
+        # Performance & Power Profiler — lazily imported to keep vanilla install lightweight.
         try:
             from glossapi.perf_metrics import PipelineProfiler as _PipelineProfiler
             self._profiler = _PipelineProfiler(output_dir=self.output_dir)
         except Exception:
             self._profiler = None  # type: ignore[assignment]
-        # Tracks how many samples existed at the last auto-emit (avoids duplicate reports).
         self._perf_last_reported_count: int = 0
-        
-        # Setup output files
+
         self.sections_parquet = self.sections_dir / "sections_for_annotation.parquet"
         self.classified_parquet = self.output_dir / "classified_sections.parquet"
         self.fully_annotated_parquet = self.output_dir / "fully_annotated_sections.parquet"
-        
-        # Initialize document type mapping
         self.filename_to_doctype = {}
-        
+
         self._load_metadata()
+
+    # ------------------------------------------------------------------
+    # __init__ helpers
+    # ------------------------------------------------------------------
+
+    def _setup_logging(self, log_level: int) -> None:
+        """Configure the instance logger without touching global logging state."""
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(log_level)
+        try:
+            if not self.logger.handlers:
+                _handler = logging.StreamHandler()
+                _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s:%(name)s: %(message)s", "%H:%M:%S"))
+                self.logger.addHandler(_handler)
+            self.logger.propagate = False
+        except Exception:
+            pass
+
+    def _resolve_model_paths(
+        self,
+        section_classifier_model_path: Optional[Union[str, Path]],
+        extraction_model_path: Optional[Union[str, Path]],
+    ) -> None:
+        """Resolve and store section classifier and extraction model paths."""
+        models_dir = Path(__file__).resolve().parent.parent / "models"
+        self.section_classifier_model_path = (
+            Path(section_classifier_model_path)
+            if section_classifier_model_path
+            else models_dir / "section_classifier.joblib"
+        )
+        self.extraction_model_path = (
+            Path(extraction_model_path)
+            if extraction_model_path
+            else models_dir / "kmeans_weights.joblib"
+        )
+
+    def _create_output_dirs(self) -> None:
+        """Create all required output sub-directories under ``self.output_dir``."""
+        self.downloads_dir = self.output_dir / "downloads"
+        self.markdown_dir = self.output_dir / "markdown"
+        self.sections_dir = self.output_dir / "sections"
+        self.cleaned_markdown_dir = self.output_dir / "clean_markdown"
+        # models_dir is defined here but created on demand (not guaranteed to exist)
+        self.models_dir = self.output_dir / "models"
+        self.logs_dir = self.output_dir / "logs"
+        os.makedirs(self.output_dir, exist_ok=True)
+        os.makedirs(self.markdown_dir, exist_ok=True)
+        os.makedirs(self.sections_dir, exist_ok=True)
+        os.makedirs(self.cleaned_markdown_dir, exist_ok=True)
+        os.makedirs(self.logs_dir, exist_ok=True)
 
     # ------------------------------------------------------------------
     # Performance & Power Metrics
@@ -301,22 +301,21 @@ class Corpus(
         """Load metadata file if provided and extract document type mapping."""
         if self.metadata_path and self.metadata_path.exists():
             try:
-                self.logger.info(f"Loading metadata from {self.metadata_path}")
+                self.logger.info("Loading metadata from %s", self.metadata_path)
                 metadata_df = pd.read_parquet(self.metadata_path)
-                
+
                 # Debug information
-                self.logger.info(f"Metadata file has {len(metadata_df)} rows and columns: {metadata_df.columns.tolist()}")
+                self.logger.info("Metadata file has %d rows and columns: %s", len(metadata_df), metadata_df.columns.tolist())
                 try:
-                    self.logger.info(f"Sample filenames: {metadata_df['filename'].head(3).tolist()}")
+                    self.logger.info("Sample filenames: %s", metadata_df['filename'].head(3).tolist())
                 except Exception:
                     pass
                 if 'document_type' not in metadata_df.columns:
-                    import pandas as _pd
                     # Create a blank document_type column for downstream compatibility
-                    metadata_df['document_type'] = _pd.Series([_pd.NA] * len(metadata_df))
+                    metadata_df['document_type'] = pd.Series([pd.NA] * len(metadata_df))
                     self.logger.info("Added missing 'document_type' column to metadata (blank values)")
                 else:
-                    self.logger.info(f"Sample document types: {metadata_df['document_type'].head(3).tolist()}")
+                    self.logger.info("Sample document types: %s", metadata_df['document_type'].head(3).tolist())
                 
                 # Create a mapping from filename to document_type
                 if 'filename' in metadata_df.columns and 'document_type' in metadata_df.columns:
@@ -338,8 +337,7 @@ class Corpus(
                             try:
                                 if doctype is None:
                                     continue
-                                import pandas as _pd
-                                if doctype is _pd.NA or _pd.isna(doctype):
+                                if doctype is pd.NA or pd.isna(doctype):
                                     continue
                                 if not str(doctype).strip():
                                     continue
@@ -361,7 +359,6 @@ class Corpus(
                     else:
                         # Simple dictionary mapping without extension handling (skip empty types)
                         try:
-                            import pandas as _pd
                             df_nt = metadata_df.copy()
                             mask = (~df_nt['document_type'].isna()) & (df_nt['document_type'].astype(str).str.strip() != '')
                             df_nt = df_nt[mask]
@@ -372,45 +369,17 @@ class Corpus(
                         except Exception:
                             self.filename_to_doctype = {}
                     
-                    self.logger.info(f"Loaded {len(self.filename_to_doctype)} filename-to-doctype mappings")
+                    self.logger.info("Loaded %d filename-to-doctype mappings", len(self.filename_to_doctype))
                 else:
                     self.logger.warning("Metadata file does not contain 'filename' or 'document_type' columns")
             except Exception as e:
-                self.logger.error(f"Error loading metadata: {e}")
+                self.logger.error("Error loading metadata: %s", e)
         else:
             if self.metadata_path:
-                self.logger.warning(f"Metadata file not found: {self.metadata_path}")
+                self.logger.warning("Metadata file not found: %s", self.metadata_path)
 
-    # Download phase                                                     #
-    # Extraction phase                                                   #
+    # All phase logic lives in the respective PhaseMixin classes inherited above.
 
-
-
-    
-
-    
-
-
-
-
-
-
-    # Cleaning phase                                                     #
-
-    # Backwards-compatibility shim – filter() now delegates to clean()
-    
-    # OCR & math enrichment                                             #
-
-
-    # Sectioning & annotation                                           #
-    
-
-    
-    
-    
-
-
-    
 
 # Top-level worker function for multi-GPU extraction (picklable by multiprocessing)
 def gpu_extract_worker_queue(

@@ -5,8 +5,6 @@ import json
 import logging
 import math
 import os
-import queue
-import random
 import re
 import shutil
 import subprocess
@@ -19,11 +17,6 @@ import numpy as np
 import pandas as pd
 
 from .._naming import canonical_stem
-from ..gloss_downloader import GlossDownloader
-# Avoid importing section/classifier here; cleaning phase does not use them.
-from .corpus_skiplist import _SkiplistManager, _resolve_skiplist_path
-from .corpus_state import _ProcessingStateManager
-from .corpus_utils import _maybe_import_torch
 
 
 class CleanPhaseMixin:
@@ -157,56 +150,16 @@ class CleanPhaseMixin:
 
         # Prepare parquet helper
         parquet_schema = ParquetSchema({"url_column": self.url_column})
-        parquet_path: Optional[Path] = self._get_cached_metadata_parquet()
+        parquet_path = self._resolve_metadata_parquet(parquet_schema, ensure=True, search_input=True)
         if parquet_path is None:
-            existing_metadata = parquet_schema.find_metadata_parquet(self.input_dir)
-            if existing_metadata is not None:
-                parquet_path = self._cache_metadata_parquet(existing_metadata)
-        if parquet_path is None:
-            ensured = parquet_schema.ensure_metadata_parquet(self.output_dir)
-            if ensured is not None:
-                parquet_path = self._cache_metadata_parquet(ensured)
-        if parquet_path is None:
-            ensured = parquet_schema.ensure_metadata_parquet(self.input_dir)
-            if ensured is not None:
-                parquet_path = self._cache_metadata_parquet(ensured)
-        if parquet_path is None:
-            metadata_target = self.output_dir / "download_results" / "download_results.parquet"
+            default_path = self.output_dir / "download_results" / "download_results.parquet"
             self.logger.info(
                 "Cleaner: no metadata parquet found; will bootstrap %s when metrics become available.",
-                metadata_target,
+                default_path,
             )
-        else:
-            metadata_target = parquet_path
-        parquet_path = self._cache_metadata_parquet(metadata_target)
+            parquet_path = self._cache_metadata_parquet(default_path)
 
-        import os
         records: list = []  # will hold metrics for parquet merge
-        metrics_dir = self.output_dir / "json" / "metrics"
-
-        def _page_count_for(stem: str) -> Optional[int]:
-            candidates = [
-                metrics_dir / f"{stem}.metrics.json",
-                metrics_dir / f"{stem}.per_page.metrics.json",
-            ]
-            for candidate in candidates:
-                if not candidate.exists():
-                    continue
-                try:
-                    data = json.loads(candidate.read_text(encoding="utf-8"))
-                except Exception:
-                    continue
-                if isinstance(data, dict):
-                    pc = data.get("page_count")
-                    if pc is not None:
-                        try:
-                            return int(pc)
-                        except Exception:
-                            pass
-                    pages = data.get("pages")
-                    if isinstance(pages, list):
-                        return len(pages)
-            return None
 
         # ----- Call Rust high-level pipeline once -----
         scripts_to_keep = ["greek", "latin"]  # keep common alphabetic scripts; numbers/punctuation are added internally
@@ -421,7 +374,7 @@ class CleanPhaseMixin:
         except Exception as e:
             self.logger.warning("Could not delete cleaning report %s: %s", report_parquet_path, e)
 
-        self.logger.info(f"Cleaned {len(records)} markdown files → {self.cleaned_markdown_dir}")
+        self.logger.info("Cleaned %d markdown files → %s", len(records), self.cleaned_markdown_dir)
 
         # ------------------------------------------------------------------
         # Update parquet with Mojibake metrics (single authoritative schema)
@@ -723,7 +676,7 @@ class CleanPhaseMixin:
                 good_df = df_final[df_final["needs_ocr"] == False]
                 filenames = good_df.get("filename", pd.Series(dtype=str))
                 self.good_files = [canonical_stem(f) for f in filenames.dropna().astype(str).tolist()]
-                self.logger.info(f"After filtering, {len(self.good_files)} good files remain")
+                self.logger.info("After filtering, %d good files remain", len(self.good_files))
             else:
                 filenames = df_final.get("filename", pd.Series(dtype=str))
                 self.good_files = [canonical_stem(f) for f in filenames.dropna().astype(str).tolist()]

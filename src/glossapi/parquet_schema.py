@@ -7,6 +7,7 @@ pipeline, ensuring consistency between different pipeline stages.
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import time
@@ -238,86 +239,88 @@ class ParquetSchema:
         # TODO: Add methods to find the latest sections parquet in a pipeline
         self.config = pipeline_config or {}
         self.url_column = self.config.get('url_column', 'url')
-    
-    # Basic schema with common fields used across all parquet files
-    if pa is not None:
-        COMMON_SCHEMA = pa.schema(
+
+    @functools.cached_property
+    def COMMON_SCHEMA(self):  # noqa: N802
+        """PyArrow schema for common fields shared across all parquet files."""
+        _pa, _ = _ensure_pyarrow()
+        return _pa.schema(
             [
-                ("id", pa.string()),
-                ("row_id", pa.int64()),
-                ("filename", pa.string()),
+                ("id", _pa.string()),
+                ("row_id", _pa.int64()),
+                ("filename", _pa.string()),
             ]
         )
-    else:  # pragma: no cover - pyarrow not installed
-        COMMON_SCHEMA = None
-    
-    # Metadata schema for files used by downloader and quality assessment
-    if pa is not None:
-        METADATA_SCHEMA = pa.schema(
+
+    @functools.cached_property
+    def METADATA_SCHEMA(self):  # noqa: N802
+        """PyArrow schema for metadata parquets (downloader / quality stage)."""
+        _pa, _ = _ensure_pyarrow()
+        return _pa.schema(
             [
-                ("filename", pa.string()),
-                ("url", pa.string()),  # Can be customized with url_column parameter
-                ("download_success", pa.bool_()),
-                ("download_error", pa.string()),
-                ("trigrams", pa.string()),  # Values: "natural", "unnatural", "unknown"
-                ("processing_stage", pa.string()),  # Tracks progress through pipeline
-                ("badness_score", pa.float64()),
-                ("percentage_greek", pa.float64()),
-                ("percentage_latin", pa.float64()),
+                ("filename", _pa.string()),
+                ("url", _pa.string()),
+                ("download_success", _pa.bool_()),
+                ("download_error", _pa.string()),
+                ("trigrams", _pa.string()),
+                ("processing_stage", _pa.string()),
+                ("badness_score", _pa.float64()),
+                ("percentage_greek", _pa.float64()),
+                ("percentage_latin", _pa.float64()),
             ]
         )
-    else:  # pragma: no cover - pyarrow not installed
-        METADATA_SCHEMA = None
-    
-    # Additional schemas for specific pipeline stages
-    if pa is not None:
-        DOWNLOAD_SCHEMA = pa.schema(
+
+    @functools.cached_property
+    def DOWNLOAD_SCHEMA(self):  # noqa: N802
+        """PyArrow schema for download-result parquets."""
+        _pa, _ = _ensure_pyarrow()
+        return _pa.schema(
             [
-                ("url", pa.string()),  # Will be replaced with the actual url_column
-                ("download_success", pa.bool_()),
-                ("download_error", pa.string()),
-                ("download_retry_count", pa.int32()),
-                ("filename", pa.string()),
-                ("file_ext", pa.string()),
-                ("is_duplicate", pa.bool_()),
-                ("duplicate_of", pa.string()),
-                ("source_row", pa.int32()),
-                ("url_index", pa.int32()),
-                ("filename_base", pa.string()),
+                ("url", _pa.string()),
+                ("download_success", _pa.bool_()),
+                ("download_error", _pa.string()),
+                ("download_retry_count", _pa.int32()),
+                ("filename", _pa.string()),
+                ("file_ext", _pa.string()),
+                ("is_duplicate", _pa.bool_()),
+                ("duplicate_of", _pa.string()),
+                ("source_row", _pa.int32()),
+                ("url_index", _pa.int32()),
+                ("filename_base", _pa.string()),
             ]
         )
-    else:  # pragma: no cover - pyarrow not installed
-        DOWNLOAD_SCHEMA = None
-    
-    if pa is not None:
-        SECTION_SCHEMA = pa.schema(
+
+    @functools.cached_property
+    def SECTION_SCHEMA(self):  # noqa: N802
+        """PyArrow schema for section parquets."""
+        _pa, _ = _ensure_pyarrow()
+        return _pa.schema(
             [
-                ("id", pa.string()),
-                ("row_id", pa.int64()),
-                ("filename", pa.string()),
-                ("title", pa.string()),
-                ("content", pa.string()),
-                ("section", pa.string()),
+                ("id", _pa.string()),
+                ("row_id", _pa.int64()),
+                ("filename", _pa.string()),
+                ("title", _pa.string()),
+                ("content", _pa.string()),
+                ("section", _pa.string()),
             ]
         )
-    else:  # pragma: no cover - pyarrow not installed
-        SECTION_SCHEMA = None
-    
-    if pa is not None:
-        CLASSIFIED_SCHEMA = pa.schema(
+
+    @functools.cached_property
+    def CLASSIFIED_SCHEMA(self):  # noqa: N802
+        """PyArrow schema for classified-sections parquets."""
+        _pa, _ = _ensure_pyarrow()
+        return _pa.schema(
             [
-                ("id", pa.string()),
-                ("row_id", pa.int64()),
-                ("filename", pa.string()),
-                ("title", pa.string()),
-                ("content", pa.string()),
-                ("section", pa.string()),
-                ("predicted_section", pa.string()),
-                ("probability", pa.float64()),
+                ("id", _pa.string()),
+                ("row_id", _pa.int64()),
+                ("filename", _pa.string()),
+                ("title", _pa.string()),
+                ("content", _pa.string()),
+                ("section", _pa.string()),
+                ("predicted_section", _pa.string()),
+                ("probability", _pa.float64()),
             ]
         )
-    else:  # pragma: no cover - pyarrow not installed
-        CLASSIFIED_SCHEMA = None
     
     def get_required_metadata(self) -> Dict[str, str]:
         """

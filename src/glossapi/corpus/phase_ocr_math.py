@@ -89,15 +89,12 @@ class OcrMathPhaseMixin:
         math_dpi_base: int = 220,
         use_gpus: str = "single",
         devices: Optional[List[int]] = None,
-        force: Optional[bool] = None,
         reprocess_completed: Optional[bool] = None,
         skip_existing: Optional[bool] = None,
-        # Content debug: keep page separators and truncation markers when True
+        # Content debug: keep page separators and truncation markers when True.
+        # Pass CONTENT_DEBUG=True (uppercase) to take precedence over the positional flag.
         content_debug: bool = False,
         CONTENT_DEBUG: Optional[bool] = None,
-        # Back-compat aliases (deprecated):
-        internal_debug: bool = False,
-        INTERNAL_DEBUG: Optional[bool] = None,
     ) -> None:
         """OCR and/or math enrichment with explicit mode control.
 
@@ -120,7 +117,6 @@ class OcrMathPhaseMixin:
                Supports CUDA via vLLM (Linux) and Apple Silicon via MLX (macOS).
         - fix_bad: re-run OCR on documents marked bad by the cleaner (default True).
         - math_enhance: run math/code enrichment after OCR (default True).
-        - force: [DEPRECATED] alias for fix_bad retained for backward compatibility.
         - reprocess_completed: when False, skip documents already flagged as successfully
           OCRed or math-enriched in metadata. Set True to force reprocessing. Defaults to False
           unless ``skip_existing`` overrides it.
@@ -132,24 +128,13 @@ class OcrMathPhaseMixin:
         if backend_norm not in {"rapidocr", "deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "mineru", "olmocr"}:
             raise ValueError("backend must be 'rapidocr', 'deepseek-ocr', 'deepseek-ocr-2', 'glm-ocr', 'mineru', or 'olmocr'")
 
-        # CONTENT_DEBUG override (preferred uppercase alias)
-        # Priority: CONTENT_DEBUG > INTERNAL_DEBUG > content_debug/internal_debug flags
+        # CONTENT_DEBUG uppercase alias takes precedence over the lowercase flag.
         if CONTENT_DEBUG is not None:
             content_debug = bool(CONTENT_DEBUG)
-        elif INTERNAL_DEBUG is not None:
-            content_debug = bool(INTERNAL_DEBUG)
-        elif internal_debug:
-            content_debug = True
 
         # Normalize mode from explicit value or legacy flags
         mode_norm = None
         fix_bad_effective = bool(fix_bad)
-        if force is not None:
-            try:
-                self.logger.warning("Corpus.ocr(force=...) is deprecated; use fix_bad=... instead")
-            except Exception:
-                pass
-            fix_bad_effective = bool(force)
         if mode:
             m = str(mode).strip().lower()
             if m in {"ocr_bad", "math_only", "ocr_bad_then_math"}:
@@ -168,29 +153,13 @@ class OcrMathPhaseMixin:
                     "OCR: no operation requested (enable fix_bad and/or math_enhance or set mode='ocr_bad'|'math_only'|'ocr_bad_then_math')"
                 )
                 return
-        reprocess_explicit = reprocess_completed is not None
-        reprocess_flag = bool(reprocess_completed) if reprocess_explicit else False
         if skip_existing is not None:
-            skip_flag = bool(skip_existing)
-            try:
-                self.logger.warning(
-                    "Corpus.ocr(skip_existing=...) is deprecated; use reprocess_completed=... instead."
-                )
-            except Exception:
-                pass
-            desired = not skip_flag
-            if reprocess_explicit and desired != reprocess_flag:
-                try:
-                    self.logger.info(
-                        "Corpus.ocr(): skip_existing=%s overrides reprocess_completed=%s (effective reprocess_completed=%s).",
-                        skip_flag,
-                        reprocess_flag,
-                        desired,
-                    )
-                except Exception:
-                    pass
-            reprocess_flag = desired
-        reprocess_completed = reprocess_flag
+            self.logger.warning(
+                "Corpus.ocr(skip_existing=...) is deprecated; use reprocess_completed=... instead."
+            )
+            reprocess_completed = not bool(skip_existing)
+        if reprocess_completed is None:
+            reprocess_completed = False
 
         # Allow env override for math DPI when not explicitly set
         try:
@@ -203,19 +172,18 @@ class OcrMathPhaseMixin:
 
         # Non-Docling backend semantics note: these backends inline equations
         if backend_norm in {"deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "mineru", "olmocr"}:
-            try:
-                _backend_labels = {
-                    "deepseek-ocr": "DeepSeek OCR",
-                    "deepseek-ocr-2": "DeepSeek OCR v2",
-                    "glm-ocr": "GLM-OCR",
-                    "mineru": "MinerU",
-                    "olmocr": "OlmOCR-2",
-                }
-                label = _backend_labels.get(backend_norm, backend_norm)
-                msg = f"{label} backend: Phase-2 math is not required; equations are included inline via OCR."
-                self.logger.info(msg)
-            except Exception:
-                pass
+            _backend_labels = {
+                "deepseek-ocr": "DeepSeek OCR",
+                "deepseek-ocr-2": "DeepSeek OCR v2",
+                "glm-ocr": "GLM-OCR",
+                "mineru": "MinerU",
+                "olmocr": "OlmOCR-2",
+            }
+            label = _backend_labels.get(backend_norm, backend_norm)
+            self.logger.info(
+                "%s backend: Phase-2 math is not required; equations are included inline via OCR.",
+                label,
+            )
         # Identify bad documents from parquet (Rust cleaner output)
         bad_files: List[str] = []
         skipped_completed = 0
@@ -230,8 +198,7 @@ class OcrMathPhaseMixin:
             parquet_schema = ParquetSchema({"url_column": self.url_column})
             parquet_path = self._resolve_metadata_parquet(parquet_schema, ensure=True, search_input=True)
             if parquet_path and parquet_path.exists():
-                import pandas as _pd
-                df = _pd.read_parquet(parquet_path)
+                df = pd.read_parquet(parquet_path)
                 if "filename" in df.columns and "needs_ocr" in df.columns:
                     bad_files = df.loc[df["needs_ocr"].fillna(False), "filename"].dropna().astype(str).tolist()
                 else:
@@ -842,9 +809,7 @@ class OcrMathPhaseMixin:
                     parquet_schema = _ParquetSchema({"url_column": self.url_column})
                     parquet_path = self._resolve_metadata_parquet(parquet_schema, ensure=True, search_input=True)
                     if parquet_path and parquet_path.exists():
-                        import pandas as _pd
-
-                        df_meta = _pd.read_parquet(parquet_path)
+                        df_meta = pd.read_parquet(parquet_path)
                         if "filename" in df_meta.columns:
                             if "filter" not in df_meta.columns:
                                 df_meta["filter"] = "ok"
@@ -921,16 +886,16 @@ class OcrMathPhaseMixin:
                     _pq = None
                 if _pq and _pq.exists():
                     try:
-                        import pandas as _pd, json as _json
-                        _df = _pd.read_parquet(_pq)
+                        import json as _json
+                        _df = pd.read_parquet(_pq)
                         if "filename" in _df.columns:
                             _df['stem'] = _df['filename'].astype(str).str.replace(r"\.pdf$", "", regex=True)
                             _phase = _df['phase_recommended'].astype(str) == '2A' if 'phase_recommended' in _df.columns else ((_df['filename'] == _df['filename']) & False)
                             _ft = (
-                                _pd.to_numeric(_df['formula_total'], errors='coerce') > 0
+                                pd.to_numeric(_df['formula_total'], errors='coerce') > 0
                             ) if 'formula_total' in _df.columns else ((_df['filename'] == _df['filename']) & False)
                             _med = (
-                                _pd.to_numeric(_df['math_equations_detected'], errors='coerce') > 0
+                                pd.to_numeric(_df['math_equations_detected'], errors='coerce') > 0
                             ) if 'math_equations_detected' in _df.columns else ((_df['filename'] == _df['filename']) & False)
                             _mask = _phase | _ft | _med
                             _parq_stems = set(_df.loc[_mask, 'stem'].dropna().astype(str).tolist())
@@ -1029,17 +994,16 @@ class OcrMathPhaseMixin:
             pq = None
         if pq and pq.exists():
             try:
-                import pandas as _pd
-                _df = _pd.read_parquet(pq)
+                _df = pd.read_parquet(pq)
                 # derive stems from filename without extension
                 _df['stem'] = _df['filename'].astype(str).str.replace(r"\.pdf$", "", regex=True)
                 # prefer explicit phase or any formula signal (formula_total or math_equations_detected)
                 _phase = _df['phase_recommended'].astype(str) == '2A' if 'phase_recommended' in _df.columns else ((_df['filename'] == _df['filename']) & False)
                 _ft = (
-                    _pd.to_numeric(_df['formula_total'], errors='coerce') > 0
+                    pd.to_numeric(_df['formula_total'], errors='coerce') > 0
                 ) if 'formula_total' in _df.columns else ((_df['filename'] == _df['filename']) & False)
                 _med = (
-                    _pd.to_numeric(_df['math_equations_detected'], errors='coerce') > 0
+                    pd.to_numeric(_df['math_equations_detected'], errors='coerce') > 0
                 ) if 'math_equations_detected' in _df.columns else ((_df['filename'] == _df['filename']) & False)
                 mask = _phase | _ft | _med
                 parq_stems = _df.loc[mask, 'stem'].dropna().astype(str).tolist()
@@ -1196,7 +1160,7 @@ class OcrMathPhaseMixin:
         try:
             from ..ocr.utils.triage import summarize_math_density_from_metrics, recommend_phase, update_download_results_parquet
         except Exception as e:
-            self.logger.warning(f"Triage utilities unavailable: {e}")
+            self.logger.warning("Triage utilities unavailable: %s", e)
             return
         md = Path(self.markdown_dir)
         if not md.exists():

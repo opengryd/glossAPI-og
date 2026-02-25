@@ -1,31 +1,11 @@
 """Annotation helpers split from Corpus."""
 from __future__ import annotations
 
-import json
-import logging
-import math
-import os
-import queue
-import random
-import re
-import shutil
-import subprocess
-import sys
-import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
-import numpy as np
 import pandas as pd
 
-from .._naming import canonical_stem
-from ..gloss_downloader import GlossDownloader
-from ..gloss_section import GlossSection
-# Avoid importing classifier at import time; annotate() checks model presence and
-# uses the instance classifier initialized by the orchestrator when available.
-from .corpus_skiplist import _SkiplistManager, _resolve_skiplist_path
-from .corpus_state import _ProcessingStateManager, _mark_processing_stage
-from .corpus_utils import _maybe_import_torch
+from .corpus_state import _mark_processing_stage
 
 
 class AnnotatePhaseMixin:
@@ -43,13 +23,13 @@ class AnnotatePhaseMixin:
 
         # Check if input parquet file exists
         if not self.sections_parquet.exists():
-            self.logger.error(f"Sections file not found: {self.sections_parquet}. Please run section() first.")
+            self.logger.error("Sections file not found: %s. Please run section() first.", self.sections_parquet)
             return
 
         # Check if section classifier model exists
         model_exists = self.section_classifier_model_path.exists()
         if not model_exists:
-            self.logger.warning(f"Model file not found at {self.section_classifier_model_path}. To train a new model, run GlossSectionClassifier.train_from_csv()")
+            self.logger.warning("Model file not found at %s. To train a new model, run GlossSectionClassifier.train_from_csv()", self.section_classifier_model_path)
 
         # If no trained model, skip annotation with a clear message
         if not model_exists:
@@ -86,7 +66,7 @@ class AnnotatePhaseMixin:
                     # Default to 'text' if no mapping exists
                     filename_to_annotation[filename] = self.annotation_mapping.get(doc_type, 'text')
 
-                self.logger.info(f"Using document-type specific annotation based on metadata")
+                self.logger.info("Using document-type specific annotation based on metadata")
 
                 # Read the classified parquet file
                 df = pd.read_parquet(str(self.classified_parquet))
@@ -100,10 +80,10 @@ class AnnotatePhaseMixin:
 
                     # Process according to annotation type
                     if doc_annotation == 'chapter':
-                        self.logger.debug(f"Processing {filename} as chapter")
+                        self.logger.debug("Processing %s as chapter", filename)
                         updated_group = self.classifier.fully_annotate_chapter_group(group)
                     else:
-                        self.logger.debug(f"Processing {filename} as text")
+                        self.logger.debug("Processing %s as text", filename)
                         updated_group = self.classifier.fully_annotate_text_group(group)
 
                     if updated_group is not None:
@@ -154,9 +134,9 @@ class AnnotatePhaseMixin:
                 # Check for missing document types
                 missing_count = df['document_type'].isna().sum()
                 if missing_count > 0:
-                    self.logger.warning(f"{missing_count} sections ({missing_count/len(df):.2%}) have no document type!")
+                    self.logger.warning("%d sections (%.2f%%) have no document type!", missing_count, missing_count / len(df) * 100)
                     missing_filenames = df[df['document_type'].isna()]['filename'].unique()[:5]
-                    self.logger.warning(f"Sample filenames with missing document types: {missing_filenames}")
+                    self.logger.warning("Sample filenames with missing document types: %s", missing_filenames)
 
                     # Check if the issue might be due to .md extension
                     if any('.md' in str(f) for f in self.filename_to_doctype.keys()):
@@ -166,9 +146,9 @@ class AnnotatePhaseMixin:
 
                 # Save the updated file
                 df.to_parquet(parquet_file, index=False)
-                self.logger.info(f"Added document types to {parquet_file}")
+                self.logger.info("Added document types to %s", parquet_file)
             except Exception as e:
-                self.logger.error(f"Error adding document types: {e}")
+                self.logger.error("Error adding document types: %s", e)
         else:
             self.logger.warning("File not found: %s", parquet_file)
 
