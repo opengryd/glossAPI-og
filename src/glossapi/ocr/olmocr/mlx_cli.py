@@ -297,9 +297,20 @@ def _set_metal_wired_limit(fraction: float = 0.8) -> None:
         pass
 
 
-def render_page(doc: Any, page_index: int, dpi: int = DEFAULT_DPI) -> Any:
-    """Render a single PDF page to a PIL Image via pypdfium2."""
-    page = doc[page_index]
+def render_page(doc_or_path: Any, page_index: int, dpi: int = DEFAULT_DPI) -> Any:
+    """Render a single PDF page to a PIL Image via pypdfium2.
+
+    *doc_or_path* may be either an open ``PdfDocument`` object **or** a
+    ``Path`` / ``str`` pointing to the PDF file.  When a path is supplied a
+    private document handle is created inside the call, which is required for
+    thread-safe concurrent rendering — pypdfium2 document handles must not be
+    shared across threads.
+    """
+    if isinstance(doc_or_path, (str, Path)):
+        _doc = pdfium.PdfDocument(str(doc_or_path))
+        page = _doc[page_index]
+    else:
+        page = doc_or_path[page_index]
     scale = float(dpi) / 72.0
     bitmap = page.render(scale=scale)
     return bitmap.to_pil()
@@ -387,8 +398,8 @@ def process_pdf(
     if Image is None:
         raise RuntimeError(f"Pillow is required but unavailable: {_PIL_ERROR}")
 
-    doc = pdfium.PdfDocument(str(pdf_path))
-    total_pages = len(doc)
+    with pdfium.PdfDocument(str(pdf_path)) as _count_doc:
+        total_pages = len(_count_doc)
     page_count = min(total_pages, max_pages) if max_pages else total_pages
 
     markdown_dir = output_dir / "markdown"
@@ -418,10 +429,13 @@ def process_pdf(
         progress = None
 
     pdf_start = time.time()
+    # Each render_page call receives the PDF *path* rather than a shared
+    # PdfDocument handle.  pypdfium2 document objects are not thread-safe;
+    # passing the path lets every worker thread open its own private handle.
     with ThreadPoolExecutor(max_workers=_prefetch) as _render_pool:
         # Pre-fill the prefetch queue with the first _prefetch pages.
         _render_q: deque = deque(
-            _render_pool.submit(render_page, doc, pi, dpi)
+            _render_pool.submit(render_page, pdf_path, pi, dpi)
             for pi in range(min(_prefetch, page_count))
         )
         for page_index in range(page_count):
@@ -430,7 +444,7 @@ def process_pdf(
             # Enqueue the next page not yet in the queue.
             next_pi = page_index + _prefetch
             if next_pi < page_count:
-                _render_q.append(_render_pool.submit(render_page, doc, next_pi, dpi))
+                _render_q.append(_render_pool.submit(render_page, pdf_path, next_pi, dpi))
             image = _render_q.popleft().result()
             text = generate_page(
                 model, processor, image, prompt=prompt, max_tokens=effective_max_tokens
@@ -461,7 +475,6 @@ def process_pdf(
     )
     out_md.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     _write_metrics(out_metrics, page_count)
-    doc.close()
     return page_count
 
 
