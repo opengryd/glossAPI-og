@@ -34,20 +34,13 @@ LOGGER = logging.getLogger(__name__)
 # Keys whose values may be relative paths that need resolution.
 _PATH_KEYS = ("models-dir", "layoutreader-model-dir")
 
-# Batch-size knobs: (env_var, config_section, config_key, default_for_mps)
-# Reducing these from MinerU defaults (mfr: ~64, ocr-rec: ~6) prevents
-# unified-memory thrashing on Apple Silicon, which causes throughput to
-# collapse mid-stage (e.g. MFR Predict: 25 it/s → <3 it/s).
-_BATCH_KNOBS = (
-    # MFR (formula recognition) — most impactful; autoregressive model.
-    # 16 is chosen to halve peak KV-cache accumulation vs the previous default
-    # of 32, keeping each decoding pass short enough that the MPS allocator GC
-    # fires before tensors fragment the entire memory budget.
-    ("GLOSSAPI_MINERU_MFR_BATCH_SIZE",     "formula-config", "mfr_batch_size",  16),
-    # OCR recognition — text crop decoder.
-    ("GLOSSAPI_MINERU_OCR_REC_BATCH_SIZE", "ocr-config",     "rec_batch_num",   6),
-    # Layout detection — one-shot CNN, less sensitive but still tuneable.
-    ("GLOSSAPI_MINERU_LAYOUT_BATCH_SIZE",  "layout-config",  "batch_size",      None),
+# Enable/disable toggles: (env_var, config_section)
+# Each env var maps to the ``enable`` key in the named config section.
+# Set to ``0`` / ``false`` / ``no`` to skip the model pass entirely.
+# Set to ``1`` / ``true`` / ``yes`` to force-enable.
+_ENABLE_KNOBS = (
+    ("GLOSSAPI_MINERU_FORMULA_ENABLE", "formula-config"),
+    ("GLOSSAPI_MINERU_TABLE_ENABLE",   "table-config"),
 )
 
 # Well-known location of the config file beneath the weights root.
@@ -136,17 +129,14 @@ def resolve_config(
     device_mode:
         Optional device-mode override (``"cuda"``, ``"mps"``, ``"cpu"``).
 
-    Batch-size env vars
-    -------------------
-    GLOSSAPI_MINERU_MFR_BATCH_SIZE
-        Batch size for MFR (formula recognition).  Default applied when
-        *device_mode* is ``"mps"``: 32.  Set to ``0`` to leave MinerU's
-        own default untouched.
-    GLOSSAPI_MINERU_OCR_REC_BATCH_SIZE
-        Batch size for OCR recognition.  Default applied on MPS: 6.
-    GLOSSAPI_MINERU_LAYOUT_BATCH_SIZE
-        Batch size for layout detection.  No MPS default applied;
-        set explicitly to override MinerU's default.
+    Enable/disable env vars
+    -----------------------
+    GLOSSAPI_MINERU_FORMULA_ENABLE
+        Set to ``0`` to skip formula recognition (MFR) entirely.
+        Set to ``1`` to force-enable regardless of the base config.
+    GLOSSAPI_MINERU_TABLE_ENABLE
+        Set to ``0`` to skip table extraction.
+        Set to ``1`` to force-enable.
     """
     config_path = discover_config(env)
     if config_path is None:
@@ -191,47 +181,20 @@ def resolve_config(
         data["device-mode"] = device_mode
         changed = True
 
-    # Apply batch-size knobs from env vars.
-    # For MPS, inject defaults even when the env var is absent so that large
-    # documents don't exhaust unified memory mid-stage.
-    _is_mps = (device_mode == "mps") or (
-        device_mode is None and data.get("device-mode") == "mps"
-    )
-    for env_key, section, field, mps_default in _BATCH_KNOBS:
+    # Apply enable/disable toggles for optional model passes.
+    for env_key, section in _ENABLE_KNOBS:
         raw = (env or {}).get(env_key, "").strip()
-        if raw:
-            # Explicit override — always apply.
-            try:
-                val = int(raw)
-            except ValueError:
-                LOGGER.warning("%s=%r is not an integer; ignoring", env_key, raw)
-                continue
-            if val == 0:
-                # Explicit 0 → leave MinerU's default untouched.
-                continue
-        elif _is_mps and mps_default is not None:
-            # No explicit override, but we're on MPS and have a safe default.
-            # Only inject if the config doesn't already set a value.
-            existing = data.get(section, {})
-            if isinstance(existing, dict) and field in existing:
-                # Already set in magic-pdf.json — respect it.
-                continue
-            val = mps_default
-        else:
+        if not raw:
             continue
-
         section_data = data.setdefault(section, {})
         if not isinstance(section_data, dict):
-            LOGGER.warning(
-                "Cannot inject %s=%d: config section %r is not a dict",
-                field, val, section,
-            )
             continue
-        if section_data.get(field) != val:
-            section_data[field] = val
+        enabled = raw.lower() not in {"0", "false", "no"}
+        if section_data.get("enable") != enabled:
+            section_data["enable"] = enabled
             data[section] = section_data
             changed = True
-            LOGGER.debug("Injecting %s.%s=%d (via %s)", section, field, val, env_key or "MPS default")
+            LOGGER.debug("Setting %s.enable=%s (via %s)", section, enabled, env_key)
 
     if not changed:
         return config_path

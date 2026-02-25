@@ -173,6 +173,56 @@ def _inject_mps_memory_limits(env: Dict[str, str]) -> Dict[str, str]:
     return out
 
 
+def _detect_mps_ram_gb() -> Optional[int]:
+    """Return total physical RAM in GiB on macOS, or *None* elsewhere."""
+    if platform.system() != "Darwin":
+        return None
+    try:
+        output = subprocess.check_output(
+            ["sysctl", "-n", "hw.memsize"], stderr=subprocess.DEVNULL
+        )
+        return int(output.strip()) // (1024 ** 3)
+    except Exception:
+        return None
+
+
+def _inject_virtual_vram(env: Dict[str, str]) -> Dict[str, str]:
+    """Inject ``VIRTUAL_VRAM_SIZE`` so MinerU scales MFR ``batch_ratio`` on MPS.
+
+    MinerU's ``doc_analyze_by_custom_model.py`` uses ``VIRTUAL_VRAM_SIZE`` to
+    override the detected GPU memory when computing ``batch_ratio``.  After the
+    MPS branch patch applied by ``setup_glossapi.sh`` the following tiers apply
+    (MPS shares unified RAM between CPU and GPU, so only a portion is usable
+    for model tensors — tiers are intentionally conservative):
+
+    =========  =================  =======================
+    RAM (GiB)  VIRTUAL_VRAM_SIZE  Approximate batch_ratio
+    =========  =================  =======================
+    < 8        (skipped)          1  (MinerU default)
+    8–15       6                  ~2
+    16–23      8                  ~3
+    ≥ 24       12                 ~4
+    =========  =================  =======================
+
+    Injection is skipped when ``VIRTUAL_VRAM_SIZE`` is already present in *env*.
+    """
+    out = dict(env)
+    if "VIRTUAL_VRAM_SIZE" in out:
+        return out
+    ram_gb = _detect_mps_ram_gb()
+    if ram_gb is None or ram_gb < 8:
+        return out
+    if ram_gb < 16:
+        vram = "6"
+    elif ram_gb < 24:
+        vram = "8"
+    else:
+        vram = "12"
+    out["VIRTUAL_VRAM_SIZE"] = vram
+    LOGGER.debug("Injected VIRTUAL_VRAM_SIZE=%s (detected %d GiB RAM)", vram, ram_gb)
+    return out
+
+
 def _prepare_mineru_env(
     base_env: Dict[str, str],
     tmp_root: Path,
@@ -205,6 +255,7 @@ def _prepare_mineru_env(
     # injecting it on non-MPS systems is harmless.
     if device_mode == "mps" or (device_mode is None and platform.system() == "Darwin"):
         env_out = _inject_mps_memory_limits(env_out)
+        env_out = _inject_virtual_vram(env_out)
     return env_out
 
 

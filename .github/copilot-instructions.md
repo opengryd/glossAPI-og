@@ -339,9 +339,9 @@ categories:
 | `GLOSSAPI_MINERU_DEVICE_MODE` | Force device: `cuda` / `mps` / `cpu` (alias: `GLOSSAPI_MINERU_DEVICE`) |
 | `GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO` | `PYTORCH_MPS_HIGH_WATERMARK_RATIO` injected into subprocess. Default `0.0` = disable budget GC, rely on macOS pressure (no GPU stalls). Set `off` to revert to PyTorch's 1.7 default. |
 | `GLOSSAPI_MINERU_MPS_LOW_WATERMARK_RATIO` | Only used when high > 0. Auto-computed as `high - 0.2` if not set. |
-| `GLOSSAPI_MINERU_MFR_BATCH_SIZE` | Formula recognition batch size injected into `formula-config.mfr_batch_size` (default `16` on MPS; set `0` to leave MinerU default) |
-| `GLOSSAPI_MINERU_OCR_REC_BATCH_SIZE` | OCR-rec batch size injected into `ocr-config.rec_batch_num` (default `6` on MPS; set `0` to leave MinerU default) |
-| `GLOSSAPI_MINERU_LAYOUT_BATCH_SIZE` | Layout detection batch size injected into `layout-config.batch_size` (no MPS default; explicit only) |
+| `GLOSSAPI_MINERU_FORMULA_ENABLE` | Set to `0` to skip formula recognition (MFR) entirely; `1` to force-enable. Injected as `formula-config.enable`. |
+| `GLOSSAPI_MINERU_TABLE_ENABLE` | Set to `0` to skip table extraction; `1` to force-enable. Injected as `table-config.enable`. |
+| `VIRTUAL_VRAM_SIZE` | MinerU env var (no `GLOSSAPI_` prefix) overriding detected GPU memory for `batch_ratio` scaling. Auto-injected by GlossAPI on MPS based on physical RAM after the `setup_glossapi.sh` MPS branch patch (`8–15 GiB → "6"`, `16–23 GiB → "8"`, `≥․24 GiB → "12"`). |
 
 ### GLM-OCR
 

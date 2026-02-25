@@ -863,6 +863,25 @@ if [[ "${MODE}" == "mineru" ]]; then
   info "Installing unimernet (no deps) to avoid transformer downgrades"
   pip_run install --no-deps "unimernet" || warn "Unimernet install failed; MinerU math features may be unavailable."
 
+  # Patch MinerU to scale MFR batch_ratio on MPS (Apple Silicon).
+  # The upstream code only scales batch_ratio for cuda/npu; MPS always falls to
+  # batch_ratio=1 (effective MFR batch_size = 1×16 = 16 crops/batch).
+  # This sed edit adds the mps branch, so VIRTUAL_VRAM_SIZE can raise batch_ratio.
+  MINERU_MODEL_FILE="$(find "${VENV_PATH}/lib" -name "doc_analyze_by_custom_model.py" -path "*/magic_pdf/*" 2>/dev/null | head -1)"
+  if [[ -n "${MINERU_MODEL_FILE}" ]]; then
+    ORIG_COND="str(device).startswith('npu') or str(device).startswith('cuda')"
+    if grep -qF "${ORIG_COND}" "${MINERU_MODEL_FILE}" 2>/dev/null; then
+      sed -i '' "s/str(device)\.startswith('npu') or str(device)\.startswith('cuda')/str(device).startswith('npu') or str(device).startswith('cuda') or str(device).startswith('mps')/" \
+        "${MINERU_MODEL_FILE}" \
+        && info "Applied MPS batch_ratio patch to MinerU (${MINERU_MODEL_FILE})." \
+        || warn "MPS batch_ratio patch failed (non-fatal)."
+    else
+      info "MPS batch_ratio patch already applied or pattern not found; skipping."
+    fi
+  else
+    warn "Could not locate doc_analyze_by_custom_model.py; skipping MPS batch_ratio patch."
+  fi
+
   DETECTRON2_AVAILABLE=0
   if python_run - <<'PY'
 import importlib.util as iu
@@ -1116,9 +1135,7 @@ export GLOSSAPI_MINERU_COMMAND="${GLOSSAPI_MINERU_COMMAND:-}"
 export GLOSSAPI_MINERU_MODE="auto"
 export GLOSSAPI_SKIP_DOCLING_BOOT=1
 export MINERU_TOOLS_CONFIG_JSON="${MINERU_CONFIG_PATH}"
-export MINERU_MIN_BATCH_INFERENCE_SIZE=50
-export GLOSSAPI_MINERU_MFR_BATCH_SIZE=16
-export GLOSSAPI_MINERU_OCR_REC_BATCH_SIZE=6
+export MINERU_MIN_BATCH_INFERENCE_SIZE=500
 EOF
   info "Wrote MinerU env exports to ${ENV_FILE} (source it before running OCR)."
 fi
