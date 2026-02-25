@@ -23,8 +23,6 @@ MINERU_WEIGHTS_DIR="${GLOSSAPI_WEIGHTS_ROOT}/mineru"
 MINERU_COMMAND="${GLOSSAPI_MINERU_COMMAND:-}"
 DOWNLOAD_MINERU_MODELS=0
 MINERU_MODELS_REPO="${MINERU_MODELS_REPO:-opendatalab/PDF-Extract-Kit-1.0}"
-RUN_TESTS=0
-RUN_SMOKE=0
 
 usage() {
   cat <<'EOF'
@@ -45,8 +43,6 @@ Options:
   --download-mineru-models
                          Download MinerU model bundle
   --mineru-command PATH  Path to magic-pdf binary (optional; stored in GLOSSAPI_MINERU_COMMAND)
-  --run-tests            Run pytest -q after installation
-  --smoke-test           Run dependency_setup/deepseek_ocr_gpu_smoke.py (deepseek-ocr mode only)
   --help                 Show this help message
 EOF
 }
@@ -106,12 +102,6 @@ while (( "$#" )); do
     --mineru-command)
       shift || { echo "--mineru-command requires a path" >&2; exit 1; }
       MINERU_COMMAND="${1:-}"
-      ;;
-    --run-tests)
-      RUN_TESTS=1
-      ;;
-    --smoke-test)
-      RUN_SMOKE=1
       ;;
     --help|-h)
       usage
@@ -903,38 +893,6 @@ PY
   else
     warn "MinerU models not downloaded (use --download-mineru-models to fetch the PDF-Extract-Kit bundle)."
   fi
-fi
-
-if [[ "${RUN_TESTS}" -eq 1 ]]; then
-  pytest_args=("-q")
-  case "${MODE}" in
-    vanilla)
-      pytest_args+=("-m" "not rapidocr and not deepseek_ocr")
-      ;;
-    rapidocr)
-      pytest_args+=("-m" "not deepseek_ocr")
-      ;;
-    deepseek-ocr)
-      pytest_args+=("-m" "not rapidocr")
-      ;;
-    deepseek-ocr-2)
-      pytest_args+=("-m" "not rapidocr and not deepseek_ocr")
-      ;;
-    olmocr)
-      pytest_args+=("-m" "not rapidocr and not deepseek_ocr")
-      ;;
-    glm-ocr)
-      pytest_args+=("-m" "not rapidocr and not deepseek_ocr")
-      ;;
-  esac
-
-  info "Running pytest ${pytest_args[*]} tests"
-  python_run -m pytest "${pytest_args[@]}" tests
-fi
-
-if [[ "${MODE}" == "deepseek-ocr" && "${RUN_SMOKE}" -eq 1 ]]; then
-  info "Running DeepSeek OCR smoke test"
-  python_run "${SCRIPT_DIR}/deepseek_ocr_gpu_smoke.py"
 fi
 
 cat <<EOF

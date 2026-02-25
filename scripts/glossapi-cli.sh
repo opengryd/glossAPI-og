@@ -342,8 +342,6 @@ run_setup_wizard_interactive() {
 	local download_glmocr=0
 	local download_olmocr=0
 	local download_mineru=0
-	local run_tests=0
-	local smoke_test=0
 	local weights_root=""
 	local detectron2_auto_install=0
 	local detectron2_wheel_url=""
@@ -383,11 +381,6 @@ run_setup_wizard_interactive() {
 		fi
 	fi
 
-	gum_confirm "Run tests after setup?" 0 && run_tests=1 || run_tests=0
-	if [[ "${selected_mode}" == "deepseek-ocr" ]]; then
-		gum_confirm "Run DeepSeek OCR smoke test?" 0 && smoke_test=1 || smoke_test=0
-	fi
-
 	local args=("--mode" "${selected_mode}" "--venv" "${selected_venv}" "--python" "${selected_python}")
 	if [[ -n "${weights_root}" ]]; then
 		args+=("--weights-root" "${weights_root}")
@@ -406,12 +399,6 @@ run_setup_wizard_interactive() {
 	fi
 	if [[ "${download_mineru}" == "1" ]]; then
 		args+=("--download-mineru-models")
-	fi
-	if [[ "${run_tests}" == "1" ]]; then
-		args+=("--run-tests")
-	fi
-	if [[ "${smoke_test}" == "1" ]]; then
-		args+=("--smoke-test")
 	fi
 
 	local env_args=()
@@ -469,7 +456,7 @@ PY
 }
 
 run_setup_flow() {
-	if [[ -z "${MODE}" && -z "${VENV_DIR}" && -z "${DOWNLOAD_MINERU_MODELS}" && -z "${DOWNLOAD_DEEPSEEK_OCR}" && -z "${DOWNLOAD_DEEPSEEK_OCR2}" && -z "${DOWNLOAD_GLMOCR}" && -z "${DOWNLOAD_OLMOCR}" && -z "${WEIGHTS_ROOT}" && -z "${RUN_TESTS}" && -z "${SMOKE_TEST}" ]]; then
+	if [[ -z "${MODE}" && -z "${VENV_DIR}" && -z "${DOWNLOAD_MINERU_MODELS}" && -z "${DOWNLOAD_DEEPSEEK_OCR}" && -z "${DOWNLOAD_DEEPSEEK_OCR2}" && -z "${DOWNLOAD_GLMOCR}" && -z "${DOWNLOAD_OLMOCR}" && -z "${WEIGHTS_ROOT}" ]]; then
 		if ! have_gum; then
 			echo "gum is required for the interactive setup. Install it and re-run." >&2
 			exit 1
@@ -521,14 +508,6 @@ run_setup_flow() {
 			args+=("--download-mineru-models")
 		fi
 
-		if [[ "${RUN_TESTS}" == "1" ]]; then
-			args+=("--run-tests")
-		fi
-
-		if [[ "${MODE}" == "deepseek-ocr" && "${SMOKE_TEST}" == "1" ]]; then
-			args+=("--smoke-test")
-		fi
-
 		bash "${ROOT_DIR}/dependency_setup/setup_glossapi.sh" "${args[@]}"
 		SETUP_RAN=1
 	fi
@@ -542,8 +521,6 @@ DOWNLOAD_DEEPSEEK_OCR2="${DOWNLOAD_DEEPSEEK_OCR2:-}"
 DOWNLOAD_GLMOCR="${DOWNLOAD_GLMOCR:-}"
 DOWNLOAD_OLMOCR="${DOWNLOAD_OLMOCR:-}"
 WEIGHTS_ROOT="${WEIGHTS_ROOT:-${GLOSSAPI_WEIGHTS_ROOT:-}}"
-RUN_TESTS="${RUN_TESTS:-}"
-SMOKE_TEST="${SMOKE_TEST:-}"
 VENV_SETUP_REQUESTED=0
 SKIP_SETUP_PROMPT=0
 

@@ -226,8 +226,6 @@ def _run_setup(
     download_olmocr: bool,
     weights_root: Optional[str],
     download_mineru: bool,
-    run_tests: bool,
-    smoke_test: bool,
     detectron2_auto_install: bool,
     detectron2_wheel_url: Optional[str],
 ) -> bool:
@@ -249,10 +247,6 @@ def _run_setup(
         args.extend(["--weights-root", weights_root])
     if download_mineru:
         args.append("--download-mineru-models")
-    if run_tests:
-        args.append("--run-tests")
-    if smoke_test:
-        args.append("--smoke-test")
 
     env = os.environ.copy()
     if detectron2_wheel_url:
@@ -304,8 +298,6 @@ def main(
     download_mineru_models: bool = typer.Option(False, help="Download MinerU models."),
     detectron2_auto_install: bool = typer.Option(False, help="Auto-install detectron2 when using MinerU (macOS arm64)."),
     detectron2_wheel_url: Optional[str] = typer.Option(None, help="Detectron2 wheel URL for MinerU."),
-    run_tests: bool = typer.Option(False, help="Run profile-appropriate tests."),
-    smoke_test: bool = typer.Option(False, help="Run the DeepSeek smoke test."),
 ) -> None:
     if ctx.invoked_subcommand is not None:
         return
@@ -374,13 +366,7 @@ def main(
         elif d2_choice == "auto-install from source":
             detectron2_auto_install = True
 
-    # 6. Post-setup validation.
-    if not run_tests:
-        run_tests = _ask_bool("Run tests after setup?", default=False)
-    if selected_mode == "deepseek-ocr" and not smoke_test:
-        smoke_test = _ask_bool("Run DeepSeek OCR smoke test? (requires CUDA GPU)", default=False)
-
-    # 7. Summary panel — show everything before the script runs.
+    # 6. Summary panel — show everything before the script runs.
     summary = Table(show_header=False, box=None, padding=(0, 1))
     summary.add_row("Profile", f"[green]{selected_mode}[/green]")
     summary.add_row("Virtualenv", str(selected_venv))
@@ -396,10 +382,6 @@ def main(
     ]
     if weights_to_dl:
         summary.add_row("Download weights", ", ".join(weights_to_dl))
-    if run_tests:
-        summary.add_row("Tests", "✓")
-    if smoke_test:
-        summary.add_row("Smoke test", "✓")
     console.print(Panel(summary, title="Setup summary"))
     if not _ask_bool("Proceed with setup?", default=True):
         raise typer.Exit(code=0)
@@ -414,8 +396,6 @@ def main(
         download_olmocr=download_olmocr,
         weights_root=weights_root,
         download_mineru=download_mineru_models,
-        run_tests=run_tests,
-        smoke_test=smoke_test,
         detectron2_auto_install=detectron2_auto_install,
         detectron2_wheel_url=detectron2_wheel_url or None,
     )
@@ -423,8 +403,7 @@ def main(
     if not success:
         raise typer.Exit(code=1)
 
-    # 8. Handoff — offer to jump straight into a pipeline run.
-    # Offer to jump straight into a pipeline run with the just-installed backend
+    # 7. Handoff — offer to jump straight into a pipeline run with the just-installed backend
     # pre-selected so the user doesn't have to re-pick it from the menu.
     if _ask_bool("Run pipeline now?", default=True):
         from .pipeline_wizard import _run_wizard
