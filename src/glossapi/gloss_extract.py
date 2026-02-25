@@ -29,7 +29,11 @@ from docling.datamodel.settings import settings
 
 
 def _maybe_import_torch(*, force: bool = False):
-    """Return the torch module if already loaded or explicitly requested."""
+    """Return the torch module if already loaded or explicitly requested.
+
+    Mirrors :func:`glossapi.corpus.corpus_utils._maybe_import_torch`; kept
+    local to avoid a corpus → extractor circular import.
+    """
     torch_mod = sys.modules.get("torch")
     if torch_mod is not None:
         return torch_mod
@@ -37,7 +41,6 @@ def _maybe_import_torch(*, force: bool = False):
         return importlib.import_module("torch")  # type: ignore
     except Exception:
         return None
-    return None
 DocumentConverter = None
 PdfFormatOption = None
 WordFormatOption = None
@@ -48,7 +51,6 @@ MarkdownFormatOption = None
 CsvFormatOption = None
 StandardPdfPipeline = None
 DoclingParseV2DocumentBackend = None
-DoclingParseDocumentBackend = None
 PyPdfiumDocumentBackend = None
 
 
@@ -84,7 +86,7 @@ def _ensure_docling_converter_loaded() -> None:
 
 def _ensure_docling_pipeline_loaded() -> None:
     global _DOC_PIPELINE_LOADED, StandardPdfPipeline
-    global DoclingParseV2DocumentBackend, DoclingParseDocumentBackend, PyPdfiumDocumentBackend
+    global DoclingParseV2DocumentBackend, PyPdfiumDocumentBackend
     if _DOC_PIPELINE_LOADED:
         return
     try:
@@ -94,9 +96,6 @@ def _ensure_docling_pipeline_loaded() -> None:
         DoclingParseV2DocumentBackend = importlib.import_module(
             "docling.backend.docling_parse_v2_backend"
         ).DoclingParseV2DocumentBackend
-        DoclingParseDocumentBackend = importlib.import_module(
-            "docling.backend.docling_parse_backend"
-        ).DoclingParseDocumentBackend
         PyPdfiumDocumentBackend = importlib.import_module(
             "docling.backend.pypdfium2_backend"
         ).PyPdfiumDocumentBackend

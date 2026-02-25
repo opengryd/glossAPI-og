@@ -1,24 +1,14 @@
 from __future__ import annotations
 
-import json
+import functools
 import logging
-import math
 import os
-import queue
-import random
-import re
-import shutil
-import subprocess
-import sys
-import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
-import numpy as np
 import pandas as pd
 
 from .._naming import canonical_stem
-from ..gloss_downloader import GlossDownloader
 from ..gloss_section import GlossSection
 try:
     from ..gloss_section_classifier import GlossSectionClassifier  # type: ignore
@@ -114,7 +104,8 @@ class Corpus(
         self.sectioner = GlossSection()
         try:
             self.classifier = GlossSectionClassifier() if GlossSectionClassifier is not None else None  # type: ignore[call-arg, assignment]
-        except Exception:
+        except Exception as exc:
+            self.logger.debug("GlossSectionClassifier init failed (model/deps unavailable): %s", exc)
             self.classifier = None
 
         self._gpu_banner_logged = False
@@ -297,86 +288,65 @@ class Corpus(
                         return self._cache_metadata_parquet(located)
         return None
 
-    def _load_metadata(self) -> None:
-        """Load metadata file if provided and extract document type mapping."""
-        if self.metadata_path and self.metadata_path.exists():
-            try:
-                self.logger.info("Loading metadata from %s", self.metadata_path)
-                metadata_df = pd.read_parquet(self.metadata_path)
+    # ------------------------------------------------------------------
+    # Shared pipeline helpers (available to all phase mixins via self)
+    # ------------------------------------------------------------------
 
-                # Debug information
-                self.logger.info("Metadata file has %d rows and columns: %s", len(metadata_df), metadata_df.columns.tolist())
-                try:
-                    self.logger.info("Sample filenames: %s", metadata_df['filename'].head(3).tolist())
-                except Exception:
-                    pass
-                if 'document_type' not in metadata_df.columns:
-                    # Create a blank document_type column for downstream compatibility
-                    metadata_df['document_type'] = pd.Series([pd.NA] * len(metadata_df))
-                    self.logger.info("Added missing 'document_type' column to metadata (blank values)")
-                else:
-                    self.logger.info("Sample document types: %s", metadata_df['document_type'].head(3).tolist())
-                
-                # Create a mapping from filename to document_type
-                if 'filename' in metadata_df.columns and 'document_type' in metadata_df.columns:
-                    self.logger.info("Both 'filename' and 'document_type' columns found in metadata")
-                    
-                    # Check if filenames have extensions
-                    sample_filenames = metadata_df['filename'].head(100).tolist()
-                    if any('.' in str(f) for f in sample_filenames):
-                        self.logger.warning("Some filenames in metadata contain extensions. This may cause matching issues.")
-                        self.logger.warning("Will attempt to match filenames both with and without extensions.")
-                        
-                        # Create a mapping that works with or without extensions
-                        self.filename_to_doctype = {}
-                        
-                        for idx, row in metadata_df.iterrows():
-                            filename = row['filename']
-                            doctype = row['document_type']
-                            # Skip empty/NA document types
-                            try:
-                                if doctype is None:
-                                    continue
-                                if doctype is pd.NA or pd.isna(doctype):
-                                    continue
-                                if not str(doctype).strip():
-                                    continue
-                            except Exception:
-                                pass
-                            
-                            # Add the original filename
-                            self.filename_to_doctype[filename] = doctype
-                            
-                            # Add filename without extension
-                            if '.' in filename:
-                                base_filename = filename.rsplit('.', 1)[0]
-                                self.filename_to_doctype[base_filename] = doctype
-                            
-                            # Add filename with .md extension
-                            if not filename.endswith('.md'):
-                                md_filename = f"{filename}.md"
-                                self.filename_to_doctype[md_filename] = doctype
-                    else:
-                        # Simple dictionary mapping without extension handling (skip empty types)
-                        try:
-                            df_nt = metadata_df.copy()
-                            mask = (~df_nt['document_type'].isna()) & (df_nt['document_type'].astype(str).str.strip() != '')
-                            df_nt = df_nt[mask]
-                            self.filename_to_doctype = dict(zip(
-                                df_nt['filename'], 
-                                df_nt['document_type']
-                            ))
-                        except Exception:
-                            self.filename_to_doctype = {}
-                    
-                    self.logger.info("Loaded %d filename-to-doctype mappings", len(self.filename_to_doctype))
-                else:
-                    self.logger.warning("Metadata file does not contain 'filename' or 'document_type' columns")
-            except Exception as e:
-                self.logger.error("Error loading metadata: %s", e)
-        else:
+    @functools.cached_property
+    def _parquet_schema(self) -> "ParquetSchema":  # type: ignore[name-defined]
+        """Shared ParquetSchema instance, keyed by this corpus's url_column."""
+        from glossapi.parquet_schema import ParquetSchema
+        return ParquetSchema({"url_column": self.url_column})
+
+    def _get_skip_manager(self) -> "_SkiplistManager":
+        """Return a fresh skip-list manager backed by this run's skiplist file."""
+        path = _resolve_skiplist_path(self.output_dir, self.logger)
+        return _SkiplistManager(path, self.logger)
+
+    def _load_metadata(self) -> None:
+        """Load the metadata parquet and build a *canonical stem \u2192 document type* mapping."""
+        if not (self.metadata_path and self.metadata_path.exists()):
             if self.metadata_path:
                 self.logger.warning("Metadata file not found: %s", self.metadata_path)
+            return
+
+        try:
+            metadata_df = pd.read_parquet(self.metadata_path)
+            self.logger.info(
+                "Loading metadata from %s (%d rows, columns: %s)",
+                self.metadata_path,
+                len(metadata_df),
+                metadata_df.columns.tolist(),
+            )
+
+            if "document_type" not in metadata_df.columns:
+                metadata_df["document_type"] = pd.NA
+                self.logger.info("Added missing 'document_type' column to metadata")
+            if "filename" not in metadata_df.columns:
+                self.logger.warning("Metadata file is missing a 'filename' column; skipping mapping")
+                return
+
+            # Drop rows where document_type is absent or blank
+            mask = metadata_df["document_type"].notna() & (
+                metadata_df["document_type"].astype(str).str.strip() != ""
+            )
+            df_valid = metadata_df[mask]
+
+            # canonical_stem normalises any extension variant, so a single key
+            # per document matches regardless of .pdf / .md / no-extension form.
+            self.filename_to_doctype = {
+                canonical_stem(fn): dt
+                for fn, dt in zip(
+                    df_valid["filename"].astype(str),
+                    df_valid["document_type"].astype(str),
+                )
+                if fn
+            }
+            self.logger.info(
+                "Loaded %d filename-to-doctype mappings", len(self.filename_to_doctype)
+            )
+        except Exception as exc:
+            self.logger.error("Error loading metadata from %s: %s", self.metadata_path, exc)
 
     # All phase logic lives in the respective PhaseMixin classes inherited above.
 

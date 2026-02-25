@@ -1,40 +1,21 @@
 """Phase-1 extraction helpers split from Corpus."""
 from __future__ import annotations
 
-import json
-import logging
-import math
 import os
 import queue
-import random
-import re
 import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-import numpy as np
 import pandas as pd
 
 from .._naming import canonical_stem
-from ..gloss_downloader import GlossDownloader
 # Avoid importing section/classifier here; extract phase does not use them.
-from .corpus_skiplist import _SkiplistManager, _resolve_skiplist_path
 from .corpus_state import _ProcessingStateManager
-from .corpus_utils import _maybe_import_torch as _maybe_import_torch_fallback
-
-# Wrapper to allow tests to monkeypatch glossapi.corpus._maybe_import_torch.
-def _maybe_import_torch(force: bool = False):
-    try:
-        import glossapi.corpus as _corpus_pkg  # defer import to avoid cycles
-        pkg_fn = getattr(_corpus_pkg, "_maybe_import_torch", None)
-        if callable(pkg_fn):
-            return pkg_fn(force=force)
-    except Exception:
-        pass
-    return _maybe_import_torch_fallback(force=force)
+from .corpus_utils import _maybe_import_torch
 
 
 class ExtractPhaseMixin:
@@ -296,7 +277,7 @@ class ExtractPhaseMixin:
 
         """
         if not file_paths:
-            self.logger.info(f"Extracting {input_format} files to markdown...")
+            self.logger.info("Extracting %s files to markdown...", input_format)
 
         # We will prepare the extractor later (single-GPU branch). For multi-GPU,
         # we avoid importing heavy OCR deps in the parent.
@@ -320,7 +301,7 @@ class ExtractPhaseMixin:
 
         # If downloads directory doesn't exist or is empty, check input directory and move files
         if not downloads_dir.exists() or not any(downloads_dir.iterdir()):
-            self.logger.info(f"Downloads directory not found or empty at {downloads_dir}, checking input directory...")
+            self.logger.info("Downloads directory not found or empty at %s, checking input directory...", downloads_dir)
 
             # Create downloads directory if it doesn't exist
             os.makedirs(downloads_dir, exist_ok=True)
@@ -330,7 +311,7 @@ class ExtractPhaseMixin:
             for ext in supported_formats:
                 found_files = list(self.input_dir.glob(f"*.{ext}"))
                 if found_files:
-                    self.logger.info(f"Found {len(found_files)} .{ext} files in input directory, moving to downloads...")
+                    self.logger.info("Found %d .%s files in input directory, moving to downloads...", len(found_files), ext)
                     input_files_to_move.extend(found_files)
 
             # Move files to downloads directory
@@ -338,9 +319,9 @@ class ExtractPhaseMixin:
                 target_path = downloads_dir / file_path.name
                 if not target_path.exists():
                     shutil.copy2(file_path, target_path)
-                    self.logger.debug(f"Copied {file_path.name} to downloads directory")
+                    self.logger.debug("Copied %s to downloads directory", file_path.name)
 
-            self.logger.info(f"Moved {len(input_files_to_move)} files to downloads directory")
+            self.logger.info("Moved %d files to downloads directory", len(input_files_to_move))
 
         # Get input files from downloads directory unless explicit paths were provided
         input_files: List[Path] = []
@@ -349,14 +330,14 @@ class ExtractPhaseMixin:
                 input_files = [Path(p) for p in file_paths]
             except Exception as exc:
                 raise ValueError(f"Invalid file path supplied to extract(): {exc}")
-            self.logger.info(f"[Worker Batch] Processing {len(input_files)} direct file paths")
+                self.logger.info("[Worker Batch] Processing %d direct file paths", len(input_files))
         elif input_format.lower() == "all":
             input_files = []
             for ext in supported_formats:
                 found_files = list(downloads_dir.glob(f"*.{ext}"))
                 input_files.extend(found_files)
                 if found_files:
-                    self.logger.info(f"Found {len(found_files)} .{ext} files in downloads directory")
+                    self.logger.info("Found %d .%s files in downloads directory", len(found_files), ext)
 
             doc_files = list(downloads_dir.glob("*.doc"))
             if doc_files:
@@ -377,7 +358,7 @@ class ExtractPhaseMixin:
                     continue
 
                 current_files = list(downloads_dir.glob(f"*.{ext}"))
-                self.logger.info(f"Found {len(current_files)} files with extension .{ext}")
+                self.logger.info("Found %d files with extension .%s", len(current_files), ext)
                 input_files.extend(current_files)
         else:
             ext = "xml" if input_format.lower() == "xml_jats" else input_format.lower()
@@ -393,14 +374,13 @@ class ExtractPhaseMixin:
         if filenames and not file_paths:
             names = {str(n) for n in filenames}
             input_files = [p for p in input_files if p.name in names]
-            self.logger.info(f"Filtered to {len(input_files)} files from provided filename list")
+            self.logger.info("Filtered to %d files from provided filename list", len(input_files))
 
         if not input_files:
-            self.logger.warning(f"No {input_format} files found in {downloads_dir}")
+            self.logger.warning("No %s files found in %s", input_format, downloads_dir)
             return
 
-        skiplist_path = _resolve_skiplist_path(self.output_dir, self.logger)
-        skip_mgr = _SkiplistManager(skiplist_path, self.logger)
+        skip_mgr = self._get_skip_manager()
         skipped_stems = skip_mgr.load()
         if skipped_stems:
             before = len(input_files)
@@ -409,16 +389,16 @@ class ExtractPhaseMixin:
             if removed:
                 self.logger.warning(
                     "Skip-list %s filtered %d file(s) from Phase-1 dispatch.",
-                    skiplist_path,
+                    skip_mgr.path,
                     removed,
                 )
         else:
             skipped_stems = set()
 
-        self.logger.info(f"Found {len(input_files)} files to extract")
+        self.logger.info("Found %d files to extract", len(input_files))
 
         # Process all files
-        self.logger.info(f"Processing {len(input_files)} files...")
+        self.logger.info("Processing %d files...", len(input_files))
 
         # Multi-GPU orchestrator
         if str(use_gpus).lower() == "multi":
@@ -812,7 +792,7 @@ class ExtractPhaseMixin:
                 from ..gloss_extract import GlossExtract  # local import to avoid import-time heavy deps
                 self.extractor = GlossExtract(url_column=self.url_column)
             except Exception as e:
-                self.logger.error(f"Failed to initialize GlossExtract: {e}")
+                self.logger.error("Failed to initialize GlossExtract: %s", e)
                 raise
         # Configure Phase-1 helpers on extractor
         try:
@@ -893,7 +873,7 @@ class ExtractPhaseMixin:
                 self.extractor.extract_path(input_files, self.markdown_dir, skip_existing=skip_existing)
         else:
             self.extractor.extract_path(input_files, self.markdown_dir, skip_existing=skip_existing)
-        self.logger.info(f"Extraction complete. Markdown files saved to {self.markdown_dir}")
+        self.logger.info("Extraction complete. Markdown files saved to %s", self.markdown_dir)
         # Auto-emit perf snapshot after completed extraction
         try:
             self._maybe_emit_perf_report()

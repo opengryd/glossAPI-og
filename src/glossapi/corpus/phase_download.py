@@ -1,29 +1,14 @@
 """Download phase helpers split from Corpus."""
 from __future__ import annotations
 
-import json
-import logging
-import math
 import os
-import queue
-import random
-import re
-import shutil
-import subprocess
-import sys
-import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Optional, Union
 
-import numpy as np
 import pandas as pd
 
 from .._naming import canonical_stem
 from ..gloss_downloader import GlossDownloader
-# Avoid importing section/classifier here; download phase does not use them.
-from .corpus_skiplist import _SkiplistManager, _resolve_skiplist_path
-from .corpus_state import _ProcessingStateManager
-from .corpus_utils import _maybe_import_torch
 
 
 class DownloadPhaseMixin:

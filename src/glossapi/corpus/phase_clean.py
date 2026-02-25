@@ -1,7 +1,6 @@
 """Cleaning and filtering helpers split from Corpus."""
 from __future__ import annotations
 
-import json
 import logging
 import math
 import os
@@ -691,8 +690,3 @@ class CleanPhaseMixin:
 
         # Keep markdown_dir pointing at raw markdown; downstream stages should
         # explicitly use cleaned_markdown_dir when available.
-
-    def filter(self, *args, **kwargs):  # type: ignore[override]
-        """Deprecated: use :py:meth:`clean` instead.  Retained for one release."""
-        self.logger.warning("Corpus.filter() is deprecated – calling clean() instead")
-        self.clean(*args, **kwargs)

@@ -1,31 +1,28 @@
 """OCR and math enrichment helpers split from Corpus."""
 from __future__ import annotations
 
-import json
-import logging
-import math
 import os
 import platform
 import queue
-import random
-import re
-import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-import numpy as np
 import pandas as pd
 
 from .._naming import canonical_stem
-from ..gloss_downloader import GlossDownloader
-from ..gloss_section import GlossSection
-# Avoid importing classifier here; OCR/math phase does not require it at import time.
-from .corpus_skiplist import _SkiplistManager, _resolve_skiplist_path
 from .corpus_state import _ProcessingStateManager
 from .corpus_utils import _maybe_import_torch
+
+# Valid OCR backend identifiers
+_VALID_BACKENDS: frozenset = frozenset(
+    {"rapidocr", "deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "mineru", "olmocr"}
+)
+# Backends that inline equations (Phase-2 math enrichment is a no-op for these)
+_INLINE_BACKENDS: frozenset = frozenset(
+    {"deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "mineru", "olmocr"}
+)
 
 
 class OcrMathPhaseMixin:
@@ -80,8 +77,8 @@ class OcrMathPhaseMixin:
         max_pages: Optional[int] = None,
         persist_engine: bool = True,
         limit: Optional[int] = None,
-        dpi: Optional[int] = None,        # reserved for future use
-        precision: Optional[str] = None,  # reserved for future use ("fp16","bf16")
+        dpi: Optional[int] = None,
+        precision: Optional[str] = None,
         # Integrated math enrichment controls
         math_enhance: bool = True,
         math_targets: Optional[Dict[str, List[Tuple[int, int]]]] = None,
@@ -92,9 +89,7 @@ class OcrMathPhaseMixin:
         reprocess_completed: Optional[bool] = None,
         skip_existing: Optional[bool] = None,
         # Content debug: keep page separators and truncation markers when True.
-        # Pass CONTENT_DEBUG=True (uppercase) to take precedence over the positional flag.
         content_debug: bool = False,
-        CONTENT_DEBUG: Optional[bool] = None,
     ) -> None:
         """OCR and/or math enrichment with explicit mode control.
 
@@ -123,14 +118,16 @@ class OcrMathPhaseMixin:
         - skip_existing: legacy alias for ``reprocess_completed`` (``skip_existing=True`` equals
           ``reprocess_completed=False``). Prefer the explicit ``reprocess_completed`` toggle.
         """
+        # Guard reserved parameters that are not yet implemented
+        if dpi is not None:
+            raise NotImplementedError("dpi parameter is reserved for future use and not yet implemented")
+        if precision is not None:
+            raise NotImplementedError("precision parameter is reserved for future use and not yet implemented")
+
         # Normalize backend
         backend_norm = str(backend or "rapidocr").strip().lower()
-        if backend_norm not in {"rapidocr", "deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "mineru", "olmocr"}:
-            raise ValueError("backend must be 'rapidocr', 'deepseek-ocr', 'deepseek-ocr-2', 'glm-ocr', 'mineru', or 'olmocr'")
-
-        # CONTENT_DEBUG uppercase alias takes precedence over the lowercase flag.
-        if CONTENT_DEBUG is not None:
-            content_debug = bool(CONTENT_DEBUG)
+        if backend_norm not in _VALID_BACKENDS:
+            raise ValueError(f"backend must be one of: {', '.join(sorted(_VALID_BACKENDS))}")
 
         # Normalize mode from explicit value or legacy flags
         mode_norm = None
@@ -155,7 +152,8 @@ class OcrMathPhaseMixin:
                 return
         if skip_existing is not None:
             self.logger.warning(
-                "Corpus.ocr(skip_existing=...) is deprecated; use reprocess_completed=... instead."
+                "Corpus.ocr(skip_existing=...) is deprecated and will be removed in a future major release; "
+                "use reprocess_completed=... instead."
             )
             reprocess_completed = not bool(skip_existing)
         if reprocess_completed is None:
@@ -171,7 +169,7 @@ class OcrMathPhaseMixin:
             pass
 
         # Non-Docling backend semantics note: these backends inline equations
-        if backend_norm in {"deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "mineru", "olmocr"}:
+        if backend_norm in _INLINE_BACKENDS:
             _backend_labels = {
                 "deepseek-ocr": "DeepSeek OCR",
                 "deepseek-ocr-2": "DeepSeek OCR v2",
@@ -208,14 +206,13 @@ class OcrMathPhaseMixin:
                 ocr_done: Set[str] = set()
                 if "ocr_success" in df.columns:
                     ocr_done_files = df.loc[df["ocr_success"].fillna(False), "filename"].dropna().astype(str).tolist()
-                    ocr_done = {canonical_stem(str(name)) for name in ocr_done_files}
+                    ocr_done = _ProcessingStateManager._canonical_set(ocr_done_files)
                     ocr_done_stems = set(ocr_done)
-                if "math_enriched" in df.columns:
-                    math_done_files = df.loc[df["math_enriched"].fillna(False), "filename"].dropna().astype(str).tolist()
-                elif "enriched_math" in df.columns:
-                    math_done_files = df.loc[df["enriched_math"].fillna(False), "filename"].dropna().astype(str).tolist()
+                _math_col = "math_enriched" if "math_enriched" in df.columns else "enriched_math"
+                if _math_col in df.columns:
+                    math_done_files = df.loc[df[_math_col].fillna(False), "filename"].dropna().astype(str).tolist()
                 if math_done_files:
-                    math_done_stems = {canonical_stem(str(name)) for name in math_done_files}
+                    math_done_stems = _ProcessingStateManager._canonical_set(math_done_files)
                 if not reprocess_completed and ocr_done:
                     before = len(bad_files)
                     bad_files = [name for name in bad_files if canonical_stem(name) not in ocr_done]
@@ -235,12 +232,13 @@ class OcrMathPhaseMixin:
                 parquet_meta = df
             else:
                 parquet_meta = None
-        except Exception:
-            pass
+        except Exception as exc:
+            self.logger.warning(
+                "OCR: failed to load metadata parquet; OCR selection may be empty: %s", exc
+            )
 
         ocr_candidates_initial = len(bad_files)
-        skiplist_path = _resolve_skiplist_path(self.output_dir, self.logger)
-        skip_mgr = _SkiplistManager(skiplist_path, self.logger)
+        skip_mgr = self._get_skip_manager()
         skip_stems = skip_mgr.load()
         if skip_stems:
             before = len(bad_files)
@@ -250,7 +248,7 @@ class OcrMathPhaseMixin:
                 skipped_skiplist = removed
                 self.logger.warning(
                     "Skip-list %s filtered %d document(s) from Phase-3 OCR.",
-                    skiplist_path,
+                    skip_mgr.path,
                     removed,
                 )
         try:
@@ -278,7 +276,7 @@ class OcrMathPhaseMixin:
                 if removed:
                     self.logger.warning(
                         "Skip-list %s filtered %d document(s) from Phase-2 math.",
-                        skiplist_path,
+                        skip_mgr.path,
                         removed,
                     )
                 if not stems:

@@ -43,6 +43,11 @@ log = logging.getLogger(__name__)
 
 
 def _maybe_import_torch(*, force: bool = False):
+    """Return the torch module if already loaded or explicitly requested.
+
+    Mirrors :func:`glossapi.corpus.corpus_utils._maybe_import_torch`; kept
+    local to avoid an ocr → corpus circular import.
+    """
     torch_mod = sys.modules.get("torch")
     if torch_mod is not None:
         return torch_mod
@@ -50,7 +55,6 @@ def _maybe_import_torch(*, force: bool = False):
         return importlib.import_module("torch")  # type: ignore
     except Exception:
         return None
-    return None
 
 
 def _available_ort_providers() -> str:
