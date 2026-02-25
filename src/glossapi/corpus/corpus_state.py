@@ -12,6 +12,14 @@ from .._naming import canonical_stem
 from ..parquet_schema import ParquetSchema
 
 
+def _mark_processing_stage(current: str, stage: str) -> str:
+    """Append *stage* to a comma-separated *current* stage string if not already present."""
+    parts = [p for p in (current or "").split(",") if p]
+    if stage and stage not in parts:
+        parts.append(stage)
+    return ",".join(parts)
+
+
 class _ProcessingStateManager:
     """
     Maintain resume checkpoints using the canonical pipeline metadata parquet.

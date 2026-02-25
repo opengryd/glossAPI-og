@@ -126,6 +126,7 @@ The runner tries three strategies in order: **in-process** (fast, model stays lo
 - `GLOSSAPI_MINERU_MODE`: override the MinerU mode flag (passed to `magic-pdf -m`, default `auto`).
 - `GLOSSAPI_MINERU_BACKEND`: override the MinerU backend (passed to `magic-pdf -b`, e.g. `pipeline`, `hybrid-auto-engine`, `vlm`).
 - `GLOSSAPI_MINERU_DEVICE_MODE`: override the MinerU device mode (`mps`, `cuda`, or `cpu`). Requires `MINERU_TOOLS_CONFIG_JSON` to point at the base config.
+- `MINERU_MIN_BATCH_INFERENCE_SIZE` (default `384` in MinerU): number of pages processed per inference batch. Set to a value larger than your document's page count (e.g. `500`) to avoid mid-document splits — configure in `dependency_setup/.env_mineru`.
 
 #### MinerU doctor checks
 

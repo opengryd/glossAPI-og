@@ -137,9 +137,6 @@ class CleanPhaseMixin:
             empty_char_threshold: Character threshold (after stripping comments and whitespace) that flags markdown as nearly empty. Default 0 only enforces the zero-character safeguard.
             empty_min_pages: Minimum page count for a low-character document to trigger an OCR rerun recommendation.
         """
-        from pathlib import Path
-        import shutil
-        import pandas as pd
         from glossapi.parquet_schema import ParquetSchema
 
         if input_dir is None:

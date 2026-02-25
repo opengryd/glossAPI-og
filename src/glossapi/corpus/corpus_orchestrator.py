@@ -148,8 +148,7 @@ class Corpus(
             self.classifier = GlossSectionClassifier() if GlossSectionClassifier is not None else None  # type: ignore[call-arg, assignment]
         except Exception:
             self.classifier = None
-        
-        self.output_dir = Path(output_dir)
+
         self.downloads_dir = self.output_dir / "downloads"
         self.markdown_dir = self.output_dir / "markdown"
         self.sections_dir = self.output_dir / "sections"

@@ -23,7 +23,7 @@ from ..gloss_downloader import GlossDownloader
 from ..gloss_section import GlossSection
 # Avoid importing classifier here; section phase does not require it at import time.
 from .corpus_skiplist import _SkiplistManager, _resolve_skiplist_path
-from .corpus_state import _ProcessingStateManager
+from .corpus_state import _ProcessingStateManager, _mark_processing_stage
 from .corpus_utils import _maybe_import_torch
 
 
@@ -79,7 +79,7 @@ class SectionPhaseMixin:
                                 df_meta['processing_stage'] = pd.NA
                             sel_idx = good_rows.index
                             df_meta.loc[sel_idx, 'processing_stage'] = df_meta.loc[sel_idx, 'processing_stage'].apply(
-                                lambda x: (str(x) + ',section') if (pd.notna(x) and 'section' not in str(x)) else ('download,extract,section' if pd.isna(x) else x)
+                                lambda x: _mark_processing_stage(str(x) if pd.notna(x) else "", "section")
                             )
                             # Write back in-place
                             self._cache_metadata_parquet(parquet_path)

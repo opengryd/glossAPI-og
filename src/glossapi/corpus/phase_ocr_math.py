@@ -233,7 +233,7 @@ class OcrMathPhaseMixin:
                 import pandas as _pd
                 df = _pd.read_parquet(parquet_path)
                 if "filename" in df.columns and "needs_ocr" in df.columns:
-                    bad_files = df.loc[df["needs_ocr"] == True, "filename"].dropna().astype(str).tolist()
+                    bad_files = df.loc[df["needs_ocr"].fillna(False), "filename"].dropna().astype(str).tolist()
                 else:
                     # No fallback: selection relies strictly on the 'needs_ocr' flag
                     # populated by the cleaner. If missing, we skip OCR selection.

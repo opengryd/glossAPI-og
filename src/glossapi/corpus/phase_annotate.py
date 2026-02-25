@@ -24,7 +24,7 @@ from ..gloss_section import GlossSection
 # Avoid importing classifier at import time; annotate() checks model presence and
 # uses the instance classifier initialized by the orchestrator when available.
 from .corpus_skiplist import _SkiplistManager, _resolve_skiplist_path
-from .corpus_state import _ProcessingStateManager
+from .corpus_state import _ProcessingStateManager, _mark_processing_stage
 from .corpus_utils import _maybe_import_torch
 
 
@@ -126,43 +126,11 @@ class AnnotatePhaseMixin:
 
             # Use the fully annotated output for adding document types
             self._add_document_types(self.fully_annotated_parquet)
-
-            # Update processing_stage in the fully annotated parquet
-            try:
-                # Read the fully annotated parquet
-                df = pd.read_parquet(self.fully_annotated_parquet)
-
-                # Add annotate to processing stage
-                if 'processing_stage' in df.columns:
-                    df['processing_stage'] = df['processing_stage'].apply(lambda x: x + ',annotate' if 'annotate' not in str(x) else x)
-                else:
-                    df['processing_stage'] = 'section,annotate'
-
-                # Write back
-                df.to_parquet(self.fully_annotated_parquet, index=False)
-                self.logger.info("Updated processing_stage to include 'annotate' stage")
-            except Exception as e:
-                self.logger.warning(f"Failed to update processing_stage in fully annotated parquet: {e}")
+            self._update_processing_stage_in_parquet(self.fully_annotated_parquet, "annotate")
         else:
             # Add document types to the classified output
             self._add_document_types(self.classified_parquet)
-
-            # Update processing_stage in the classified parquet when not doing full annotation
-            try:
-                # Read the classified parquet
-                df = pd.read_parquet(self.classified_parquet)
-
-                # Add annotate to processing stage
-                if 'processing_stage' in df.columns:
-                    df['processing_stage'] = df['processing_stage'].apply(lambda x: x + ',annotate' if 'annotate' not in str(x) else x)
-                else:
-                    df['processing_stage'] = 'section,annotate'
-
-                # Write back
-                df.to_parquet(self.classified_parquet, index=False)
-                self.logger.info("Updated processing_stage to include 'annotate' stage")
-            except Exception as e:
-                self.logger.warning(f"Failed to update processing_stage in classified parquet: {e}")
+            self._update_processing_stage_in_parquet(self.classified_parquet, "annotate")
 
     def _add_document_types(self, parquet_file: Path) -> None:
         """
@@ -202,4 +170,19 @@ class AnnotatePhaseMixin:
             except Exception as e:
                 self.logger.error(f"Error adding document types: {e}")
         else:
-            self.logger.warning(f"File not found: {parquet_file}")
+            self.logger.warning("File not found: %s", parquet_file)
+
+    def _update_processing_stage_in_parquet(self, parquet_path: Path, stage: str) -> None:
+        """Append *stage* to the ``processing_stage`` column of *parquet_path* and save in-place."""
+        try:
+            df = pd.read_parquet(parquet_path)
+            if "processing_stage" in df.columns:
+                df["processing_stage"] = df["processing_stage"].apply(
+                    lambda x: _mark_processing_stage(str(x) if pd.notna(x) else "", stage)
+                )
+            else:
+                df["processing_stage"] = stage
+            df.to_parquet(parquet_path, index=False)
+            self.logger.info("Updated processing_stage to include '%s' stage", stage)
+        except Exception as e:
+            self.logger.warning("Failed to update processing_stage in %s: %s", parquet_path, e)

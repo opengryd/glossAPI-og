@@ -90,20 +90,12 @@ class ExtractPhaseMixin:
         self.extractor.enable_accel(threads=threads_effective, type=accel_type)
 
         # Images scale env default (boost OCR fidelity when OCR is enabled)
-        try:
-            import os as _os
-            default_scale = "1.5" if force_ocr else "1.25"
-            images_scale_env = _os.getenv("GLOSSAPI_IMAGES_SCALE", default_scale)
-        except Exception:
-            images_scale_env = "1.5" if force_ocr else "1.25"
+        default_scale = "1.5" if force_ocr else "1.25"
+        images_scale_env = os.getenv("GLOSSAPI_IMAGES_SCALE", default_scale)
 
         # OCR languages (comma-separated), e.g. GLOSSAPI_OCR_LANGS=el,en
-        try:
-            import os as _os
-            ocr_langs_env = _os.getenv("GLOSSAPI_OCR_LANGS", "")
-            ocr_langs = [lang.strip() for lang in ocr_langs_env.split(",") if lang.strip()]
-        except Exception:
-            ocr_langs = []
+        ocr_langs_env = os.getenv("GLOSSAPI_OCR_LANGS", "")
+        ocr_langs = [lang.strip() for lang in ocr_langs_env.split(",") if lang.strip()]
 
         # Hard GPU preflight before we attempt to build OCR/enrichment pipelines
         self._gpu_preflight(
@@ -308,9 +300,8 @@ class ExtractPhaseMixin:
 
         # We will prepare the extractor later (single-GPU branch). For multi-GPU,
         # we avoid importing heavy OCR deps in the parent.
-        import os as _os
-        images_scale_env = _os.getenv("GLOSSAPI_IMAGES_SCALE", "1.25")
-        formula_batch_env = _os.getenv("GLOSSAPI_FORMULA_BATCH", "16")
+        images_scale_env = os.getenv("GLOSSAPI_IMAGES_SCALE", "1.25")
+        formula_batch_env = os.getenv("GLOSSAPI_FORMULA_BATCH", "16")
         # Create output directory for downstream stages
         os.makedirs(self.markdown_dir, exist_ok=True)
 
