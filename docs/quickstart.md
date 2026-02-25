@@ -59,6 +59,7 @@ c.extract(input_format='pdf', use_gpus='multi', force_ocr=True)
 > via backend-specific env vars. Use `c.ocr(backend=...)` instead of `c.extract(accel_type=...)`:
 
 ```python
+c.ocr(backend='rapidocr')     # macOS: MPS/CoreML auto-selected; Linux/Windows: CUDA auto-selected
 c.ocr(backend='deepseek-ocr')  # macOS: MLX/MPS auto-selected; Linux/Windows: CUDA/vLLM
 c.ocr(backend='glm-ocr')       # macOS: MLX/MPS auto-selected
 c.ocr(backend='olmocr')        # macOS: MLX/MPS; Linux: CUDA/vLLM

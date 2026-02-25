@@ -136,6 +136,22 @@ Outputs:
 - `markdown/<stem>.md` — enriched Markdown overwrites the plain MD
 - `json/<stem>.latex_map.jsonl` — LaTeX strings + acceptance/metrics per item
 
+### Phase‑2 on Apple Silicon
+
+On M-series hardware the Phase-2 enrichment loop uses two concurrent execution units:
+
+- **Background prefetch thread** — rasterizes upcoming PDF pages via pypdfium2 (CPU-bound) while
+  the main thread is running the CodeFormula model on the ANE/GPU.  This keeps both units
+  continuously busy rather than alternating.
+- **True LRU page cache** — 16-page capacity (up from 4), thread-safe, with O(1) hit promotion.
+  Hot pages with many formulas are no longer evicted in favour of cold pages.
+- **Single-render path** — adaptive DPI is computed from native PDF point coordinates (a free
+  metadata read) so each page is rendered exactly once at the final DPI, halving peak memory
+  usage during enrichment.
+- **Metal buffer cleanup** — `torch.mps.synchronize()` + `torch.mps.empty_cache()` are called
+  after each document to return fragmented Metal allocator heap pages to the OS pool before
+  the next document is processed, preventing swap pressure on long runs.
+
 ## DeepSeek-OCR usage
 
 Run OCR for files flagged by the cleaner as needing OCR (math flags are ignored for DeepSeek-OCR):
@@ -369,6 +385,15 @@ OUT/
 - Torch reports no CUDA
   - Check `nvidia-smi` and match Torch CUDA build to your driver.
 - OCR is slow or falls back to CPU
-  - Confirm ORT providers include CUDAExecutionProvider and that `accel_type='CUDA'` is used.
-- Out of memory
+  - Confirm ORT providers include `CUDAExecutionProvider` (Linux) or `CoreMLExecutionProvider` (macOS)
+    and that `accel_type='CUDA'`/`'MPS'` is used for `c.extract()`.  When calling
+    `c.ocr(backend='rapidocr')` the accelerator is auto-detected — no explicit `accel_type` needed.
+  - On macOS, if `CoreMLExecutionProvider` is absent in `onnxruntime`, consider the native
+    Apple Vision Framework path instead (see [Apple Vision Framework](configuration.md#apple-vision-framework-macos-only)).
+- Out of memory during Phase‑2 on Apple Silicon
+  - Lower `batch_size` (e.g. `8`) and reduce `GLOSSAPI_IMAGES_SCALE` (e.g. `1.1`).
+  - The cleanup pass at end of each document (`torch.mps.synchronize` + `torch.mps.empty_cache`)
+    is automatic; if pressure persists, increase the inter-document gap by calling
+    `time.sleep(0.5)` between documents in a custom loop.
+- Out of memory (CUDA)
   - Lower `batch_size` for Phase‑2, reduce `GLOSSAPI_IMAGES_SCALE`, or split inputs.

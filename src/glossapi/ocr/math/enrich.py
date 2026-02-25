@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 import os
 import re
 from pathlib import Path
-from typing import Any, Iterable, List, Optional, Tuple
+from typing import Any, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -27,27 +29,109 @@ class RoiEntry:
 
 
 class PageRasterCache:
-    def __init__(self, pdf_path: Path, max_cached_pages: int = 4):
+    """Thread-safe page rasterizer with a true LRU eviction policy.
+
+    Improvements vs the previous implementation:
+
+    * Uses ``collections.OrderedDict`` for O(1) LRU moves instead of a plain
+      ``dict`` with FIFO eviction (``next(iter())`` gave insertion-order, not
+      recency order, so hot pages with many formulas were evicted first).
+    * Default capacity raised from 4 → 16 pages.  On M-series hardware with
+      unified memory, 16 × ~30 MB (A3 page at 220 DPI) ≈ 480 MB — well within
+      budget for a typical 8–16 GB Mac.
+    * Thread-safe: a ``threading.Lock`` guards all cache mutations so the
+      background prefetch thread and the main inference loop never race.
+    * Exposes ``page_height_pts()`` to read the native page height in PDF
+      points without rasterizing, enabling single-render per ROI (see below).
+    """
+
+    def __init__(self, pdf_path: Path, max_cached_pages: int = 16):
         if pdfium is None:
             raise RuntimeError("pypdfium2 not available; cannot rasterize PDF")
         self.doc = pdfium.PdfDocument(str(pdf_path))
-        self.cache: dict[Tuple[int, int], Any] = {}
+        # OrderedDict preserves insertion order; we bump an entry to the end on
+        # each access so the front is always the least-recently-used entry.
+        self._cache: OrderedDict[Tuple[int, int], Any] = OrderedDict()
         self.max_cached = int(max_cached_pages)
+        self._lock = threading.Lock()
+
+    def page_height_pts(self, page_no_1b: int) -> float:
+        """Return the page height in PDF points (1 pt = 1/72 inch).
+
+        This is a metadata read — pypdfium2 reads only the page dictionary,
+        not the content stream, so it is effectively free.
+        """
+        page = self.doc[int(page_no_1b) - 1]
+        # pypdfium2 exposes width/height via get_width() / get_height()
+        return float(page.get_height())
 
     def get_pil(self, page_no_1b: int, dpi: int):
+        """Return a PIL Image of the page at the requested DPI.
+
+        On a cache hit the entry is promoted to the MRU end.  On a miss the
+        page is rasterised, cached, and the LRU entry is evicted if the cache
+        is full.  All mutations are protected by ``self._lock`` so the method
+        is safe to call from multiple threads simultaneously.
+        """
         key = (int(page_no_1b), int(dpi))
-        if key in self.cache:
-            return self.cache[key]
+        with self._lock:
+            if key in self._cache:
+                # Promote to MRU end — O(1) with OrderedDict
+                self._cache.move_to_end(key)
+                return self._cache[key]
+
+        # Rasterize outside the lock: pypdfium2 rendering is CPU-bound and can
+        # run concurrently with other cache readers on different pages.
         page = self.doc[int(page_no_1b) - 1]
         scale = float(dpi) / 72.0
         bm = page.render(scale=scale)
         im = bm.to_pil()
-        # naive LRU: cap cache size
-        self.cache[key] = im
-        if len(self.cache) > self.max_cached:
-            # pop arbitrary oldest key
-            self.cache.pop(next(iter(self.cache)))
-        return im
+
+        with self._lock:
+            # Another thread may have rasterized the same page concurrently;
+            # accept whichever result arrived first and discard the duplicate.
+            if key not in self._cache:
+                self._cache[key] = im
+                # Evict LRU entries until we are within capacity.
+                while len(self._cache) > self.max_cached:
+                    self._cache.popitem(last=False)  # remove LRU (front)
+        return self._cache[key]
+
+
+class _PagePrefetcher:
+    """Background thread that pre-rasterizes upcoming pages into PageRasterCache.
+
+    This implements a simple producer-consumer pattern: the main thread is the
+    consumer (crops → batch → GPU inference) and the prefetcher is the producer
+    (pypdfium2 rasterization, CPU-bound).
+
+    On Apple Silicon the CPU cores and the ANE/GPU share unified memory but run
+    independently, so overlapping CPU rasterization with ANE inference eliminates
+    most of the GPU stall time between consecutive batches.
+    """
+
+    def __init__(self, rc: PageRasterCache, rois: Sequence[RoiEntry], dpi_for_roi_fn):
+        self._rc = rc
+        self._rois = rois
+        self._dpi_for_roi_fn = dpi_for_roi_fn
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True,
+                                        name="enrich-prefetch")
+        self._thread.start()
+
+    def _run(self) -> None:
+        for roi in self._rois:
+            if self._stop.is_set():
+                break
+            try:
+                dpi = self._dpi_for_roi_fn(roi)
+                self._rc.get_pil(roi.page_no, dpi)
+            except Exception:
+                pass  # main thread will surface the error when it tries the same page
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=2.0)
 
 
 def _dpi_for_bbox(px_h: float, *, base: int = 220, lo: int = 180, hi: int = 320) -> int:
@@ -97,7 +181,7 @@ def enrich_from_docling_json(
     from docling.datamodel.base_models import ItemAndImageEnrichmentElement  # type: ignore
 
     doc = load_docling_json(json_path)
-    rc = PageRasterCache(pdf_path)
+    rc = PageRasterCache(pdf_path, max_cached_pages=16)
 
     # Collect ROIs (optionally filter by explicit (page_no, per_page_ix) targets)
     rois: list[RoiEntry] = []
@@ -310,39 +394,76 @@ def enrich_from_docling_json(
             batch = []
             binfo = []
 
-        print(f"[Phase-2] {json_path.stem}: {len(rois)} items to enrich …")
-        for entry in rois:
-            dpi = int(dpi_base)
-            im = rc.get_pil(entry.page_no, dpi)
-            l, t, r, b = _crop_box_pixels(entry.bbox, pil_h=im.height, dpi=dpi)
-            dpi = _dpi_for_bbox(b - t, base=dpi_base, lo=dpi_lo, hi=dpi_hi)
-            im = rc.get_pil(entry.page_no, dpi)
-            l, t, r, b = _crop_box_pixels(entry.bbox, pil_h=im.height, dpi=dpi)
-            l = max(0, l - int(pad_px))
-            t = max(0, t - int(pad_px))
-            r = min(im.width, r + int(pad_px))
-            b = min(im.height, b + int(pad_px))
-            crop = im.crop((l, t, r, b))
-            _item = getattr(entry, "item", None) or _find_item(doc, entry)
-            if _item is None:
-                # No matching code/formula element found in the document; skip this ROI
-                # rather than passing a wrong-label item to CodeFormulaModel.
-                continue
-            batch.append(
-                ItemAndImageEnrichmentElement(
-                    item=_item,
-                    image=crop,
+        # -----------------------------------------------------------------------
+        # Helper: compute the adaptive DPI for an ROI *without* rasterizing the
+        # page first.  We estimate the crop height from the native Docling bbox
+        # coordinates (which are in PDF points, 1 pt = 1/72 in) and the
+        # page's metadata height — a free pypdfium2 dict read, no pixel data.
+        # This eliminates the previous double-rasterization: the old code called
+        # rc.get_pil(page_no, base_dpi) solely to obtain im.height, then called
+        # rc.get_pil(page_no, adaptive_dpi) again — two cache entries per ROI.
+        # -----------------------------------------------------------------------
+        def _adaptive_dpi_for_roi(entry: RoiEntry) -> int:
+            """Return the rasterization DPI for an ROI using native PDF coordinates.
+
+            Avoids a full page render just to determine the crop height.
+            """
+            try:
+                # Native bbox height in points (72 DPI)
+                bbox_h_pts = abs(
+                    float(getattr(entry.bbox, 'b', 0)) -
+                    float(getattr(entry.bbox, 't', 0))
                 )
-            )
-            binfo.append((entry.page_no, entry.per_page_ix, int(dpi)))
-            if len(batch) >= int(batch_size):
-                flush_batch()
-        flush_batch()
+                # Estimate the crop height in pixels at base_dpi
+                est_px_h = bbox_h_pts * (float(dpi_base) / 72.0)
+                return _dpi_for_bbox(est_px_h, base=dpi_base, lo=dpi_lo, hi=dpi_hi)
+            except Exception:
+                return int(dpi_base)
 
-        out_md_path.parent.mkdir(parents=True, exist_ok=True)
-        doc.save_as_markdown(out_md_path)
+        # -----------------------------------------------------------------------
+        # Producer: pre-rasterize pages for upcoming ROIs in a background thread
+        # while the main thread processes the current batch through the model.
+        # On Apple Silicon this overlaps CPU (pypdfium2) with ANE/GPU inference,
+        # keeping both execution units busy continuously.
+        # -----------------------------------------------------------------------
+        _prefetcher = _PagePrefetcher(rc, rois, _adaptive_dpi_for_roi)
+        try:
+            # Inner try so we always stop the prefetcher, even on exceptions.
 
-        return {"items": len(rois), "accepted": accepted, "time_sec": time.time() - t0}
+            print(f"[Phase-2] {json_path.stem}: {len(rois)} items to enrich …")
+            for entry in rois:
+                # Single render: compute the adaptive DPI from native coordinates
+                # (no extra page render needed to measure im.height).
+                dpi = _adaptive_dpi_for_roi(entry)
+                im = rc.get_pil(entry.page_no, dpi)  # likely already in cache
+                l, t, r, b = _crop_box_pixels(entry.bbox, pil_h=im.height, dpi=dpi)
+                l = max(0, l - int(pad_px))
+                t = max(0, t - int(pad_px))
+                r = min(im.width, r + int(pad_px))
+                b = min(im.height, b + int(pad_px))
+                crop = im.crop((l, t, r, b))
+                _item = getattr(entry, "item", None) or _find_item(doc, entry)
+                if _item is None:
+                    # No matching code/formula element found in the document; skip this ROI
+                    # rather than passing a wrong-label item to CodeFormulaModel.
+                    continue
+                batch.append(
+                    ItemAndImageEnrichmentElement(
+                        item=_item,
+                        image=crop,
+                    )
+                )
+                binfo.append((entry.page_no, entry.per_page_ix, int(dpi)))
+                if len(batch) >= int(batch_size):
+                    flush_batch()
+            flush_batch()
+
+            out_md_path.parent.mkdir(parents=True, exist_ok=True)
+            doc.save_as_markdown(out_md_path)
+
+            return {"items": len(rois), "accepted": accepted, "time_sec": time.time() - t0}
+        finally:
+            _prefetcher.stop()
     finally:
         try:
             if model is not None:
@@ -358,6 +479,7 @@ def enrich_from_docling_json(
                     pass
             import torch  # type: ignore
 
+            # Release CUDA memory (Linux/Windows)
             cuda_iface = getattr(torch, "cuda", None)
             if cuda_iface and cuda_iface.is_available():  # type: ignore[attr-defined]
                 try:
@@ -368,6 +490,26 @@ def enrich_from_docling_json(
                     ipc_collect = getattr(cuda_iface, "ipc_collect", None)
                     if callable(ipc_collect):
                         ipc_collect()
+                except Exception:
+                    pass
+
+            # Release Metal / Apple Silicon unified memory buffers.
+            # torch.mps.empty_cache() signals Metal to compact its allocator
+            # heap so fragmented GPU buffers are returned to the OS pool before
+            # the next document is processed — especially important when running
+            # many documents sequentially with limited swap.
+            mps_iface = getattr(torch, "mps", None)
+            if mps_iface is not None:
+                try:
+                    synchronize = getattr(mps_iface, "synchronize", None)
+                    if callable(synchronize):
+                        synchronize()  # wait for all Metal kernels to finish
+                except Exception:
+                    pass
+                try:
+                    empty_cache = getattr(mps_iface, "empty_cache", None)
+                    if callable(empty_cache):
+                        empty_cache()
                 except Exception:
                     pass
         except Exception:

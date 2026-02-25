@@ -98,9 +98,23 @@ def _patch_onnx_sessions_coreml(reader: object) -> bool:
         return False
 
     providers = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
-    # CoreML session options: enable ANE + GPU compute units for best perf
+    # CoreML session options for Apple Silicon:
+    #
+    # MLComputeUnits: ALL       — allow the compiler to dispatch kernels to
+    #                             ANE, GPU (Metal), or CPU as appropriate.
+    # EnableANEWithRecompile: 1 — instructs the CoreML compiler to JIT-recompile
+    #                             the graph to maximise ANE kernel tiling
+    #                             throughput; pays a one-time compile cost on
+    #                             first run and then caches the result.
+    # RequireStaticInputShapes: 0 — RapidOCR feeds variable-size image tensors;
+    #                             disabling the static-shapes constraint lets
+    #                             CoreML handle them without falling back to CPU.
     provider_options: list[dict] = [
-        {"MLComputeUnits": "ALL"},  # Use ANE + GPU + CPU adaptively
+        {
+            "MLComputeUnits": "ALL",
+            "EnableANEWithRecompile": "1",   # recompile for maximum ANE tiling
+            "RequireStaticInputShapes": "0", # RapidOCR has dynamic input shapes
+        },
         {},
     ]
 

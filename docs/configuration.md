@@ -7,7 +7,16 @@ This page lists the main knobs you can use to tune GlossAPI.
 - `CUDA_VISIBLE_DEVICES`: restrict/assign visible GPUs, e.g. `export CUDA_VISIBLE_DEVICES=0,1`.
 - `GLOSSAPI_DOCLING_DEVICE`: preferred device for Docling (inside a worker), e.g. `cuda:0`.
 - `GLOSSAPI_GPU_BATCH_SIZE`: batch size for GPU extraction workers (multi-GPU mode).
-- macOS Apple Silicon (Metal/MPS): use `accel_type='MPS'` or set `GLOSSAPI_DOCLING_DEVICE=mps` for the RapidOCR/Docling path.
+- macOS Apple Silicon (Metal/MPS): use `accel_type='MPS'` or set `GLOSSAPI_DOCLING_DEVICE=mps` for the
+  `c.extract()` path.  When calling `c.ocr(backend='rapidocr')` the accelerator is **auto-detected**
+  (`mps` on macOS, `cuda` on Linux/Windows when available, `auto` otherwise) — no explicit
+  `accel_type` argument is required for that code path.
+- `DOCLING_PERF_PAGE_BATCH_SIZE`: number of PDF pages Docling processes per Metal/CUDA dispatch iteration.
+  Defaults to `32` on macOS Apple Silicon and `16` on all other platforms.  Larger values amortise
+  per-dispatch scheduling overhead on M-series hardware.  Override to tune for your document size:
+  ```bash
+  export DOCLING_PERF_PAGE_BATCH_SIZE=64  # very long PDFs on Apple Silicon
+  ```
 
 ## Model Weights
 
@@ -126,6 +135,8 @@ The runner tries three strategies in order: **in-process** (fast, model stays lo
 - `GLOSSAPI_MINERU_MODE`: override the MinerU mode flag (passed to `magic-pdf -m`, default `auto`).
 - `GLOSSAPI_MINERU_BACKEND`: override the MinerU backend (passed to `magic-pdf -b`, e.g. `pipeline`, `hybrid-auto-engine`, `vlm`).
 - `GLOSSAPI_MINERU_DEVICE_MODE`: override the MinerU device mode (`mps`, `cuda`, or `cpu`). Requires `MINERU_TOOLS_CONFIG_JSON` to point at the base config.
+- `GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO` (default `1.0`): PyTorch MPS allocator high-watermark multiplier injected as `PYTORCH_MPS_HIGH_WATERMARK_RATIO` into the `magic-pdf` subprocess on macOS/MPS. PyTorch's default is `1.7` (allocate up to 1.7× the recommended memory budget before GC). Reducing this to `1.0` triggers GC at 100% of the budget instead, preventing formula-crop tensors from exhausting unified memory and collapsing MFR Predict throughput (e.g. 25 it/s → <2 it/s on large documents). Set to `0` to disable and revert to PyTorch defaults.
+- `GLOSSAPI_MINERU_MPS_LOW_WATERMARK_RATIO` (default `0.8`): PyTorch MPS allocator low-watermark multiplier (`PYTORCH_MPS_LOW_WATERMARK_RATIO`). After GC fires, the allocator drains memory down to this fraction of the recommended budget. Must be less than the high-watermark value (PyTorch enforces `low < high`).
 - `MINERU_MIN_BATCH_INFERENCE_SIZE` (default `384` in MinerU): number of pages processed per inference batch. Set to a value larger than your document's page count (e.g. `500`) to avoid mid-document splits — configure in `dependency_setup/.env_mineru`.
 
 #### MinerU doctor checks
@@ -229,6 +240,42 @@ All LaTeX policy knobs are loaded via `glossapi.text_sanitize.load_latex_policy(
 
 - `OMP_NUM_THREADS` / `MKL_NUM_THREADS`: cap CPU threads to avoid oversubscription.
 - Cache locations: `HF_HOME`, `XDG_CACHE_HOME`, `DOCLING_CACHE_DIR`.
+
+## Apple Vision Framework (macOS only)
+
+GlossAPI ships a utility module that wraps Apple's `VNRecognizeTextRequest` as a drop-in
+alternative OCR path that routes entirely through the **Neural Engine (ANE)** without any
+Python-managed GPU memory allocation.
+
+Install the Objective-C bridge:
+
+```bash
+pip install pyobjc-framework-Vision pyobjc-framework-Quartz
+```
+
+Usage:
+
+```python
+from glossapi.ocr.utils.vision_ocr import recognize_pages_parallel, is_available
+
+if is_available():
+    records = recognize_pages_parallel(
+        [pil_page_1, pil_page_2],
+        recognition_level="accurate",   # full ANE VLM model; or "fast" for lighter model
+        languages=["el-GR", "en-US"],   # Greek-first, GlossAPI defaults
+    )
+    for r in records:
+        print(r.text, r.confidence)     # TextRecord.page_index identifies the source page
+```
+
+`recognize_pages_parallel` submits all pages to a `ThreadPoolExecutor` that releases the
+GIL while Vision drives the ANE, overlapping pypdfium2 page decoding (CPU) with ANE inference
+continuously.
+
+This path is independent of ONNX / CoreMLExecutionProvider — it calls Vision directly and has
+no dependency on `onnxruntime`.  It is most useful when the ONNX path cannot be used
+(e.g., in a minimal environment without `onnxruntime`, or when CoreML compilation
+fails on a new macOS release).
 
 ## Worker Logging
 

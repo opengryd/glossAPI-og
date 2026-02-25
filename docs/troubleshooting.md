@@ -4,7 +4,14 @@
 
 - Verify ONNXRuntime GPU: `python -c "import onnxruntime as ort; print(ort.get_available_providers())"` — must include `CUDAExecutionProvider` (Linux/Windows) or `CoreMLExecutionProvider` (macOS).
 - Ensure CPU ORT wheel is not installed on CUDA systems: `pip uninstall -y onnxruntime`.
-- Make sure you pass `accel_type='CUDA'` (or `use_gpus='multi'`) on CUDA; on macOS use `accel_type='MPS'`.
+- For `c.extract()`: make sure you pass `accel_type='CUDA'` (or `use_gpus='multi'`) on CUDA; on macOS use `accel_type='MPS'`.
+- For `c.ocr(backend='rapidocr')`: the accelerator is **auto-detected** — `mps` on macOS, `cuda` on Linux/Windows when available. No explicit `accel_type` argument is required for this code path.
+- If `CoreMLExecutionProvider` is missing on macOS (e.g. ORT built without the CoreML EP), the pipeline degrades to CPU ONNX.  Consider using the native `VNRecognizeTextRequest` path instead:
+  ```python
+  pip install pyobjc-framework-Vision pyobjc-framework-Quartz
+  from glossapi.ocr.utils.vision_ocr import recognize_pages_parallel, is_available
+  ```
+  See [Apple Vision Framework](configuration.md#apple-vision-framework-macos-only) for details.
 
 ## Torch doesn’t see the GPU
 
@@ -32,6 +39,17 @@
 - Lower Phase‑2 `batch_size` (e.g., 8) and reduce inline `GLOSSAPI_FORMULA_BATCH`.
 - Reduce `GLOSSAPI_IMAGES_SCALE` (e.g., 1.1–1.2).
 - Split large batches or files.
+
+## Phase‑2 math memory pressure (Apple Silicon)
+
+- After each document is enriched, GlossAPI calls `torch.mps.synchronize()` +
+  `torch.mps.empty_cache()` to compact the Metal allocator heap.  If you still see
+  swap activity with large batches, lower `math_batch_size` (default `8`) or
+  `GLOSSAPI_FORMULA_BATCH` (default `16`).
+- The Phase-2 LRU page cache now holds up to 16 pages (up from 4).  If unified memory is
+  very constrained (8 GB Mac with many other apps open), reduce it by setting
+  `GLOSSAPI_ENRICH_PAGE_CACHE_SIZE` is not currently exposed — lower `batch_size` instead
+  to let the GC reclaim buffers between batches.
 
 ## Worker respawn limit reached
 

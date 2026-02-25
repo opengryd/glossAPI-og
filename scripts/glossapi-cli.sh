@@ -265,10 +265,9 @@ gum_input() {
 run_setup_wizard_interactive() {
 	local os_name
 	os_name="$(uname -s)"
+	# rapidocr auto-detects MPS/CoreML/ANE on macOS (via dispatch.py), so it
+	# is the recommended default on Apple Silicon as well as Linux/CUDA systems.
 	local default_mode="rapidocr"
-	if [[ "${os_name}" == "Darwin" ]]; then
-		default_mode="mineru"
-	fi
 
 
 	local modes=(

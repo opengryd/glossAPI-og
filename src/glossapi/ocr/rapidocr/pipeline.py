@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import platform
 from typing import Tuple
 
 from docling.datamodel.base_models import InputFormat
@@ -26,14 +27,19 @@ _logger = logging.getLogger(__name__)
 patch_docling_rapidocr()
 
 # ---------------------------------------------------------------------------
-# Docling processes pages in small batches (default 4).  For long documents
+# Docling processes pages in small batches (default 4). For long documents
 # this both limits throughput and makes the progress bar appear stuck.
-# Raise the default to 16 unless the user has already overridden it.
+# On Apple Silicon the Metal command encoder amortises scheduling overhead
+# better with larger batches — use 32 pages per iteration.  On other
+# platforms 16 is sufficient.  Both are overridable via env var.
 # ---------------------------------------------------------------------------
 if "DOCLING_PERF_PAGE_BATCH_SIZE" not in os.environ:
-    os.environ["DOCLING_PERF_PAGE_BATCH_SIZE"] = "16"
+    _default_batch = "32" if platform.system() == "Darwin" else "16"
+    os.environ["DOCLING_PERF_PAGE_BATCH_SIZE"] = _default_batch
     _logger.debug(
-        "Set DOCLING_PERF_PAGE_BATCH_SIZE=16 (override with env var)"
+        "Set DOCLING_PERF_PAGE_BATCH_SIZE=%s for platform=%s (override with env var)",
+        _default_batch,
+        platform.system(),
     )
 
 

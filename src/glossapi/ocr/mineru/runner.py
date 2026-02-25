@@ -18,6 +18,23 @@ from glossapi.ocr.utils.page import _page_count
 LOGGER = logging.getLogger(__name__)
 _MAGIC_PDF_BACKEND_SUPPORT: Optional[bool] = None
 
+# Default MPS watermark multipliers injected into MinerU subprocesses.
+#
+# PyTorch MPS allocator uses *multipliers of its own "recommended max" budget*
+# (NOT fractions of total RAM).  Defaults are high=1.7, low=1.4 — meaning the
+# allocator keeps allocating up to 1.7× the recommended limit before GC, and
+# only tries to drain to 1.4× after GC.  For large documents with many formula
+# crops this exhausts unified memory and causes MFR Predict throughput to
+# collapse (e.g. 25 it/s → <2 it/s).
+#
+# Setting high=1.0 / low=0.8 triggers GC at 100 % of the recommended budget
+# (instead of 170 %) and drains to 80 % after each GC pass.
+#
+# Constraint enforced by PyTorch: low_watermark_ratio < high_watermark_ratio.
+# Set GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO=0 to disable both overrides.
+_MPS_HIGH_WATERMARK_DEFAULT = "1.0"
+_MPS_LOW_WATERMARK_DEFAULT = "0.8"
+
 
 def _resolve_magic_pdf(cmd: Optional[str]) -> Optional[str]:
     if cmd:
@@ -124,6 +141,44 @@ def _resolve_backend(device_mode: Optional[str], backend: Optional[str]) -> Opti
     return "pipeline"
 
 
+def _inject_mps_memory_limits(env: Dict[str, str]) -> Dict[str, str]:
+    """Inject MPS watermark variables to prevent unified-memory thrashing.
+
+    PyTorch's MPS allocator uses *multipliers of its own recommended-max budget*
+    (not fractions of total RAM).  Default high=1.7, low=1.4 — meaning it will
+    keep allocating up to 1.7× the recommended limit before GC, and only drain
+    to 1.4× after GC.  For large documents with many formula crops this
+    exhausts unified memory and causes MFR Predict throughput to collapse
+    (e.g. 25 it/s → <2 it/s).
+
+    We set high=1.0 / low=0.8 so GC fires at 100 % of the recommended budget
+    and drains to 80 %.  PyTorch enforces low < high; both must be set together.
+
+    Control knobs:
+      GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO  (default 1.0; set 0 to disable)
+      GLOSSAPI_MINERU_MPS_LOW_WATERMARK_RATIO   (default 0.8)
+    """
+    out = dict(env)
+    user_high = out.get("GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO", "").strip()
+    desired_high = user_high if user_high else _MPS_HIGH_WATERMARK_DEFAULT
+    # Honour explicit "0" / "0.0" as opt-out — leave PyTorch defaults untouched.
+    if desired_high in {"0", "0.0"}:
+        return out
+    user_low = out.get("GLOSSAPI_MINERU_MPS_LOW_WATERMARK_RATIO", "").strip()
+    desired_low = user_low if user_low else _MPS_LOW_WATERMARK_DEFAULT
+    # Only inject if the caller hasn't already set the PyTorch variables.
+    if "PYTORCH_MPS_HIGH_WATERMARK_RATIO" not in out:
+        out["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = desired_high
+        out["PYTORCH_MPS_LOW_WATERMARK_RATIO"] = desired_low
+        LOGGER.debug(
+            "MPS memory guard: HIGH=%s LOW=%s "
+            "(override via GLOSSAPI_MINERU_MPS_HIGH/LOW_WATERMARK_RATIO)",
+            desired_high,
+            desired_low,
+        )
+    return out
+
+
 def _prepare_mineru_env(
     base_env: Dict[str, str],
     tmp_root: Path,
@@ -133,7 +188,9 @@ def _prepare_mineru_env(
 
     Uses :func:`config.prepare_env_with_config` to auto-discover the repo's
     ``magic-pdf.json``, resolve relative model paths, and optionally override
-    the device mode — all in one step.
+    the device mode — all in one step.  When *device_mode* is ``"mps"`` an
+    MPS memory high-watermark is also injected to prevent formula-crop tensors
+    from exhausting unified memory during MFR Predict.
     """
     env_out, resolved = prepare_env_with_config(
         base_env,
@@ -145,6 +202,15 @@ def _prepare_mineru_env(
             "No MinerU config found (set MINERU_TOOLS_CONFIG_JSON or "
             "place magic-pdf.json in model_weights/mineru/)"
         )
+    # Inject MPS memory guard when:
+    #  (a) device_mode was explicitly set to "mps", OR
+    #  (b) we are on macOS where MPS is likely active (e.g. the magic-pdf.json
+    #      sets device-mode=mps) and PYTORCH_MPS_HIGH_WATERMARK_RATIO is not
+    #      already in the environment.
+    # PYTORCH_MPS_HIGH_WATERMARK_RATIO is a no-op on non-MPS PyTorch builds, so
+    # injecting it on non-MPS systems is harmless.
+    if device_mode == "mps" or (device_mode is None and platform.system() == "Darwin"):
+        env_out = _inject_mps_memory_limits(env_out)
     return env_out
 
 
