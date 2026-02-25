@@ -152,6 +152,20 @@ def _last_output_dir() -> Path:
     return Path("artifacts") / "glossapi_run"
 
 
+def _make_run_output_dir(backend: Optional[str] = None) -> Path:
+    """Generate a fresh timestamped output directory path.
+
+    Returns ``artifacts/run_<backend-slug>_<YYYYMMDD-HHmm>`` so every
+    pipeline run lands in a uniquely-named, self-describing folder without
+    any manual renaming.  When no OCR backend is selected the slug is
+    ``noocr``.
+    """
+    from datetime import datetime
+    slug = backend if (backend and backend != "none") else "noocr"
+    ts = datetime.now().strftime("%Y%m%d-%H%M")
+    return Path("artifacts") / f"run_{slug}_{ts}"
+
+
 def _ensure_input_has_files(input_dir: Path, input_format: str) -> Path:
     normalized = _normalize_input_format(input_format)
     patterns = ["*.pdf"] if normalized == "pdf" else ["*.md", "*.markdown"]
@@ -776,19 +790,31 @@ def _run_wizard(
     # 3. Verify files exist (retry loop built into helper).
     resolved_input = _ensure_input_has_files(resolved_input, resolved_format)
 
-    # 4. Output directory — default to the last used run if available.
+    # 4. Phases — ask early so we know whether OCR is needed before prompting
+    #    for the output directory.
+    resolved_phases = _ask_phases(phase)
+
+    # 5. CPU override — simple yes/no instead of a vague CPU/GPU menu.
+    force_cpu = _ask_force_cpu()
+
+    # 6. OCR backend — resolve before asking for the output directory so that
+    #    the backend slug can be embedded in the default folder name.
+    _readiness: dict = {}
+    resolved_backend: Optional[str] = None
+    if "ocr" in resolved_phases:
+        _readiness = _backend_readiness()
+        _chosen = _ask_ocr_backend(default=default_backend, readiness=_readiness)
+        if _chosen != "none":
+            resolved_backend = _chosen
+
+    # 7. Output directory — default is a fresh timestamped path that embeds
+    #    the backend slug: artifacts/run_<backend>_<YYYYMMDD-HHmm>.
     resolved_output = _ensure_path(
         output_dir,
         label="Output directory",
-        default=_last_output_dir(),
+        default=_make_run_output_dir(resolved_backend),
         must_exist=False,
     )
-
-    # 5. Phases.
-    resolved_phases = _ask_phases(phase)
-
-    # 6. CPU override — simple yes/no instead of a vague CPU/GPU menu.
-    force_cpu = _ask_force_cpu()
 
     # Compute log level early so it can be embedded in RunConfig.
     level = getattr(logging, log_level.upper(), logging.INFO)
@@ -805,48 +831,46 @@ def _run_wizard(
         log_level=level,
     )
 
-    if "ocr" in resolved_phases:
-        _readiness = _backend_readiness()
-        backend = _ask_ocr_backend(default=default_backend, readiness=_readiness)
-        if backend == "none":
-            cfg.phases = [p for p in cfg.phases if p != "ocr"]
-        else:
-            _preflight_backend_or_warn(backend, _readiness)
-            _inject_backend_env(backend)
-            cfg.backend = backend
-            if backend == "mineru":
-                cfg.device = "mps" if platform.system() == "Darwin" else "cuda"
-                cfg.mineru_backend = "hybrid-auto-engine" if cfg.device == "mps" else "pipeline"
-                if force_cpu:
-                    cfg.device = "cpu"
-                    cfg.mineru_backend = "pipeline"
-                cfg.phase1_backend = "safe"
-                cfg.drop_bad = False
-            if backend == "deepseek-ocr":
-                cfg.phase1_backend = "safe"
-                cfg.drop_bad = False
-                if force_cpu:
-                    cfg.device = "cpu"
-                elif platform.system() == "Darwin":
-                    cfg.device = "mps"
-                else:
-                    cfg.device = "cuda"
-            if backend == "deepseek-ocr-2":
-                cfg.phase1_backend = "safe"
-                cfg.drop_bad = False
-                cfg.device = "mps" if platform.system() == "Darwin" else "cpu"
-            if backend == "olmocr":
-                cfg.phase1_backend = "safe"
-                cfg.drop_bad = False
-                cfg.device = "mps" if platform.system() == "Darwin" else "cuda"
-                if force_cpu:
-                    cfg.device = "cpu"
-            if backend == "glm-ocr":
-                cfg.phase1_backend = "safe"
-                cfg.drop_bad = False
-                cfg.device = "mps" if platform.system() == "Darwin" else "cpu"
-            if backend == "rapidocr" and force_cpu:
+    if "ocr" in resolved_phases and resolved_backend is None:
+        # User chose "none" backend — strip the OCR phase.
+        cfg.phases = [p for p in cfg.phases if p != "ocr"]
+    elif resolved_backend is not None:
+        _preflight_backend_or_warn(resolved_backend, _readiness)
+        _inject_backend_env(resolved_backend)
+        cfg.backend = resolved_backend
+        if resolved_backend == "mineru":
+            cfg.device = "mps" if platform.system() == "Darwin" else "cuda"
+            cfg.mineru_backend = "hybrid-auto-engine" if cfg.device == "mps" else "pipeline"
+            if force_cpu:
                 cfg.device = "cpu"
+                cfg.mineru_backend = "pipeline"
+            cfg.phase1_backend = "safe"
+            cfg.drop_bad = False
+        if resolved_backend == "deepseek-ocr":
+            cfg.phase1_backend = "safe"
+            cfg.drop_bad = False
+            if force_cpu:
+                cfg.device = "cpu"
+            elif platform.system() == "Darwin":
+                cfg.device = "mps"
+            else:
+                cfg.device = "cuda"
+        if resolved_backend == "deepseek-ocr-2":
+            cfg.phase1_backend = "safe"
+            cfg.drop_bad = False
+            cfg.device = "mps" if platform.system() == "Darwin" else "cpu"
+        if resolved_backend == "olmocr":
+            cfg.phase1_backend = "safe"
+            cfg.drop_bad = False
+            cfg.device = "mps" if platform.system() == "Darwin" else "cuda"
+            if force_cpu:
+                cfg.device = "cpu"
+        if resolved_backend == "glm-ocr":
+            cfg.phase1_backend = "safe"
+            cfg.drop_bad = False
+            cfg.device = "mps" if platform.system() == "Darwin" else "cpu"
+        if resolved_backend == "rapidocr" and force_cpu:
+            cfg.device = "cpu"
 
     if cfg.input_format == "pdf" and (cfg.backend is None or cfg.backend == "rapidocr"):
         cfg.accel_type = "CPU" if force_cpu else (
