@@ -585,6 +585,7 @@ class GlossSectionClassifier:
             updated_group = self.fully_annotate_text_group(group)
             if updated_group is None:
                 files_missing_boundaries += 1
+                updated_groups.append(group)  # Keep original SVM labels — no boundary reclassification
             else:
                 updated_groups.append(updated_group)
         
@@ -650,7 +651,7 @@ class GlossSectionClassifier:
             else:
                 self.logger.warning(f"'β' boundary marker missing for {group['filename'].iloc[0]}. Keeping original labels.")
                 
-            return group  # Return with original labels
+            return None  # Signal caller that boundaries were missing; caller preserves original labels
     
     def fully_annotate_chapter(self, df: pd.DataFrame) -> pd.DataFrame:
         """
