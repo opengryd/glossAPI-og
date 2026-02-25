@@ -13,26 +13,10 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from .config import prepare_env_with_config
 
-try:
-    import pypdfium2 as _pypdfium2
-except Exception:  # pragma: no cover - optional dependency
-    _pypdfium2 = None
+from glossapi.ocr.utils.page import _page_count
 
 LOGGER = logging.getLogger(__name__)
 _MAGIC_PDF_BACKEND_SUPPORT: Optional[bool] = None
-
-
-def _page_count(pdf_path: Path) -> int:
-    if _pypdfium2 is None:
-        return 0
-    try:
-        _doc = _pypdfium2.PdfDocument(str(pdf_path))
-        try:
-            return len(_doc)
-        finally:
-            _doc.close()
-    except Exception:
-        return 0
 
 
 def _resolve_magic_pdf(cmd: Optional[str]) -> Optional[str]:

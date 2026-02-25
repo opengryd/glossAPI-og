@@ -51,10 +51,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-try:
-    import pypdfium2 as _pypdfium2
-except Exception:  # pragma: no cover - optional dependency
-    _pypdfium2 = None
+from glossapi.ocr.utils.page import _page_count
 
 LOGGER = logging.getLogger(__name__)
 
@@ -63,19 +60,6 @@ DEFAULT_MODEL = "allenai/olmOCR-2-7B-1025-FP8"
 # Resolve the embedded CLI scripts shipped with the package.
 _PACKAGE_MLX_CLI_SCRIPT = Path(__file__).resolve().parent / "mlx_cli.py"
 _PACKAGE_VLLM_CLI_SCRIPT = Path(__file__).resolve().parent / "vllm_cli.py"
-
-
-def _page_count(pdf_path: Path) -> int:
-    if _pypdfium2 is None:
-        return 0
-    try:
-        _doc = _pypdfium2.PdfDocument(str(pdf_path))
-        try:
-            return len(_doc)
-        finally:
-            _doc.close()
-    except Exception:
-        return 0
 
 
 def _candidate_input_roots(input_root: Path, output_root: Path) -> List[Path]:

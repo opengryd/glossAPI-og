@@ -1,6 +1,28 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
+
+try:
+    import pypdfium2 as _pypdfium2
+except Exception:  # pragma: no cover - optional dependency
+    _pypdfium2 = None
+
+
+def _page_count(pdf_path: Path) -> int:
+    """Return the number of pages in *pdf_path*, or 0 if unparseable."""
+    if _pypdfium2 is None:
+        return 0
+    try:
+        _doc = _pypdfium2.PdfDocument(str(pdf_path))
+        try:
+            return len(_doc)
+        finally:
+            _doc.close()
+    except Exception:
+        return 0
+
 
 
 def is_mostly_blank_pix(pixmap, *, tolerance: int = 8, max_fraction: float = 0.0015) -> bool:
