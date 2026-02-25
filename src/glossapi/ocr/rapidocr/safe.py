@@ -102,21 +102,22 @@ def _patch_onnx_sessions_coreml(reader: object) -> bool:
     #
     # MLComputeUnits: ALL       — allow the compiler to dispatch kernels to
     #                             ANE, GPU (Metal), or CPU as appropriate.
-    # EnableANEWithRecompile: 1 — instructs the CoreML compiler to JIT-recompile
-    #                             the graph to maximise ANE kernel tiling
-    #                             throughput; pays a one-time compile cost on
-    #                             first run and then caches the result.
+    #                             This is sufficient to get ANE/GPU utilisation;
+    #                             no extra recompile flag is needed or supported.
     # RequireStaticInputShapes: 0 — RapidOCR feeds variable-size image tensors;
     #                             disabling the static-shapes constraint lets
     #                             CoreML handle them without falling back to CPU.
-    provider_options: list[dict] = [
-        {
-            "MLComputeUnits": "ALL",
-            "EnableANEWithRecompile": "1",   # recompile for maximum ANE tiling
-            "RequireStaticInputShapes": "0", # RapidOCR has dynamic input shapes
-        },
-        {},
-    ]
+    #
+    # Note: "EnableANEWithRecompile" is NOT a recognised CoreMLExecutionProvider
+    # option in any released onnxruntime build and causes an "Unknown option" EP
+    # error that silently forces all three sessions back to CPU-only execution.
+    # ANE dispatch is already governed by MLComputeUnits=ALL.
+    _coreml_opts_preferred: dict = {
+        "MLComputeUnits": "ALL",
+        "RequireStaticInputShapes": "0",  # RapidOCR has dynamic input shapes
+    }
+    # Fallback: bare CoreML with no extra constraints (widest compatibility).
+    _coreml_opts_minimal: dict = {}
 
     patched = 0
     # Attribute paths: reader.text_det.session.session, reader.text_cls.session.session,
@@ -132,13 +133,6 @@ def _patch_onnx_sessions_coreml(reader: object) -> bool:
         if old_session is None:
             continue
 
-        # Extract the model path from the existing session
-        model_path = None
-        try:
-            model_path = old_session.get_modelmeta().graph_name
-        except Exception:
-            pass
-
         # Try to get the model bytes or path from the session
         # onnxruntime stores _model_path on the session object
         session_path = getattr(old_session, "_model_path", None)
@@ -152,30 +146,43 @@ def _patch_onnx_sessions_coreml(reader: object) -> bool:
             )
             continue
 
-        try:
-            sess_opts = ort.SessionOptions()
-            sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        new_session = None
+        for opts_candidate in (_coreml_opts_preferred, _coreml_opts_minimal):
+            try:
+                sess_opts = ort.SessionOptions()
+                sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
-            new_session = ort.InferenceSession(
-                str(session_path),
-                sess_options=sess_opts,
-                providers=providers,
-                provider_options=provider_options,
-            )
-            ort_wrapper.session = new_session
-            actual_providers = new_session.get_providers()
-            _log.info(
-                "Patched %s ONNX session for CoreML: providers=%s",
-                component_name,
-                actual_providers,
-            )
-            patched += 1
-        except Exception as exc:
+                new_session = ort.InferenceSession(
+                    str(session_path),
+                    sess_options=sess_opts,
+                    providers=providers,
+                    provider_options=[opts_candidate, {}],
+                )
+                break  # success — stop trying fallbacks
+            except Exception as exc:
+                _log.debug(
+                    "CoreML patch attempt failed for %s with opts=%s: %s; trying next fallback",
+                    component_name,
+                    opts_candidate,
+                    exc,
+                )
+                new_session = None
+
+        if new_session is None:
             _log.warning(
-                "Failed to patch %s for CoreML: %s (falling back to CPU)",
+                "Failed to patch %s for CoreML after all attempts (falling back to CPU)",
                 component_name,
-                exc,
             )
+            continue
+
+        ort_wrapper.session = new_session
+        actual_providers = new_session.get_providers()
+        _log.info(
+            "Patched %s ONNX session for CoreML: providers=%s",
+            component_name,
+            actual_providers,
+        )
+        patched += 1
 
     if patched > 0:
         _log.info(
