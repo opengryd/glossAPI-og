@@ -19,8 +19,10 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Optional
@@ -61,6 +63,34 @@ MULTI_PASS_PROMPTS = (PROMPT_TEXT, PROMPT_FORMULA, PROMPT_TABLE)
 DEFAULT_DPI = 150
 DEFAULT_MAX_TOKENS = 2048
 DEFAULT_MODEL_ID = "mlx-community/GLM-OCR-4bit"
+
+
+def _resolve_max_tokens(default: int = DEFAULT_MAX_TOKENS) -> int:
+    """Return the effective max_tokens from env vars, with per-backend and global fallbacks.
+
+    Priority: ``GLOSSAPI_GLMOCR_MAX_TOKENS`` > ``GLOSSAPI_VLM_MAX_TOKENS`` > *default*.
+    """
+    for var in ("GLOSSAPI_GLMOCR_MAX_TOKENS", "GLOSSAPI_VLM_MAX_TOKENS"):
+        val = (os.getenv(var) or "").strip()
+        if val:
+            try:
+                return max(1, int(val))
+            except ValueError:
+                pass
+    return default
+
+
+def _render_prefetch_depth() -> int:
+    """Return the configured render pre-fetch depth (1–4, default 2).
+
+    Controlled by ``GLOSSAPI_VLM_RENDER_PREFETCH``.  A depth of 2 keeps two
+    page renders in flight concurrently with GPU inference, hiding the
+    ~50–150 ms rasterisation latency on large pages.
+    """
+    try:
+        return max(1, min(4, int(os.getenv("GLOSSAPI_VLM_RENDER_PREFETCH", "2"))))
+    except (ValueError, TypeError):
+        return 2
 
 
 # ---------------------------------------------------------------------------
@@ -371,19 +401,40 @@ def _is_blank(text: str) -> bool:
     return not text or text == "[[Blank page]]"
 
 
+# Compiled regex patterns for smart multi-pass heuristics (always enabled).
+_FORMULA_RE = re.compile(
+    r"\$|\\\(|\\\[|\\begin\{|[\u03b1-\u03c9\u0391-\u03a9\u2211\u222b\u2202\u2207\u221e\u2248\u2260\u2264\u2265\u00b1\u00d7\u00f7\u2295\u2297]|\^\{|_\{",
+    re.UNICODE,
+)
+_TABLE_RE = re.compile(r"\|.+\|", re.MULTILINE)
+
+
+def _page_has_formula(text: str) -> bool:
+    """Return True if *text* contains formula-like content warranting a formula OCR pass."""
+    return bool(_FORMULA_RE.search(text))
+
+
+def _page_has_table(text: str) -> bool:
+    """Return True if *text* contains pipe-table content warranting a table OCR pass."""
+    return bool(_TABLE_RE.search(text))
+
+
 def generate_page_multipass(
     model: Any,
     processor: Any,
     image: Any,
     *,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    smart_skip: bool = True,
 ) -> str:
-    """Run all three GLM-OCR prompts on a page image and merge the results.
+    """Run GLM-OCR prompts on a page image and merge the results.
 
     Execution order:
     1. **Text Recognition** — primary content (text, headings, paragraphs).
-    2. **Formula Recognition** — LaTeX equations.
-    3. **Table Recognition** — markdown tables.
+    2. **Formula Recognition** — LaTeX equations; skipped when *smart_skip*
+       is ``True`` and the text pass contains no formula-like content.
+    3. **Table Recognition** — markdown tables; skipped when *smart_skip* is
+       ``True`` and the text pass contains no pipe-table content.
 
     The merge strategy appends formula and table content that is not already
     present in the text pass, avoiding duplication while ensuring nothing is
@@ -393,13 +444,24 @@ def generate_page_multipass(
         model, processor, image, prompt=PROMPT_TEXT, max_tokens=max_tokens,
     )
     _flush_metal()  # release text-pass activations before formula pass
-    formula_out = generate_page(
-        model, processor, image, prompt=PROMPT_FORMULA, max_tokens=max_tokens,
-    )
-    _flush_metal()  # release formula-pass activations before table pass
-    table_out = generate_page(
-        model, processor, image, prompt=PROMPT_TABLE, max_tokens=max_tokens,
-    )
+
+    run_formula = not smart_skip or _page_has_formula(text_out)
+    if run_formula:
+        formula_out = generate_page(
+            model, processor, image, prompt=PROMPT_FORMULA, max_tokens=max_tokens,
+        )
+        _flush_metal()  # release formula-pass activations before table pass
+    else:
+        formula_out = ""
+
+    run_table = not smart_skip or _page_has_table(text_out)
+    if run_table:
+        table_out = generate_page(
+            model, processor, image, prompt=PROMPT_TABLE, max_tokens=max_tokens,
+        )
+        # No _flush_metal here — handled by the caller's per-page flush.
+    else:
+        table_out = ""
 
     return _merge_multipass(text_out, formula_out, table_out)
 
@@ -497,53 +559,58 @@ def process_pdf(
     logger = logging.getLogger(__name__)
 
     mode_label = "multi-pass" if multipass else "single-pass"
-    passes_per_page = len(MULTI_PASS_PROMPTS) if multipass else 1
+    _smart_multipass = multipass  # always use smart skip when multi-pass is enabled
+    effective_max_tokens = _resolve_max_tokens() if max_tokens == DEFAULT_MAX_TOKENS else max_tokens
+    _prefetch = _render_prefetch_depth()
 
     # tqdm progress bar with logging fallback
     try:
         from tqdm import tqdm as _tqdm
 
         progress = _tqdm(
-            total=page_count * passes_per_page,
+            total=page_count,
             desc=f"OCR {pdf_path.name} ({mode_label})",
-            unit="pass",
+            unit="page",
             dynamic_ncols=True,
         )
     except ImportError:
         progress = None
 
     pdf_start = time.time()
-    with ThreadPoolExecutor(max_workers=1) as _render_pool:
-        # Pre-render the first page to bootstrap the CPU/GPU pipeline.
-        _next_render = _render_pool.submit(render_page, doc, 0, dpi)
+    with ThreadPoolExecutor(max_workers=_prefetch) as _render_pool:
+        # Pre-fill the prefetch queue with the first _prefetch pages.
+        _render_q: deque = deque(
+            _render_pool.submit(render_page, doc, pi, dpi)
+            for pi in range(min(_prefetch, page_count))
+        )
         for page_index in range(page_count):
             if content_debug:
                 lines.append(f"<!-- page:{page_index + 1} -->")
-            image = _next_render.result()
-            # Prefetch next page on CPU while Metal runs inference on current page.
-            if page_index + 1 < page_count:
-                _next_render = _render_pool.submit(render_page, doc, page_index + 1, dpi)
+            # Enqueue the next page not yet in the queue.
+            next_pi = page_index + _prefetch
+            if next_pi < page_count:
+                _render_q.append(_render_pool.submit(render_page, doc, next_pi, dpi))
+            image = _render_q.popleft().result()
 
             if multipass:
                 text = generate_page_multipass(
-                    model, processor, image, max_tokens=max_tokens,
+                    model, processor, image, max_tokens=effective_max_tokens,
+                    smart_skip=_smart_multipass,
                 )
-                if progress is not None:
-                    progress.update(passes_per_page)
             else:
                 text = generate_page(
-                    model, processor, image, prompt=prompt, max_tokens=max_tokens,
+                    model, processor, image, prompt=prompt, max_tokens=effective_max_tokens,
                 )
                 if not text:
                     text = "[[Blank page]]"
-                if progress is not None:
-                    progress.update(1)
 
             _flush_metal()  # flush Metal command buffer and release activation slabs
             lines.append(text)
             lines.append("")
 
-            if progress is None:
+            if progress is not None:
+                progress.update(1)
+            else:
                 logger.info(
                     "GLM-OCR MLX (%s): %s page %d/%d done",
                     mode_label,

@@ -678,6 +678,7 @@ class OcrMathPhaseMixin:
                                     content_debug=bool(content_debug),
                                     device=device,
                                     backend=mineru_backend if backend_norm == "mineru" else None,
+                                    max_pages=max_pages,
                                 )
                         except Exception:
                             _runner.run_for_files(
@@ -687,6 +688,7 @@ class OcrMathPhaseMixin:
                                 content_debug=bool(content_debug),
                                 device=device,
                                 backend=mineru_backend if backend_norm == "mineru" else None,
+                                max_pages=max_pages,
                             )
                     else:
                         _runner.run_for_files(
@@ -696,6 +698,7 @@ class OcrMathPhaseMixin:
                             content_debug=bool(content_debug),
                             device=device,
                             backend=mineru_backend if backend_norm == "mineru" else None,
+                            max_pages=max_pages,
                         )
                 except Exception as _e:
                     self.logger.error("%s OCR runner failed: %s", backend_norm, _e)

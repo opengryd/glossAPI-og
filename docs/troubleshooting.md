@@ -89,7 +89,7 @@
 - **Model not found (CUDA):** Set `GLOSSAPI_OLMOCR_MODEL_DIR` to the local CUDA weights directory, or ensure `GLOSSAPI_WEIGHTS_ROOT` is set so the pipeline resolves `$GLOSSAPI_WEIGHTS_ROOT/olmocr`.
 - **Model not found (MLX):** Set `GLOSSAPI_OLMOCR_MLX_MODEL_DIR` to the local MLX-formatted weights directory. Without it, weights are auto-downloaded from `mlx-community/olmOCR-2-7B-1025-4bit`.
 - **`libcudart.so.12 not found`:** Set `GLOSSAPI_OLMOCR_LD_LIBRARY_PATH=/usr/local/cuda/lib64` (or wherever your CUDA runtime libraries live) to prepend it to `LD_LIBRARY_PATH` for CLI subprocesses.
-- **Out-of-memory (vLLM):** Lower `GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION` (default `0.85`) and/or `GLOSSAPI_OLMOCR_MAX_MODEL_LEN` (default `8192`). If running multi-GPU, increase `GLOSSAPI_OLMOCR_TENSOR_PARALLEL_SIZE`.
+- **Out-of-memory (vLLM):** Lower `GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION` (default `0.85`) to reduce KV-cache pre-allocation. For multi-GPU setups, vLLM's tensor parallelism is controlled directly from its own configuration.
 - **Wrong Python for CLI:** If the OlmOCR venv differs from the main venv, set `GLOSSAPI_OLMOCR_PYTHON` to the correct interpreter path.
 - **Preflight checker:** Run `python -m glossapi.ocr.olmocr.preflight` to validate your environment (checks olmocr package, poppler, CUDA/MLX availability, and env flags).
 

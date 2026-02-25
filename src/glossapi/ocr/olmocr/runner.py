@@ -286,8 +286,6 @@ def _run_inproc_vllm(
     max_pages: Optional[int],
     content_debug: bool,
     gpu_memory_utilization: Optional[float],
-    tensor_parallel_size: Optional[int],
-    max_model_len: Optional[int],
 ) -> Dict[str, Any]:
     """Process PDFs in-process using vLLM on CUDA."""
     from . import vllm_cli
@@ -301,14 +299,6 @@ def _run_inproc_vllm(
         gpu_memory_utilization=(
             gpu_memory_utilization
             or vllm_cli.DEFAULT_GPU_MEMORY_UTILIZATION
-        ),
-        tensor_parallel_size=(
-            tensor_parallel_size
-            or vllm_cli.DEFAULT_TENSOR_PARALLEL_SIZE
-        ),
-        max_model_len=(
-            max_model_len
-            or vllm_cli.DEFAULT_MAX_MODEL_LEN
         ),
     )
 
@@ -374,8 +364,6 @@ def _run_vllm_cli(
     max_pages: Optional[int],
     content_debug: bool,
     gpu_memory_utilization: Optional[float],
-    tensor_parallel_size: Optional[int],
-    max_model_len: Optional[int],
 ) -> None:
     """Invoke the OlmOCR vLLM CLI as a subprocess."""
     python_exe = Path(python_bin) if python_bin else Path(sys.executable)
@@ -397,10 +385,6 @@ def _run_vllm_cli(
         cmd.append("--content-debug")
     if gpu_memory_utilization is not None:
         cmd += ["--gpu-memory-utilization", str(gpu_memory_utilization)]
-    if tensor_parallel_size is not None:
-        cmd += ["--tensor-parallel-size", str(tensor_parallel_size)]
-    if max_model_len is not None:
-        cmd += ["--max-model-len", str(max_model_len)]
 
     env = os.environ.copy()
     # Clamp OMP threads to prevent thread explosion with vLLM
@@ -436,8 +420,6 @@ def _build_cli_cmd(
     server: Optional[str] = None,
     api_key: Optional[str] = None,
     gpu_memory_utilization: Optional[float] = None,
-    max_model_len: Optional[int] = None,
-    tensor_parallel_size: Optional[int] = None,
     target_longest_image_dim: Optional[int] = None,
     workers: Optional[int] = None,
     pages_per_group: Optional[int] = None,
@@ -458,10 +440,6 @@ def _build_cli_cmd(
         cmd += ["--api_key", api_key]
     if gpu_memory_utilization is not None:
         cmd += ["--gpu-memory-utilization", str(gpu_memory_utilization)]
-    if max_model_len is not None:
-        cmd += ["--max_model_len", str(max_model_len)]
-    if tensor_parallel_size is not None:
-        cmd += ["--tensor-parallel-size", str(tensor_parallel_size)]
     if target_longest_image_dim is not None:
         cmd += ["--target_longest_image_dim", str(target_longest_image_dim)]
     if workers is not None:
@@ -483,8 +461,6 @@ def _run_cli(
     server: Optional[str] = None,
     api_key: Optional[str] = None,
     gpu_memory_utilization: Optional[float] = None,
-    max_model_len: Optional[int] = None,
-    tensor_parallel_size: Optional[int] = None,
     target_longest_image_dim: Optional[int] = None,
     workers: Optional[int] = None,
     pages_per_group: Optional[int] = None,
@@ -499,8 +475,6 @@ def _run_cli(
         server=server,
         api_key=api_key,
         gpu_memory_utilization=gpu_memory_utilization,
-        max_model_len=max_model_len,
-        tensor_parallel_size=tensor_parallel_size,
         target_longest_image_dim=target_longest_image_dim,
         workers=workers,
         pages_per_group=pages_per_group,
@@ -624,8 +598,6 @@ def run_for_files(
     server: Optional[str] = None,
     api_key: Optional[str] = None,
     gpu_memory_utilization: Optional[float] = None,
-    max_model_len: Optional[int] = None,
-    tensor_parallel_size: Optional[int] = None,
     target_longest_image_dim: Optional[int] = None,
     workers: Optional[int] = None,
     pages_per_group: Optional[int] = None,
@@ -671,8 +643,6 @@ def run_for_files(
     env_server = env.get("GLOSSAPI_OLMOCR_SERVER", "").strip()
     env_api_key = env.get("GLOSSAPI_OLMOCR_API_KEY", "").strip()
     env_gpu_mem = env.get("GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION", "").strip()
-    env_max_model_len = env.get("GLOSSAPI_OLMOCR_MAX_MODEL_LEN", "").strip()
-    env_tp = env.get("GLOSSAPI_OLMOCR_TENSOR_PARALLEL_SIZE", "").strip()
     env_target_dim = env.get("GLOSSAPI_OLMOCR_TARGET_IMAGE_DIM", "").strip()
     env_workers = env.get("GLOSSAPI_OLMOCR_WORKERS", "").strip()
     env_pages_per_group = env.get("GLOSSAPI_OLMOCR_PAGES_PER_GROUP", "").strip()
@@ -713,20 +683,6 @@ def run_for_files(
     if effective_gpu_mem is None and env_gpu_mem:
         try:
             effective_gpu_mem = float(env_gpu_mem)
-        except ValueError:
-            pass
-
-    effective_max_model_len = max_model_len
-    if effective_max_model_len is None and env_max_model_len:
-        try:
-            effective_max_model_len = int(env_max_model_len)
-        except ValueError:
-            pass
-
-    effective_tp = tensor_parallel_size
-    if effective_tp is None and env_tp:
-        try:
-            effective_tp = int(env_tp)
         except ValueError:
             pass
 
@@ -860,8 +816,6 @@ def run_for_files(
                 max_pages=max_pages,
                 content_debug=content_debug,
                 gpu_memory_utilization=effective_gpu_mem,
-                tensor_parallel_size=effective_tp,
-                max_model_len=effective_max_model_len,
             )
         except Exception as exc:
             _strategy_errors.append(("In-process vLLM", exc))
@@ -895,8 +849,6 @@ def run_for_files(
                 max_pages=max_pages,
                 content_debug=content_debug,
                 gpu_memory_utilization=effective_gpu_mem,
-                tensor_parallel_size=effective_tp,
-                max_model_len=effective_max_model_len,
             )
             # Collect results from vLLM CLI output
             results: Dict[str, Any] = {}
@@ -949,8 +901,6 @@ def run_for_files(
                     server=effective_server,
                     api_key=effective_api_key,
                     gpu_memory_utilization=effective_gpu_mem,
-                    max_model_len=effective_max_model_len,
-                    tensor_parallel_size=effective_tp,
                     target_longest_image_dim=effective_target_dim,
                     workers=effective_workers,
                     pages_per_group=effective_pages_per_group,

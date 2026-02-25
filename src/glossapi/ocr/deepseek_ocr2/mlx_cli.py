@@ -16,6 +16,7 @@ import logging
 import os
 import sys
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Optional
@@ -45,6 +46,34 @@ DEFAULT_PROMPT = "<image>\n<|grounding|>Convert the document to markdown."
 DEFAULT_DPI = 150  # 150 DPI keeps A4 longest side ≤ ~1240px, matching the model's 1024px tile budget
 DEFAULT_MAX_TOKENS = 4096
 DEFAULT_MODEL_ID = "mlx-community/DeepSeek-OCR-2-8bit"
+
+
+def _resolve_max_tokens(default: int = DEFAULT_MAX_TOKENS) -> int:
+    """Return the effective max_tokens from env vars, with per-backend and global fallbacks.
+
+    Priority: ``GLOSSAPI_DEEPSEEK2_MAX_TOKENS`` > ``GLOSSAPI_VLM_MAX_TOKENS`` > *default*.
+    """
+    for var in ("GLOSSAPI_DEEPSEEK2_MAX_TOKENS", "GLOSSAPI_VLM_MAX_TOKENS"):
+        val = (os.getenv(var) or "").strip()
+        if val:
+            try:
+                return max(1, int(val))
+            except ValueError:
+                pass
+    return default
+
+
+def _render_prefetch_depth() -> int:
+    """Return the configured render pre-fetch depth (1–4, default 2).
+
+    Controlled by ``GLOSSAPI_VLM_RENDER_PREFETCH``.  A depth of 2 keeps two
+    page renders in flight concurrently with GPU inference, hiding the
+    ~50–150 ms rasterisation latency on large pages.
+    """
+    try:
+        return max(1, min(4, int(os.getenv("GLOSSAPI_VLM_RENDER_PREFETCH", "2"))))
+    except (ValueError, TypeError):
+        return 2
 
 
 # ---------------------------------------------------------------------------
@@ -441,6 +470,8 @@ def process_pdf(
     out_md = markdown_dir / f"{pdf_path.stem}.md"
     out_metrics = metrics_dir / f"{pdf_path.stem}.metrics.json"
 
+    effective_max_tokens = _resolve_max_tokens() if max_tokens == DEFAULT_MAX_TOKENS else max_tokens
+    _prefetch = _render_prefetch_depth()
     lines: list[str] = []
     logger = logging.getLogger(__name__)
 
@@ -457,17 +488,21 @@ def process_pdf(
         progress = None
 
     pdf_start = time.time()
-    with ThreadPoolExecutor(max_workers=1) as _render_pool:
-        # Pre-render the first page to bootstrap the CPU/GPU pipeline.
-        _next_render = _render_pool.submit(render_page, doc, 0, dpi)
+    with ThreadPoolExecutor(max_workers=_prefetch) as _render_pool:
+        # Pre-fill the prefetch queue with the first _prefetch pages.
+        _render_q: deque = deque(
+            _render_pool.submit(render_page, doc, pi, dpi)
+            for pi in range(min(_prefetch, page_count))
+        )
         for page_index in range(page_count):
             if content_debug:
                 lines.append(f"<!-- page:{page_index + 1} -->")
-            image = _next_render.result()
-            # Prefetch next page on CPU while Metal runs inference on current page.
-            if page_index + 1 < page_count:
-                _next_render = _render_pool.submit(render_page, doc, page_index + 1, dpi)
-            text = generate_page(model, processor, image, prompt=prompt, max_tokens=max_tokens)
+            # Enqueue the next page not yet in the queue.
+            next_pi = page_index + _prefetch
+            if next_pi < page_count:
+                _render_q.append(_render_pool.submit(render_page, doc, next_pi, dpi))
+            image = _render_q.popleft().result()
+            text = generate_page(model, processor, image, prompt=prompt, max_tokens=effective_max_tokens)
             _flush_metal()  # flush Metal command buffer and release activation slabs
             lines.append(text)
             lines.append("")

@@ -120,7 +120,7 @@ both CUDA (via vLLM) and Apple Silicon MPS (via MLX).
 - Override model path with `GLOSSAPI_OLMOCR_MODEL_DIR` (CUDA) or `GLOSSAPI_OLMOCR_MLX_MODEL_DIR` (MLX).
 - Override device with `GLOSSAPI_OLMOCR_DEVICE` (`cuda`, `mps`, or `cpu`; auto-detected if unset).
 - For external vLLM servers, set `GLOSSAPI_OLMOCR_SERVER` and `GLOSSAPI_OLMOCR_API_KEY`.
-- Tune VRAM use with `GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION` (default `0.85`) and `GLOSSAPI_OLMOCR_MAX_MODEL_LEN` (default `8192`).
+- Tune VRAM use with `GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION` (default `0.85`).
 - If CUDA runtime libraries are not in the default search path, set `GLOSSAPI_OLMOCR_LD_LIBRARY_PATH=/usr/local/cuda/lib64`.
 
 ### MinerU setup

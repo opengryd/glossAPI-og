@@ -294,6 +294,13 @@ categories:
 | `GLOSSAPI_SKIP_DOCLING_BOOT` | Skip Docling patching at import (`1` to skip) |
 | `GLOSSAPI_OCR_LANGS` | Comma-separated OCR languages, e.g. `el,en` |
 
+### VLM Backend Performance Tuning
+
+| Variable | Purpose |
+|---|---|
+| `GLOSSAPI_VLM_MAX_TOKENS` | Global max-tokens cap applied to all VLM backends; per-backend vars take precedence when set. Default varies by backend (2048–4096). |
+| `GLOSSAPI_VLM_RENDER_PREFETCH` | Number of pages to pre-render ahead via thread pool (1–4, default `2`). Higher values reduce GPU idle time on multi-page PDFs. |
+
 ### DeepSeek-OCR (MPS/MLX — Apple Silicon)
 
 | Variable | Purpose |
@@ -302,6 +309,7 @@ categories:
 | `GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL` | HuggingFace MLX model identifier (default `mlx-community/DeepSeek-OCR-8bit`) |
 | `GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR` | Optional override for MLX model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr-1-mlx`) |
 | `GLOSSAPI_DEEPSEEK_OCR_MLX_SCRIPT` | Path to MLX inference script for subprocess execution (default: package-embedded `mlx_cli.py`) |
+| `GLOSSAPI_DEEPSEEK_OCR_MAX_TOKENS` | Max tokens for DeepSeek-OCR MLX generation (default `4096`; overrides `GLOSSAPI_VLM_MAX_TOKENS`) |
 
 ### DeepSeek-OCR (CUDA/vLLM)
 
@@ -326,6 +334,7 @@ categories:
 | `GLOSSAPI_DEEPSEEK2_MODEL_DIR` | Optional override for MLX model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr-mlx`) |
 | `GLOSSAPI_DEEPSEEK2_PYTHON` | Python binary for DeepSeek v2 venv |
 | `GLOSSAPI_DEEPSEEK2_DEVICE` | Device override (`mps` default) |
+| `GLOSSAPI_DEEPSEEK2_MAX_TOKENS` | Max tokens for DeepSeek v2 MLX generation (default `4096`; overrides `GLOSSAPI_VLM_MAX_TOKENS`) |
 
 ### MinerU
 
@@ -337,8 +346,6 @@ categories:
 | `GLOSSAPI_MINERU_MODE` | `auto` / `fast` / `accurate` |
 | `GLOSSAPI_MINERU_BACKEND` | Override MinerU internal backend selection |
 | `GLOSSAPI_MINERU_DEVICE_MODE` | Force device: `cuda` / `mps` / `cpu` (alias: `GLOSSAPI_MINERU_DEVICE`) |
-| `GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO` | `PYTORCH_MPS_HIGH_WATERMARK_RATIO` injected into subprocess. Default `0.0` = disable budget GC, rely on macOS pressure (no GPU stalls). Set `off` to revert to PyTorch's 1.7 default. |
-| `GLOSSAPI_MINERU_MPS_LOW_WATERMARK_RATIO` | Only used when high > 0. Auto-computed as `high - 0.2` if not set. |
 | `GLOSSAPI_MINERU_FORMULA_ENABLE` | Set to `0` to skip formula recognition (MFR) entirely; `1` to force-enable. Injected as `formula-config.enable`. |
 | `GLOSSAPI_MINERU_TABLE_ENABLE` | Set to `0` to skip table extraction; `1` to force-enable. Injected as `table-config.enable`. |
 | `VIRTUAL_VRAM_SIZE` | MinerU env var (no `GLOSSAPI_` prefix) overriding detected GPU memory for `batch_ratio` scaling. Auto-injected by GlossAPI on MPS based on physical RAM after the `setup_glossapi.sh` MPS branch patch (`8–15 GiB → "6"`, `16–23 GiB → "8"`, `≥․24 GiB → "12"`). |
@@ -354,6 +361,7 @@ categories:
 | `GLOSSAPI_GLMOCR_MLX_MODEL` | HuggingFace MLX model identifier (default `mlx-community/GLM-OCR-4bit`) |
 | `GLOSSAPI_GLMOCR_MLX_SCRIPT` | Path to MLX inference script for subprocess execution |
 | `GLOSSAPI_GLMOCR_DEVICE` | Device override (`mps`, `cpu`) |
+| `GLOSSAPI_GLMOCR_MAX_TOKENS` | Max tokens for GLM-OCR generation (default `2048`; overrides `GLOSSAPI_VLM_MAX_TOKENS`) |
 
 ### OlmOCR-2
 
@@ -367,8 +375,6 @@ categories:
 | `GLOSSAPI_OLMOCR_SERVER` | URL of external vLLM server |
 | `GLOSSAPI_OLMOCR_API_KEY` | API key for external vLLM server |
 | `GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION` | VRAM fraction for vLLM KV-cache (default `0.85`) |
-| `GLOSSAPI_OLMOCR_MAX_MODEL_LEN` | Upper bound (tokens) for KV-cache allocation (default `8192`) |
-| `GLOSSAPI_OLMOCR_TENSOR_PARALLEL_SIZE` | Tensor parallel size for vLLM (default `1`) |
 | `GLOSSAPI_OLMOCR_TARGET_IMAGE_DIM` | Longest-side dimension for PDF page rendering (OlmOCR CLI only) |
 | `GLOSSAPI_OLMOCR_WORKERS` | Number of OlmOCR pipeline workers (OlmOCR CLI only) |
 | `GLOSSAPI_OLMOCR_PAGES_PER_GROUP` | PDF pages per work item group (OlmOCR CLI only) |
@@ -378,6 +384,8 @@ categories:
 | `GLOSSAPI_OLMOCR_MLX_MODEL_DIR` | Optional override for MLX model weights directory (default: `$GLOSSAPI_WEIGHTS_ROOT/olmocr-mlx`) |
 | `GLOSSAPI_OLMOCR_MLX_SCRIPT` | Path to MLX inference script for subprocess execution |
 | `GLOSSAPI_OLMOCR_DEVICE` | Device override (`cuda`, `mps`, `cpu`) |
+| `GLOSSAPI_OLMOCR_MAX_TOKENS` | Max tokens for OlmOCR vLLM generation (default `2048`; overrides `GLOSSAPI_VLM_MAX_TOKENS`) |
+| `GLOSSAPI_OLMOCR_MLX_MAX_TOKENS` | Max tokens for OlmOCR MLX (Apple Silicon) generation (default `2048`; overrides `GLOSSAPI_VLM_MAX_TOKENS`) |
 
 ### LaTeX Policy — Early Stop (during decoding)
 

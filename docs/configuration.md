@@ -85,6 +85,23 @@ When using `backend='deepseek-ocr-2'`, equations are included inline in the OCR 
 
 When using `backend='mineru'`, equations are included inline in the OCR output; Phase‑2 math flags are accepted but skipped.
 
+### VLM performance tuning (all backends)
+
+The following variables tune throughput across all VLM-based backends (DeepSeek-OCR
+1/2, GLM-OCR, OlmOCR-2) without affecting OCR quality.
+
+- `GLOSSAPI_VLM_MAX_TOKENS` (integer): global cap on generated tokens **per page** for
+  all VLM backends.  Per-backend overrides take precedence (see each section below).
+  Factory defaults are `4096` for DeepSeek-OCR 1/2 and `2048` for GLM-OCR and OlmOCR-2.
+  Reducing to `1500`–`2000` yields ~20–35 % faster generation on typical academic pages
+  with negligible quality loss.
+
+- `GLOSSAPI_VLM_RENDER_PREFETCH` (integer, 1–4, default `2`): depth of the render
+  prefetch queue used by all in-process MLX runners.  The render thread rasterises this
+  many pages ahead while Metal runs inference on the current page, hiding ~50–150 ms of
+  pypdfium2 rendering latency.  Increase to `3`–`4` for very large pages; decrease to `1`
+  on RAM-constrained machines.
+
 ### DeepSeek-OCR runtime controls
 
 The runner auto-detects the platform and selects the right execution path:
@@ -106,6 +123,7 @@ The runner auto-detects the platform and selects the right execution path:
 - `GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL`: HuggingFace model ID for auto-download (default `mlx-community/DeepSeek-OCR-8bit`).
 - `GLOSSAPI_DEEPSEEK_OCR_MLX_SCRIPT`: override path to the MLX CLI inference script. By default the package-shipped `mlx_cli.py` is used.
 - `GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON` / `GLOSSAPI_DEEPSEEK_OCR_PYTHON`: Python executable for the MLX CLI subprocess (defaults to the current interpreter).
+- `GLOSSAPI_DEEPSEEK_OCR_MAX_TOKENS` (integer): max decoded tokens per page for this backend; overrides `GLOSSAPI_VLM_MAX_TOKENS` (default `4096`).
 
 **CUDA / vLLM controls (Linux):**
 
@@ -126,6 +144,7 @@ The runner tries three strategies in order: **in-process** (fast, model stays lo
 - `GLOSSAPI_DEEPSEEK2_DEVICE`: device override (`mps` or `cpu`, default `mps`).
 - `GLOSSAPI_DEEPSEEK2_MLX_SCRIPT`: override path to an external MLX CLI script. Only needed when using a separate venv or custom script. By default the package-shipped script is used.
 - `GLOSSAPI_DEEPSEEK2_PYTHON` / `GLOSSAPI_DEEPSEEK2_TEST_PYTHON`: absolute path to the Python interpreter for CLI subprocess mode (defaults to the current interpreter).
+- `GLOSSAPI_DEEPSEEK2_MAX_TOKENS` (integer): max decoded tokens per page for this backend; overrides `GLOSSAPI_VLM_MAX_TOKENS` (default `4096`).
 
 ### MinerU runtime controls
 
@@ -135,8 +154,6 @@ The runner tries three strategies in order: **in-process** (fast, model stays lo
 - `GLOSSAPI_MINERU_MODE`: override the MinerU mode flag (passed to `magic-pdf -m`, default `auto`).
 - `GLOSSAPI_MINERU_BACKEND`: override the MinerU backend (passed to `magic-pdf -b`, e.g. `pipeline`, `hybrid-auto-engine`, `vlm`).
 - `GLOSSAPI_MINERU_DEVICE_MODE`: override the MinerU device mode (`mps`, `cuda`, or `cpu`). Requires `MINERU_TOOLS_CONFIG_JSON` to point at the base config.
-- `GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO` (default `0.0`): controls `PYTORCH_MPS_HIGH_WATERMARK_RATIO` injected into the `magic-pdf` subprocess on macOS/MPS. `0.0` (the default) disables PyTorch's budget-based GC entirely — instead of firing synchronous in-process sweeps that stall the GPU command queue, PyTorch relies on macOS system memory pressure events (asynchronous, no GPU idle). PyTorch's own default is `1.7` (GC fires after allocating 1.7× the recommended budget). Any ratio-based GC adds stall overhead during MFR autoregressive decoding; the OS pressure mechanism avoids this. Set to `off` to skip injection and revert to PyTorch's 1.7 default. Set to any float > 0 (e.g. `1.0`) to use ratio-based GC at that threshold.
-- `GLOSSAPI_MINERU_MPS_LOW_WATERMARK_RATIO`: only relevant when high watermark > 0. Controls the drain target after GC fires. When high is `0.0`, this var is ignored. Auto-computed as `high - 0.2` when not set explicitly.
 - `GLOSSAPI_MINERU_FORMULA_ENABLE`: set to `0` to skip formula recognition (MFR / UniMerNet) entirely — useful for text-only documents where formulae are absent and the MFR pass is a no-op. Set to `1` to force-enable regardless of the base `magic-pdf.json`. Injected as `formula-config.enable`.
 - `GLOSSAPI_MINERU_TABLE_ENABLE`: set to `0` to skip table extraction. Set to `1` to force-enable. Injected as `table-config.enable`.
 - `VIRTUAL_VRAM_SIZE`: MinerU env var (no `GLOSSAPI_` prefix) that overrides the detected GPU memory (in GiB) used to compute `batch_ratio`, which scales the number of formula crops per MFR inference batch. On MPS, MinerU assigns `batch_ratio=1` (16 crops/batch) by default. After running `setup_glossapi.sh --mode mineru`, GlossAPI patches the MPS branch of `doc_analyze_by_custom_model.py` and automatically injects `VIRTUAL_VRAM_SIZE` based on detected physical RAM (`8–15 GiB → "6"`, `16–23 GiB → "8"`, `≥ 24 GiB → "12"`), raising `batch_ratio` to ~2–4 and improving sustained MFR throughput. Override by setting `VIRTUAL_VRAM_SIZE` manually before running the pipeline.
@@ -161,6 +178,7 @@ GLM-OCR is a compact 0.5B VLM for document OCR, running on Apple Silicon via MLX
 - `GLOSSAPI_GLMOCR_MLX_MODEL`: HuggingFace MLX model identifier (default `mlx-community/GLM-OCR-4bit`).
 - `GLOSSAPI_GLMOCR_MLX_SCRIPT`: path to the MLX CLI inference script for subprocess execution.
 - `GLOSSAPI_GLMOCR_DEVICE`: device override (`mps`, `cpu`); auto-detected if unset.
+- `GLOSSAPI_GLMOCR_MAX_TOKENS` (integer): max decoded tokens per page for this backend; overrides `GLOSSAPI_VLM_MAX_TOKENS` (default `2048`).
 
 On macOS, the runner tries in-process MLX first (if `mlx_vlm` is importable), then
 the MLX CLI subprocess, then the stub.
@@ -185,13 +203,12 @@ python -m glossapi.ocr.glm_ocr.preflight
 - `GLOSSAPI_OLMOCR_SERVER`: URL of an external vLLM server (skips spawning a local vLLM instance).
 - `GLOSSAPI_OLMOCR_API_KEY`: API key for external vLLM server.
 - `GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION`: fraction of VRAM vLLM may pre-allocate for KV-cache (default `0.85`).
-- `GLOSSAPI_OLMOCR_MAX_MODEL_LEN`: upper bound (tokens) vLLM will allocate KV-cache for (default `8192`).
-- `GLOSSAPI_OLMOCR_TENSOR_PARALLEL_SIZE`: tensor parallel size for vLLM (default `1`).
 - `GLOSSAPI_OLMOCR_TARGET_IMAGE_DIM`: dimension on longest side used for rendering PDF pages (OlmOCR CLI only).
 - `GLOSSAPI_OLMOCR_WORKERS`: number of OlmOCR pipeline workers (OlmOCR CLI only).
 - `GLOSSAPI_OLMOCR_PAGES_PER_GROUP`: number of PDF pages per work item group (OlmOCR CLI only).
 - `GLOSSAPI_OLMOCR_VLLM_SCRIPT`: path to the vLLM CLI inference script for subprocess execution (default: package-embedded `vllm_cli.py`).
 - `GLOSSAPI_OLMOCR_LD_LIBRARY_PATH`: extra library paths prepended to `LD_LIBRARY_PATH` for vLLM/OlmOCR CLI subprocesses (e.g. `/usr/local/cuda/lib64`). Fixes `libcudart.so.12 not found` errors when the CUDA runtime lives outside the default search path.
+- `GLOSSAPI_OLMOCR_MAX_TOKENS` (integer): max decoded tokens per page for the CUDA/vLLM path; overrides `GLOSSAPI_VLM_MAX_TOKENS` (default `2048`).
 
 #### MPS / MLX (macOS Apple Silicon)
 
@@ -199,6 +216,7 @@ python -m glossapi.ocr.glm_ocr.preflight
 - `GLOSSAPI_OLMOCR_MLX_MODEL_DIR`: local MLX-formatted model weights directory.
 - `GLOSSAPI_OLMOCR_MLX_SCRIPT`: path to the MLX CLI inference script for subprocess execution.
 - `GLOSSAPI_OLMOCR_DEVICE`: device override (`cuda`, `mps`, `cpu`); auto-detected if unset.
+- `GLOSSAPI_OLMOCR_MLX_MAX_TOKENS` (integer): max decoded tokens per page for the MLX path; overrides `GLOSSAPI_VLM_MAX_TOKENS` (default `2048`).
 
 #### Strategy cascade
 

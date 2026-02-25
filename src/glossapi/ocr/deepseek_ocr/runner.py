@@ -362,7 +362,12 @@ def run_for_files(
     # independently of the CUDA CLI flag.
     env_enable_mlx_ocr: Optional[str] = env.get("GLOSSAPI_DEEPSEEK_OCR_ENABLE_MLX_OCR")
     env_device = env.get("GLOSSAPI_DEEPSEEK_OCR_DEVICE", "").strip().lower()
-    env_python = env.get("GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON", "")
+    # Accept both names: GLOSSAPI_DEEPSEEK_OCR_PYTHON (consistent with other backends)
+    # and the legacy GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON.
+    env_python = (
+        env.get("GLOSSAPI_DEEPSEEK_OCR_PYTHON", "")
+        or env.get("GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON", "")
+    )
     env_mlx_model_dir = env.get("GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR", "")
     env_gpu_mem = env.get("GLOSSAPI_DEEPSEEK_OCR_GPU_MEMORY_UTILIZATION", "")
 
