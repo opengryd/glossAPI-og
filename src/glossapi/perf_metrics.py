@@ -386,43 +386,14 @@ class _PowermetricsStreamingSensor(_BasePowerSensor):
                 return True
         except Exception:
             pass
-        # 2) Prompt the user for a password on the controlling TTY.
-        try:
-            import getpass as _getpass
-            import sys as _sys
-            if not _sys.stdin.isatty():
-                self._available = False
-                return False
-            print(
-                "\n[GlossAPI] powermetrics needs sudo for energy/power measurement."
-                " Leave the password blank to skip power monitoring.",
-                flush=True,
-            )
-            pwd = _getpass.getpass("  sudo password: ")
-            if not pwd:
-                logger.info("perf_metrics: power monitoring skipped (no password entered).")
-                self._available = False
-                return False
-            # Validate with -S (read password from stdin) and -k (ignore cached ticket).
-            test = subprocess.run(
-                ["sudo", "-S", "-k", "powermetrics",
-                 "--samplers", "cpu_power", "-n", "1", "-i", "1"],
-                input=pwd + "\n",
-                capture_output=True, text=True, timeout=10,
-            )
-            if test.returncode == 0:
-                self._password = pwd
-                self._available = True
-            else:
-                logger.warning(
-                    "perf_metrics: sudo password rejected for powermetrics; "
-                    "power monitoring unavailable."
-                )
-                self._available = False
-        except Exception as exc:
-            logger.debug("perf_metrics: sudo password prompt failed: %s", exc)
-            self._available = False
-        return self._available
+        # 2) Use a password pre-supplied via set_powermetrics_sudo_password().
+        #    Never prompt interactively here — prompting is the caller's responsibility.
+        if _POWERMETRICS_SUDO_PASSWORD:
+            self._password = _POWERMETRICS_SUDO_PASSWORD
+            self._available = True
+            return True
+        self._available = False
+        return False
 
     def start(self) -> None:
         self._stop_reader.clear()
@@ -516,6 +487,7 @@ class _PowermetricsStreamingSensor(_BasePowerSensor):
 
 _SENSOR_CACHE: Optional[_BasePowerSensor] = None
 _SENSOR_CACHE_RESOLVED: bool = False
+_POWERMETRICS_SUDO_PASSWORD: Optional[str] = None  # pre-supplied via set_powermetrics_sudo_password()
 
 
 def _build_sensor() -> Optional[_BasePowerSensor]:
@@ -551,6 +523,89 @@ def _build_sensor() -> Optional[_BasePowerSensor]:
             pass
     _SENSOR_CACHE_RESOLVED = True
     return None
+
+
+def needs_powermetrics_sudo() -> bool:
+    """Return True if ``powermetrics`` would be used but needs a sudo password.
+
+    Specifically returns True when all of the following hold:
+
+    * Running on macOS
+    * The ``powermetrics`` binary is on ``PATH``
+    * No higher-priority sensor (NVML, RAPL, IOKit) is available
+    * Passwordless ``sudo -n`` for powermetrics fails (a password is required)
+    """
+    if platform.system() != "Darwin":
+        return False
+    import shutil as _shutil
+    if _shutil.which("powermetrics") is None:
+        return False
+    # Check if a higher-priority no-sudo sensor already works.
+    for sensor in [_NvmlSensor(), _RaplSampledSensor(), _IOKitSensor()]:
+        try:
+            if sensor.available():
+                return False
+        except Exception:
+            pass
+    # None of the no-sudo sensors work.  Check if passwordless sudo succeeds.
+    try:
+        r = subprocess.run(
+            ["sudo", "-n", "powermetrics", "--samplers", "cpu_power", "-n", "1", "-i", "1"],
+            capture_output=True, text=True, timeout=6,
+        )
+        if r.returncode == 0:
+            return False  # passwordless sudo works, no prompt needed
+    except Exception:
+        pass
+    return True
+
+
+def set_powermetrics_sudo_password(pwd: str) -> bool:
+    """Validate *pwd* for ``sudo powermetrics`` and cache it for sensor resolution.
+
+    Call this from the CLI wizard after prompting the user.  A subsequent call
+    to :func:`prewarm_power_sensor` (or the first :class:`PowerSampler`
+    construction) will use the cached password without any further prompting.
+
+    Returns ``True`` if the password is accepted, ``False`` otherwise.
+    """
+    global _POWERMETRICS_SUDO_PASSWORD, _SENSOR_CACHE, _SENSOR_CACHE_RESOLVED
+    try:
+        test = subprocess.run(
+            ["sudo", "-S", "-k", "powermetrics",
+             "--samplers", "cpu_power", "-n", "1", "-i", "1"],
+            input=pwd + "\n",
+            capture_output=True, text=True, timeout=10,
+        )
+        if test.returncode != 0:
+            logger.warning(
+                "perf_metrics: sudo password rejected for powermetrics; "
+                "power monitoring unavailable."
+            )
+            return False
+    except Exception as exc:
+        logger.debug("perf_metrics: password validation failed: %s", exc)
+        return False
+    _POWERMETRICS_SUDO_PASSWORD = pwd
+    # Reset the sensor cache so the next _build_sensor() call re-evaluates
+    # with the newly stored password.
+    _SENSOR_CACHE = None
+    _SENSOR_CACHE_RESOLVED = False
+    return True
+
+
+def prewarm_power_sensor() -> Optional[str]:
+    """Resolve and cache the best available power sensor, returning its name.
+
+    Call this after :func:`set_powermetrics_sudo_password` (when applicable) so
+    the sensor is selected and cached before the pipeline run begins.  No
+    interactive prompts are raised here.
+
+    Returns the sensor name (e.g. ``"powermetrics"``, ``"nvml"``, ``"iokit"``,
+    ``"rapl"``) or ``None`` when no power sensor is available.
+    """
+    sensor = _build_sensor()
+    return sensor.name if sensor is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -823,8 +878,17 @@ class PipelineProfiler:
             logger.warning("perf_metrics.report(): no samples recorded — nothing to report.")
             return {}
 
-        # Resolve backend label
-        report_backend = backend or samples[-1].backend
+        # Resolve backend label — prefer the primary processing phase (ocr /
+        # extract) over helper phases like the Rust cleaner so the report
+        # filename/header reflects the actual pipeline backend in use.
+        if backend:
+            report_backend = backend
+        else:
+            _priority_phases = ("ocr", "math_enrich", "extract")
+            report_backend = next(
+                (s.backend for phase in _priority_phases for s in samples if s.phase == phase and s.backend),
+                samples[-1].backend,
+            )
 
         # ---- Aggregate phases ----
         phase_reports: Dict[str, Dict[str, Any]] = {}

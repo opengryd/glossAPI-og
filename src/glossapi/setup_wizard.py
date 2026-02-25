@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import platform
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -12,32 +11,42 @@ import shutil
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
+
+from ._cli_utils import (
+    _run_gum_raw,
+    _open_tty,
+    _simple_select,
+    _simple_confirm,
+    _simple_text,
+    _gum_choose_impl,
+    _gum_confirm_impl,
+    _gum_input_impl,
+)
 
 app = typer.Typer(add_completion=False, help="Environment setup wizard for GlossAPI.")
 console = Console()
 
-_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
-
 _ALL_MODES = ["vanilla", "rapidocr", "mineru", "deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "olmocr"]
 
-# Description labels shown in interactive menus (platform-independent; hardware
-# support is communicated via the banner checkmark table in glossapi-cli.sh and
-# via post-selection warnings for incompatible combinations).
+# Mode labels shown in interactive menus.  Descriptions are displayed in the
+# banner table inside glossapi-cli.sh; platform-incompatibility warnings are
+# emitted by _ask_mode() after the user selects a mode.
 _MODE_LABELS: dict[str, dict[str, str]] = {
-    "vanilla":        {"Darwin": "vanilla        — Core pipeline, no GPU required",
-                       "Linux":  "vanilla        — Core pipeline, no GPU required"},
-    "rapidocr":       {"Darwin": "rapidocr       — Docling + RapidOCR OCR",
-                       "Linux":  "rapidocr       — Docling + RapidOCR OCR"},
-    "mineru":         {"Darwin": "mineru         — External magic-pdf client",
-                       "Linux":  "mineru         — External magic-pdf client"},
-    "deepseek-ocr":   {"Darwin": "deepseek-ocr   — DeepSeek-OCR via vLLM",
-                       "Linux":  "deepseek-ocr   — DeepSeek-OCR via vLLM"},
-    "deepseek-ocr-2": {"Darwin": "deepseek-ocr-2 — DeepSeek OCR v2 via MLX",
-                       "Linux":  "deepseek-ocr-2 — DeepSeek OCR v2 via MLX"},
-    "glm-ocr":        {"Darwin": "glm-ocr        — GLM-OCR 0.5B VLM via MLX",
-                       "Linux":  "glm-ocr        — GLM-OCR 0.5B VLM via MLX"},
-    "olmocr":         {"Darwin": "olmocr         — OlmOCR-2 VLM OCR",
-                       "Linux":  "olmocr         — OlmOCR-2 VLM OCR"},
+    "vanilla":        {"Darwin": "vanilla",
+                       "Linux":  "vanilla"},
+    "rapidocr":       {"Darwin": "rapidocr",
+                       "Linux":  "rapidocr"},
+    "mineru":         {"Darwin": "mineru",
+                       "Linux":  "mineru"},
+    "deepseek-ocr":   {"Darwin": "deepseek-ocr",
+                       "Linux":  "deepseek-ocr"},
+    "deepseek-ocr-2": {"Darwin": "deepseek-ocr-2",
+                       "Linux":  "deepseek-ocr-2"},
+    "glm-ocr":        {"Darwin": "glm-ocr",
+                       "Linux":  "glm-ocr"},
+    "olmocr":         {"Darwin": "olmocr",
+                       "Linux":  "olmocr"},
 }
 
 
@@ -79,117 +88,33 @@ def _require_gum() -> None:
 
 def _run_gum(args: list[str]) -> tuple[int, str]:
     _require_gum()
-    try:
-        tty_in = open("/dev/tty", "rb")
-        tty_out = open("/dev/tty", "wb")
-    except Exception:
-        proc = subprocess.run(["gum", *args], text=True, capture_output=True)
-        output = _ANSI_RE.sub("", proc.stdout or "")
-        return proc.returncode, output.strip()
-
-    proc = subprocess.run(
-        ["gum", *args],
-        stdin=tty_in,
-        stdout=subprocess.PIPE,
-        stderr=tty_out,
-        text=True,
-    )
-    tty_in.close()
-    tty_out.close()
-    output = _ANSI_RE.sub("", proc.stdout or "")
-    return proc.returncode, output.strip()
+    return _run_gum_raw(args)
 
 
-def _gum_choose(label: str, choices: list[str], default: Optional[str]) -> str:
-    args = ["choose", "--header", label]
-    if default:
-        args.extend(["--selected", default])
-    args.extend(choices)
-    code, output = _run_gum(args)
-    if code != 0:
+def _gum_choose(label: str, choices: list[str], *, default: Optional[str] = None) -> list[str]:
+    """Thin wrapper binding the wizard's ``_run_gum`` to the shared impl.
+
+    Always returns a list (single-select callers index with ``[0]``).
+    Raises ``typer.Exit`` on user cancel (empty result).
+    """
+    result = _gum_choose_impl(_run_gum, label, choices, default=default)
+    if not result:
         raise typer.Exit(code=1)
-    return output
+    return result
 
 
 def _gum_confirm(label: str, default: bool) -> bool:
-    args = ["confirm", "--default=true" if default else "--default=false", label]
-    code, _ = _run_gum(args)
-    return code == 0
+    return _gum_confirm_impl(_run_gum, label, default)
 
 
 def _gum_input(label: str, default: str) -> str:
-    args = ["input", "--prompt", f"{label}: ", "--value", default]
-    code, output = _run_gum(args)
-    if code != 0:
+    result = _gum_input_impl(_run_gum, label, default)
+    if result is None:
         raise typer.Exit(code=1)
-    return output
+    return result
 
 
-def _open_tty() -> Optional[object]:
-    try:
-        return open("/dev/tty", "r+")
-    except Exception:
-        return None
-
-
-def _simple_select(label: str, choices: list[str], default: str, tty: Optional[object]) -> str:
-    default_idx = choices.index(default) + 1 if default in choices else 1
-    def _write(msg: str) -> None:
-        if tty:
-            tty.write(msg)
-            tty.flush()
-        else:
-            sys.stdout.write(msg)
-            sys.stdout.flush()
-
-    def _readline() -> str:
-        if tty:
-            return tty.readline()
-        return input()
-
-    _write(f"{label}:\n")
-    for idx, choice in enumerate(choices, start=1):
-        _write(f"  {idx}) {choice}\n")
-    while True:
-        _write(f"Select [default {default_idx}]: ")
-        answer = _readline().strip()
-        if not answer:
-            return choices[default_idx - 1]
-        if answer.isdigit() and 1 <= int(answer) <= len(choices):
-            return choices[int(answer) - 1]
-        _write("Invalid choice. Try again.\n")
-
-
-def _simple_confirm(label: str, default: bool, tty: Optional[object]) -> bool:
-    default_char = "Y" if default else "n"
-    while True:
-        if tty:
-            tty.write(f"{label} [Y/n] (default {default_char}): ")
-            tty.flush()
-            answer = tty.readline().strip().lower()
-        else:
-            answer = input(f"{label} [Y/n] (default {default_char}): ").strip().lower()
-        if not answer:
-            return default
-        if answer in {"y", "yes"}:
-            return True
-        if answer in {"n", "no"}:
-            return False
-        if tty:
-            tty.write("Please answer y or n.\n")
-            tty.flush()
-        else:
-            print("Please answer y or n.")
-
-
-def _simple_text(label: str, default: str, tty: Optional[object]) -> str:
-    if tty:
-        tty.write(f"{label} [default: {default}]: ")
-        tty.flush()
-        answer = tty.readline().strip()
-    else:
-        answer = input(f"{label} [default: {default}]: ").strip()
-    return answer or default
+# _open_tty, _simple_select, _simple_confirm, _simple_text imported from ._cli_utils
 
 
 def _detect_os_label() -> str:
@@ -212,7 +137,7 @@ def _ask_mode(default: Optional[str]) -> str:
     # Find the annotated default label
     default_choice = next((c for c in choices if c.startswith(default_mode)), choices[0])
     if _is_interactive():
-        selected = _gum_choose("Environment profile", choices, default_choice)
+        selected = _gum_choose("Environment profile", choices, default=default_choice)[0]
     else:
         tty = _open_tty()
         if tty:
@@ -243,10 +168,13 @@ def _ask_mode(default: Optional[str]) -> str:
     return mode
 
 
-def _ask_venv(default: Optional[str]) -> Path:
+def _ask_venv(default: Optional[str], *, mode: str = "") -> Path:
     if default:
         return Path(default).expanduser().resolve()
-    default_path = str(Path("dependency_setup") / ".venvs" / "glossapi")
+    # Default venv name is derived from the chosen mode so each backend gets
+    # its own isolated environment (e.g. .venvs/rapidocr, .venvs/deepseek-ocr).
+    venv_name = mode if mode else "glossapi"
+    default_path = str(Path("dependency_setup") / ".venvs" / venv_name)
     if _is_interactive():
         response = _gum_input("Virtualenv path", default_path)
         if not response:
@@ -269,7 +197,7 @@ def _ask_python(default: Optional[str]) -> str:
         console.print("[red]Python 3.11–3.13 not found on PATH. Install one and retry.[/red]")
         raise typer.Exit(code=1)
     if _is_interactive():
-        return _gum_choose("Python version", versions, versions[0])
+        return _gum_choose("Python version", versions, default=versions[0])[0]
     tty = _open_tty()
     if tty:
         with tty:
@@ -302,7 +230,7 @@ def _run_setup(
     smoke_test: bool,
     detectron2_auto_install: bool,
     detectron2_wheel_url: Optional[str],
-) -> None:
+) -> bool:
     script = Path("dependency_setup") / "setup_glossapi.sh"
     if not script.exists():
         console.print(f"[red]Missing setup script: {script}[/red]")
@@ -358,7 +286,8 @@ def _run_setup(
             f"[dim](dependency_setup/.glossapi_state.json)[/dim]"
         )
         console.print("[dim]  Run [bold]glossapi status[/bold] to view all installed backends.[/dim]")
-    raise typer.Exit(code=result.returncode)
+        return True
+    return False
 
 
 @app.callback(invoke_without_command=True)
@@ -382,11 +311,18 @@ def main(
         return
 
     console.print(Panel.fit("GlossAPI Setup", title="Welcome"))
-    console.print(f"[dim]Detected OS: {_detect_os_label()}[/dim]")
+    console.print(f"[dim]Platform: {_detect_os_label()}[/dim]")
+
+    # 1. Profile — drives defaults for every subsequent question.
     selected_mode = _ask_mode(mode)
-    selected_venv = _ask_venv(venv)
+
+    # 2. Virtualenv — default name derived from profile so each backend is isolated.
+    selected_venv = _ask_venv(venv, mode=selected_mode)
+
+    # 3. Python version.
     selected_python = _ask_python(python)
 
+    # 4. Optional model-weight downloads (only shown for relevant profiles).
     if selected_mode == "deepseek-ocr" and not download_deepseek_ocr:
         download_deepseek_ocr = _ask_bool(
             "Download DeepSeek OCR weights now? (skip for faster setup)",
@@ -412,40 +348,63 @@ def main(
             "Download MinerU models now? (large download)",
             default=False,
         )
-    if selected_mode == "mineru" and not detectron2_wheel_url:
+
+    # 5. detectron2 (MinerU only) — single choice instead of two separate prompts.
+    if selected_mode == "mineru" and not detectron2_wheel_url and not detectron2_auto_install:
+        d2_choices = ["auto-install from source", "provide wheel URL", "skip"]
         if _is_interactive():
-            detectron2_wheel_url = _gum_input(
-                "Detectron2 wheel URL (optional)",
-                detectron2_wheel_url or "",
-            )
+            d2_choice = _gum_choose("detectron2 setup", d2_choices, default=d2_choices[0])[0]
         else:
             tty = _open_tty()
             if tty:
                 with tty:
-                    detectron2_wheel_url = _simple_text(
-                        "Detectron2 wheel URL (optional)",
-                        detectron2_wheel_url or "",
-                        tty,
-                    )
+                    d2_choice = _simple_select("detectron2 setup", d2_choices, d2_choices[0], tty)
             else:
-                detectron2_wheel_url = _simple_text(
-                    "Detectron2 wheel URL (optional)",
-                    detectron2_wheel_url or "",
-                    None,
-                )
-        if detectron2_wheel_url:
-            detectron2_auto_install = False
-    if selected_mode == "mineru" and not detectron2_auto_install and not detectron2_wheel_url:
-        detectron2_auto_install = _ask_bool(
-            "Attempt detectron2 auto-install from source? (slow; use if no wheel/preinstall)",
-            default=True,
-        )
+                d2_choice = _simple_select("detectron2 setup", d2_choices, d2_choices[0], None)
+        if d2_choice == "provide wheel URL":
+            if _is_interactive():
+                detectron2_wheel_url = _gum_input("Wheel URL", "") or None
+            else:
+                tty = _open_tty()
+                if tty:
+                    with tty:
+                        detectron2_wheel_url = _simple_text("Detectron2 wheel URL", "", tty) or None
+                else:
+                    detectron2_wheel_url = _simple_text("Detectron2 wheel URL", "", None) or None
+        elif d2_choice == "auto-install from source":
+            detectron2_auto_install = True
+
+    # 6. Post-setup validation.
     if not run_tests:
-        run_tests = _ask_bool("Run tests after setup? (slower)", default=False)
+        run_tests = _ask_bool("Run tests after setup?", default=False)
     if selected_mode == "deepseek-ocr" and not smoke_test:
         smoke_test = _ask_bool("Run DeepSeek OCR smoke test? (requires CUDA GPU)", default=False)
 
-    _run_setup(
+    # 7. Summary panel — show everything before the script runs.
+    summary = Table(show_header=False, box=None, padding=(0, 1))
+    summary.add_row("Profile", f"[green]{selected_mode}[/green]")
+    summary.add_row("Virtualenv", str(selected_venv))
+    summary.add_row("Python", selected_python)
+    weights_to_dl = [
+        b for b, flag in [
+            ("deepseek-ocr", download_deepseek_ocr),
+            ("deepseek-ocr-2", download_deepseek_ocr2),
+            ("glm-ocr", download_glmocr),
+            ("olmocr", download_olmocr),
+            ("mineru", download_mineru_models),
+        ] if flag
+    ]
+    if weights_to_dl:
+        summary.add_row("Download weights", ", ".join(weights_to_dl))
+    if run_tests:
+        summary.add_row("Tests", "✓")
+    if smoke_test:
+        summary.add_row("Smoke test", "✓")
+    console.print(Panel(summary, title="Setup summary"))
+    if not _ask_bool("Proceed with setup?", default=True):
+        raise typer.Exit(code=0)
+
+    success = _run_setup(
         selected_mode,
         selected_venv,
         python_bin=selected_python,
@@ -460,3 +419,22 @@ def main(
         detectron2_auto_install=detectron2_auto_install,
         detectron2_wheel_url=detectron2_wheel_url or None,
     )
+
+    if not success:
+        raise typer.Exit(code=1)
+
+    # 8. Handoff — offer to jump straight into a pipeline run.
+    # Offer to jump straight into a pipeline run with the just-installed backend
+    # pre-selected so the user doesn't have to re-pick it from the menu.
+    if _ask_bool("Run pipeline now?", default=True):
+        from .pipeline_wizard import _run_wizard
+        _run_wizard(
+            input_dir=None,
+            output_dir=None,
+            input_format=None,
+            phase=None,
+            confirm_each=False,
+            log_level="INFO",
+            default_backend=selected_mode,
+        )
+    raise typer.Exit(code=0)

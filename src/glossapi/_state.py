@@ -128,3 +128,21 @@ def all_state() -> Dict[str, Any]:
 def has_state_file() -> bool:
     """Return ``True`` if a state file already exists on disk."""
     return STATE_FILE.exists()
+
+
+# ---------------------------------------------------------------------------
+# Pipeline state — lightweight key/value store inside the same JSON file
+# ---------------------------------------------------------------------------
+
+
+def get_pipeline_state(key: str) -> Optional[str]:
+    """Return a pipeline-state value by *key*, or ``None`` if absent."""
+    return _load().get("pipeline", {}).get(key)
+
+
+def set_pipeline_state(key: str, value: str) -> None:
+    """Persist a pipeline-state *key*/*value* pair in the state file."""
+    data = _load()
+    data.setdefault("pipeline", {})[key] = value
+    data["last_updated"] = datetime.now(timezone.utc).isoformat()
+    _save(data)
