@@ -398,8 +398,9 @@ def process_pdf(
     if Image is None:
         raise RuntimeError(f"Pillow is required but unavailable: {_PIL_ERROR}")
 
-    with pdfium.PdfDocument(str(pdf_path)) as _count_doc:
-        total_pages = len(_count_doc)
+    _count_doc = pdfium.PdfDocument(str(pdf_path))
+    total_pages = len(_count_doc)
+    _count_doc.close()
     page_count = min(total_pages, max_pages) if max_pages else total_pages
 
     markdown_dir = output_dir / "markdown"
