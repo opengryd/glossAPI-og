@@ -619,9 +619,18 @@ def process_pdf(
                 if not text:
                     text = "[[Blank page]]"
 
+            # Release the PIL image immediately — it is no longer needed and
+            # holding it delays unified-memory reclaim under pressure.
+            del image
             _flush_metal()  # flush Metal command buffer and release activation slabs
             lines.append(text)
             lines.append("")
+
+            # Periodically refresh the Metal wired-memory limit.  macOS can
+            # lower the wired limit over time under memory pressure, allowing
+            # the compressor to evict model weights and causing a SIGBUS.
+            if (page_index + 1) % 20 == 0:
+                _set_metal_wired_limit()
 
             if progress is not None:
                 progress.update(1)
