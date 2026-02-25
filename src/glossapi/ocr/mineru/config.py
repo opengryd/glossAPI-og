@@ -40,7 +40,10 @@ _PATH_KEYS = ("models-dir", "layoutreader-model-dir")
 # collapse mid-stage (e.g. MFR Predict: 25 it/s → <3 it/s).
 _BATCH_KNOBS = (
     # MFR (formula recognition) — most impactful; autoregressive model.
-    ("GLOSSAPI_MINERU_MFR_BATCH_SIZE",     "formula-config", "mfr_batch_size",  32),
+    # 16 is chosen to halve peak KV-cache accumulation vs the previous default
+    # of 32, keeping each decoding pass short enough that the MPS allocator GC
+    # fires before tensors fragment the entire memory budget.
+    ("GLOSSAPI_MINERU_MFR_BATCH_SIZE",     "formula-config", "mfr_batch_size",  16),
     # OCR recognition — text crop decoder.
     ("GLOSSAPI_MINERU_OCR_REC_BATCH_SIZE", "ocr-config",     "rec_batch_num",   6),
     # Layout detection — one-shot CNN, less sensitive but still tuneable.

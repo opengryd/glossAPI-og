@@ -27,13 +27,18 @@ _MAGIC_PDF_BACKEND_SUPPORT: Optional[bool] = None
 # crops this exhausts unified memory and causes MFR Predict throughput to
 # collapse (e.g. 25 it/s → <2 it/s).
 #
-# Setting high=1.0 / low=0.8 triggers GC at 100 % of the recommended budget
-# (instead of 170 %) and drains to 80 % after each GC pass.
+# Setting high=0.7 / low=0.5 triggers GC at 70 % of the recommended budget
+# (instead of 170 %) and drains to 50 % after each GC pass.  This produces
+# more frequent but much shorter GC pauses rather than one catastrophic stall
+# that leaves the GPU idle for seconds at a time.  The effect is most visible
+# in MFR Predict where each autoregressive decode step accumulates tiny KV-
+# cache tensors; by the time 1.0× was reached the allocator had to sweep a
+# very large live set, causing GPU utilization to drop near zero mid-stage.
 #
 # Constraint enforced by PyTorch: low_watermark_ratio < high_watermark_ratio.
 # Set GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO=0 to disable both overrides.
-_MPS_HIGH_WATERMARK_DEFAULT = "1.0"
-_MPS_LOW_WATERMARK_DEFAULT = "0.8"
+_MPS_HIGH_WATERMARK_DEFAULT = "0.7"
+_MPS_LOW_WATERMARK_DEFAULT = "0.5"
 
 
 def _resolve_magic_pdf(cmd: Optional[str]) -> Optional[str]:
@@ -151,12 +156,14 @@ def _inject_mps_memory_limits(env: Dict[str, str]) -> Dict[str, str]:
     exhausts unified memory and causes MFR Predict throughput to collapse
     (e.g. 25 it/s → <2 it/s).
 
-    We set high=1.0 / low=0.8 so GC fires at 100 % of the recommended budget
-    and drains to 80 %.  PyTorch enforces low < high; both must be set together.
+    We set high=0.7 / low=0.5 so GC fires at 70 % of the recommended budget
+    and drains to 50 %.  This produces many small GC pauses instead of one
+    large stall, keeping the GPU busy throughout MFR autoregressive decoding.
+    PyTorch enforces low < high; both must be set together.
 
     Control knobs:
-      GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO  (default 1.0; set 0 to disable)
-      GLOSSAPI_MINERU_MPS_LOW_WATERMARK_RATIO   (default 0.8)
+      GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO  (default 0.7; set 0 to disable)
+      GLOSSAPI_MINERU_MPS_LOW_WATERMARK_RATIO   (default 0.5)
     """
     out = dict(env)
     user_high = out.get("GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO", "").strip()
