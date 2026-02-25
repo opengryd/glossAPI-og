@@ -337,8 +337,8 @@ categories:
 | `GLOSSAPI_MINERU_MODE` | `auto` / `fast` / `accurate` |
 | `GLOSSAPI_MINERU_BACKEND` | Override MinerU internal backend selection |
 | `GLOSSAPI_MINERU_DEVICE_MODE` | Force device: `cuda` / `mps` / `cpu` (alias: `GLOSSAPI_MINERU_DEVICE`) |
-| `GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO` | PyTorch MPS high-watermark multiplier (default `0.7`; set `0` to disable) |
-| `GLOSSAPI_MINERU_MPS_LOW_WATERMARK_RATIO` | PyTorch MPS low-watermark multiplier (default `0.5`; must be < high) |
+| `GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO` | `PYTORCH_MPS_HIGH_WATERMARK_RATIO` injected into subprocess. Default `0.0` = disable budget GC, rely on macOS pressure (no GPU stalls). Set `off` to revert to PyTorch's 1.7 default. |
+| `GLOSSAPI_MINERU_MPS_LOW_WATERMARK_RATIO` | Only used when high > 0. Auto-computed as `high - 0.2` if not set. |
 | `GLOSSAPI_MINERU_MFR_BATCH_SIZE` | Formula recognition batch size injected into `formula-config.mfr_batch_size` (default `16` on MPS; set `0` to leave MinerU default) |
 | `GLOSSAPI_MINERU_OCR_REC_BATCH_SIZE` | OCR-rec batch size injected into `ocr-config.rec_batch_num` (default `6` on MPS; set `0` to leave MinerU default) |
 | `GLOSSAPI_MINERU_LAYOUT_BATCH_SIZE` | Layout detection batch size injected into `layout-config.batch_size` (no MPS default; explicit only) |

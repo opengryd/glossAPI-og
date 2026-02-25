@@ -18,27 +18,17 @@ from glossapi.ocr.utils.page import _page_count
 LOGGER = logging.getLogger(__name__)
 _MAGIC_PDF_BACKEND_SUPPORT: Optional[bool] = None
 
-# Default MPS watermark multipliers injected into MinerU subprocesses.
+# PYTORCH_MPS_HIGH_WATERMARK_RATIO default injected into MinerU subprocesses.
 #
-# PyTorch MPS allocator uses *multipliers of its own "recommended max" budget*
-# (NOT fractions of total RAM).  Defaults are high=1.7, low=1.4 — meaning the
-# allocator keeps allocating up to 1.7× the recommended limit before GC, and
-# only tries to drain to 1.4× after GC.  For large documents with many formula
-# crops this exhausts unified memory and causes MFR Predict throughput to
-# collapse (e.g. 25 it/s → <2 it/s).
+# PyTorch's MPS allocator fires synchronous GC sweeps when memory usage exceeds
+# (ratio × recommended_max).  Setting the ratio to 0.0 disables this budget
+# check entirely; PyTorch then defers to macOS memory pressure events, which
+# are handled asynchronously without stalling the MPS command queue.
 #
-# Setting high=0.7 / low=0.5 triggers GC at 70 % of the recommended budget
-# (instead of 170 %) and drains to 50 % after each GC pass.  This produces
-# more frequent but much shorter GC pauses rather than one catastrophic stall
-# that leaves the GPU idle for seconds at a time.  The effect is most visible
-# in MFR Predict where each autoregressive decode step accumulates tiny KV-
-# cache tensors; by the time 1.0× was reached the allocator had to sweep a
-# very large live set, causing GPU utilization to drop near zero mid-stage.
-#
-# Constraint enforced by PyTorch: low_watermark_ratio < high_watermark_ratio.
-# Set GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO=0 to disable both overrides.
-_MPS_HIGH_WATERMARK_DEFAULT = "0.7"
-_MPS_LOW_WATERMARK_DEFAULT = "0.5"
+# Set GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO=off to skip injection and
+# revert to PyTorch's built-in default.
+_MPS_HIGH_WATERMARK_DEFAULT = "0.0"
+
 
 
 def _resolve_magic_pdf(cmd: Optional[str]) -> Optional[str]:
@@ -147,42 +137,39 @@ def _resolve_backend(device_mode: Optional[str], backend: Optional[str]) -> Opti
 
 
 def _inject_mps_memory_limits(env: Dict[str, str]) -> Dict[str, str]:
-    """Inject MPS watermark variables to prevent unified-memory thrashing.
+    """Inject ``PYTORCH_MPS_HIGH_WATERMARK_RATIO`` into the subprocess env.
 
-    PyTorch's MPS allocator uses *multipliers of its own recommended-max budget*
-    (not fractions of total RAM).  Default high=1.7, low=1.4 — meaning it will
-    keep allocating up to 1.7× the recommended limit before GC, and only drain
-    to 1.4× after GC.  For large documents with many formula crops this
-    exhausts unified memory and causes MFR Predict throughput to collapse
-    (e.g. 25 it/s → <2 it/s).
+    PyTorch's MPS allocator fires synchronous GC sweeps when memory usage
+    exceeds ``high_watermark_ratio × recommended_max``.  Setting the ratio to
+    ``0.0`` disables this budget check; deferred macOS pressure events handle
+    reclamation asynchronously without stalling the MPS command queue.
 
-    We set high=0.7 / low=0.5 so GC fires at 70 % of the recommended budget
-    and drains to 50 %.  This produces many small GC pauses instead of one
-    large stall, keeping the GPU busy throughout MFR autoregressive decoding.
-    PyTorch enforces low < high; both must be set together.
-
-    Control knobs:
-      GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO  (default 0.7; set 0 to disable)
-      GLOSSAPI_MINERU_MPS_LOW_WATERMARK_RATIO   (default 0.5)
+    ``GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO`` values:
+      ``0.0`` (default) — disable budget GC, defer to macOS pressure
+      ``off``           — skip injection, keep PyTorch's built-in default
+      any float > 0     — enable budget GC at that ratio
     """
     out = dict(env)
-    user_high = out.get("GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO", "").strip()
-    desired_high = user_high if user_high else _MPS_HIGH_WATERMARK_DEFAULT
-    # Honour explicit "0" / "0.0" as opt-out — leave PyTorch defaults untouched.
-    if desired_high in {"0", "0.0"}:
+    user_val = out.get("GLOSSAPI_MINERU_MPS_HIGH_WATERMARK_RATIO", "").strip()
+    desired = user_val if user_val else _MPS_HIGH_WATERMARK_DEFAULT
+    # "off" → skip injection; PyTorch uses its built-in default.
+    if desired.lower() == "off":
         return out
-    user_low = out.get("GLOSSAPI_MINERU_MPS_LOW_WATERMARK_RATIO", "").strip()
-    desired_low = user_low if user_low else _MPS_LOW_WATERMARK_DEFAULT
-    # Only inject if the caller hasn't already set the PyTorch variables.
+    # Only inject if the caller hasn't already set the PyTorch variable.
     if "PYTORCH_MPS_HIGH_WATERMARK_RATIO" not in out:
-        out["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = desired_high
-        out["PYTORCH_MPS_LOW_WATERMARK_RATIO"] = desired_low
-        LOGGER.debug(
-            "MPS memory guard: HIGH=%s LOW=%s "
-            "(override via GLOSSAPI_MINERU_MPS_HIGH/LOW_WATERMARK_RATIO)",
-            desired_high,
-            desired_low,
-        )
+        out["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = desired
+        # low_watermark_ratio is only relevant when high > 0.
+        try:
+            high_float = float(desired)
+        except ValueError:
+            high_float = 0.0
+        if high_float > 0.0:
+            user_low = out.get("GLOSSAPI_MINERU_MPS_LOW_WATERMARK_RATIO", "").strip()
+            desired_low = user_low if user_low else str(max(0.0, high_float - 0.2))
+            out["PYTORCH_MPS_LOW_WATERMARK_RATIO"] = desired_low
+            LOGGER.debug("MPS watermark: HIGH=%s LOW=%s", desired, desired_low)
+        else:
+            LOGGER.debug("MPS watermark: HIGH=0.0 (budget GC disabled)")
     return out
 
 
