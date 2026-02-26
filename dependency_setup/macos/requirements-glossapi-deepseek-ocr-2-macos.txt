@@ -1,0 +1,14 @@
+# DeepSeek OCR v2 profile (macOS MLX/MPS)
+
+# mlx-vlm pulls transformers>=5.0.0rc3 which conflicts with Docling; install via setup_glossapi.sh with --no-deps.
+
+-r requirements-glossapi-vanilla-macos.txt
+
+# DeepSeek OCR v2 CLI deps
+tokenizers>=0.20.3
+PyMuPDF
+img2pdf
+easydict
+addict
+Pillow
+matplotlib

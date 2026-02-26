@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import platform
 from typing import Tuple
 
 from docling.datamodel.base_models import InputFormat
@@ -24,19 +26,47 @@ _logger = logging.getLogger(__name__)
 
 patch_docling_rapidocr()
 
+# ---------------------------------------------------------------------------
+# Docling processes pages in small batches (default 4). For long documents
+# this both limits throughput and makes the progress bar appear stuck.
+# On Apple Silicon the Metal command encoder amortises scheduling overhead
+# better with larger batches — use 32 pages per iteration.  On other
+# platforms 16 is sufficient.  Both are overridable via env var.
+# ---------------------------------------------------------------------------
+if "DOCLING_PERF_PAGE_BATCH_SIZE" not in os.environ:
+    _default_batch = "32" if platform.system() == "Darwin" else "16"
+    os.environ["DOCLING_PERF_PAGE_BATCH_SIZE"] = _default_batch
+    _logger.debug(
+        "Set DOCLING_PERF_PAGE_BATCH_SIZE=%s for platform=%s (override with env var)",
+        _default_batch,
+        platform.system(),
+    )
 
-def _resolve_accelerator(device: str | None) -> Tuple[AcceleratorOptions, bool]:
-    """Return accelerator options and whether CUDA was requested."""
+
+def _resolve_accelerator(device: str | None) -> Tuple[AcceleratorOptions, str]:
+    """Return accelerator options and a normalized device kind (cuda|mps|cpu|auto)."""
     dev = device or "cuda:0"
-    if isinstance(dev, str) and dev.lower().startswith(("cuda", "mps", "cpu")):
-        acc = AcceleratorOptions(device=dev)
-        want_cuda = dev.lower().startswith("cuda")
+    dev_lower = str(dev).lower()
+    if isinstance(dev, str) and dev_lower in ("auto", "automatic"):
+        acc = AcceleratorOptions(device=AcceleratorDevice.AUTO)
+        kind = "auto"
+    elif isinstance(dev, str) and dev_lower.startswith(("cuda", "mps", "cpu")):
+        acc = AcceleratorOptions(device=dev_lower)
+        if dev_lower.startswith("cuda"):
+            kind = "cuda"
+        elif dev_lower.startswith("mps"):
+            kind = "mps"
+        else:
+            kind = "cpu"
     else:
-        want_cuda = str(dev).lower().startswith("cuda")
+        if dev_lower.startswith("cuda"):
+            kind = "cuda"
+        else:
+            kind = "cpu"
         acc = AcceleratorOptions(
-            device=AcceleratorDevice.CUDA if want_cuda else AcceleratorDevice.CPU
+            device=AcceleratorDevice.CUDA if kind == "cuda" else AcceleratorDevice.CPU
         )
-    return acc, want_cuda
+    return acc, kind
 
 
 def _apply_common_pdf_options(
@@ -139,18 +169,21 @@ def build_rapidocr_pipeline(
         )
         return pipeline, opts
 
-    acc, want_cuda = _resolve_accelerator(device)
+    acc, kind = _resolve_accelerator(device)
 
-    # Optional provider preflight only when CUDA requested
-    if want_cuda:
+    # Optional provider preflight only when GPU acceleration requested
+    if kind in ("cuda", "mps"):
         try:
             import onnxruntime as ort  # type: ignore
 
             prov = ort.get_available_providers()
-            if "CUDAExecutionProvider" not in prov:
+            if kind == "cuda" and "CUDAExecutionProvider" not in prov:
                 raise RuntimeError(f"CUDAExecutionProvider not available: {prov}")
+            if kind == "mps" and "CoreMLExecutionProvider" not in prov:
+                raise RuntimeError(f"CoreMLExecutionProvider not available: {prov}")
         except Exception as e:  # pragma: no cover
-            raise RuntimeError(f"onnxruntime-gpu not available or misconfigured: {e}")
+            suffix = "onnxruntime-gpu" if kind == "cuda" else "onnxruntime (CoreML)"
+            raise RuntimeError(f"{suffix} not available or misconfigured: {e}")
 
     r = resolve_packaged_onnx_and_keys()
     if not (r.det and r.rec and r.cls and r.keys):

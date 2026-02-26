@@ -1,29 +1,14 @@
 """Download phase helpers split from Corpus."""
 from __future__ import annotations
 
-import json
-import logging
-import math
 import os
-import queue
-import random
-import re
-import shutil
-import subprocess
-import sys
-import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Optional, Union
 
-import numpy as np
 import pandas as pd
 
 from .._naming import canonical_stem
 from ..gloss_downloader import GlossDownloader
-# Avoid importing section/classifier here; download phase does not use them.
-from .corpus_skiplist import _SkiplistManager, _resolve_skiplist_path
-from .corpus_state import _ProcessingStateManager
-from .corpus_utils import _maybe_import_torch
 
 
 class DownloadPhaseMixin:
@@ -59,7 +44,7 @@ class DownloadPhaseMixin:
             if not parquet_files:
                 raise ValueError(f"No parquet files found in {self.input_dir}")
             input_parquet = parquet_files[0]
-            self.logger.info(f"Using parquet file: {input_parquet}")
+            self.logger.info("Using parquet file: %s", input_parquet)
         else:
             input_parquet = Path(input_parquet)
 
@@ -67,7 +52,7 @@ class DownloadPhaseMixin:
         original_input_filename = Path(input_parquet).name
         input_df = pd.read_parquet(input_parquet)
         total_urls = len(input_df)
-        self.logger.info(f"Total URLs in input file: {total_urls}")
+        self.logger.info("Total URLs in input file: %d", total_urls)
 
         # Respect links_column override early so resume filter uses correct column name
         if links_column:
@@ -85,21 +70,21 @@ class DownloadPhaseMixin:
 
         # Check for specific download results file
         if os.path.exists(specific_results_path):
-            self.logger.info(f"Found existing download results: {specific_results_path}")
+            self.logger.info("Found existing download results: %s", specific_results_path)
             try:
                 existing_results = pd.read_parquet(specific_results_path)
                 existing_results_path = specific_results_path
                 found_existing = True
             except Exception as e:
-                self.logger.warning(f"Failed to read specific download results: {e}")
+                self.logger.warning("Failed to read specific download results: %s", e)
         elif os.path.exists(partial_results_path):
-            self.logger.info(f"Found partial download checkpoint: {partial_results_path}")
+            self.logger.info("Found partial download checkpoint: %s", partial_results_path)
             try:
                 existing_results = pd.read_parquet(partial_results_path)
                 existing_results_path = partial_results_path
                 found_existing = True
             except Exception as e:
-                self.logger.warning(f"Failed to read partial results: {e}")
+                self.logger.warning("Failed to read partial results: %s", e)
 
         # If specific results not found, look in the directory for any download results
         if not found_existing and os.path.exists(download_results_dir):
@@ -108,7 +93,7 @@ class DownloadPhaseMixin:
                 try:
                     test_df = pd.read_parquet(file)
                     if url_column in test_df.columns and 'download_success' in test_df.columns:
-                        self.logger.info(f"Found alternative download results: {file}")
+                        self.logger.info("Found alternative download results: %s", file)
                         existing_results = test_df
                         existing_results_path = file
                         found_existing = True
@@ -123,7 +108,7 @@ class DownloadPhaseMixin:
             existing_filenames = []
             if 'filename' in existing_results.columns:
                 existing_filenames = existing_results['filename'].dropna().tolist()
-                self.logger.info(f"Found {len(existing_filenames)} existing filenames to avoid")
+                self.logger.info("Found %d existing filenames to avoid", len(existing_filenames))
 
             # Build the set of successful URLs from checkpoint/results
             successful_urls = []
@@ -133,7 +118,7 @@ class DownloadPhaseMixin:
                 ][url_column].dropna().astype(str).tolist()
 
             if successful_urls:
-                self.logger.info(f"Found {len(successful_urls)} previously successful downloads")
+                self.logger.info("Found %d previously successful downloads", len(successful_urls))
 
                 # If input uses list/JSON URLs, expand to one-URL-per-row before filtering
                 def _looks_like_list(s: str) -> bool:
@@ -159,7 +144,8 @@ class DownloadPhaseMixin:
                         keep_cols = [url_column] + [c for c in ("source_row", "url_index", "collection_slug") if c in expanded_df.columns]
                         remaining_df = expanded_df[~expanded_df[url_column].isin(successful_urls)][keep_cols]
                         self.logger.info(
-                            f"Expanded list/JSON URLs to {len(expanded_df)} rows; pending {len(remaining_df)}"
+                            "Expanded list/JSON URLs to %d rows; pending %d",
+                            len(expanded_df), len(remaining_df)
                         )
                     except Exception:
                         # Fallback: basic JSON parse expansion
@@ -180,12 +166,12 @@ class DownloadPhaseMixin:
                                     pass
                             elif isinstance(val, str) and val.strip():
                                 rows.append(val.strip())
-                        import pandas as _pd
-                        expanded_df = _pd.DataFrame({url_column: rows})
+                        expanded_df = pd.DataFrame({url_column: rows})
                         keep_cols = [url_column]
                         remaining_df = expanded_df[~expanded_df[url_column].isin(successful_urls)][keep_cols]
                         self.logger.info(
-                            f"Expanded (fallback) to {len(expanded_df)} rows; pending {len(remaining_df)}"
+                            "Expanded (fallback) to %d rows; pending %d",
+                            len(expanded_df), len(remaining_df)
                         )
                 else:
                     # Simple string URLs: filter directly and keep provenance if present
@@ -198,7 +184,8 @@ class DownloadPhaseMixin:
                     return existing_results
 
                 self.logger.info(
-                    f"Processing {len(remaining_df)} remaining URLs after skipping successes"
+                    "Processing %d remaining URLs after skipping successes",
+                    len(remaining_df)
                 )
 
                 # Save filtered per-URL input to a temporary file for the downloader
@@ -242,7 +229,7 @@ class DownloadPhaseMixin:
         )
 
         # Download files
-        self.logger.info(f"Downloading files from URLs in {input_parquet}...")
+        self.logger.info("Downloading files from URLs in %s...", input_parquet)
         new_results = downloader.download_files(input_parquet=str(input_parquet))
 
         # Merge with existing results
@@ -254,7 +241,7 @@ class DownloadPhaseMixin:
 
                 # Combine existing and new results
                 final_results = pd.concat([existing_filtered, new_results], ignore_index=True)
-                self.logger.info(f"Merged {len(existing_filtered)} existing results with {len(new_results)} new results")
+                self.logger.info("Merged %d existing results with %d new results", len(existing_filtered), len(new_results))
         else:
             final_results = new_results
 
@@ -264,7 +251,7 @@ class DownloadPhaseMixin:
         # Save results using the input filename pattern
         output_parquet = download_results_dir / f"download_results_{original_input_filename}"
         final_results.to_parquet(output_parquet, index=False)
-        self.logger.info(f"Saved download results to {output_parquet}")
+        self.logger.info("Saved download results to %s", output_parquet)
 
         # Clean up temporary files if created
         temp_path = self.output_dir / "temp_download_input.parquet"
@@ -273,6 +260,6 @@ class DownloadPhaseMixin:
 
         # Report download completion
         success_count = len(final_results[final_results['download_success'] == True]) if 'download_success' in final_results.columns else 0
-        self.logger.info(f"Download complete. {success_count} files downloaded to {self.output_dir / 'downloads'}")
+        self.logger.info("Download complete. %d files downloaded to %s", success_count, self.output_dir / 'downloads')
 
         return final_results

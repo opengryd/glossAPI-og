@@ -670,7 +670,6 @@ class GlossDownloader:
                 return ext.lstrip('.').lower()
         except Exception:
             return None
-        return None
 
     def _ext_from_content_type(self, headers: Dict[str, str]) -> Optional[str]:
         """Map Content-Type header to a file extension"""
@@ -706,7 +705,6 @@ class GlossDownloader:
                 return ext.lstrip('.').lower()
         except Exception:
             return None
-        return None
 
     def _ext_from_magic_bytes(self, content: bytes) -> Optional[str]:
         """Infer file type from leading bytes when headers/URL are insufficient"""

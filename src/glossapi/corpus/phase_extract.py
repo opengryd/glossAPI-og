@@ -1,40 +1,21 @@
 """Phase-1 extraction helpers split from Corpus."""
 from __future__ import annotations
 
-import json
-import logging
-import math
 import os
 import queue
-import random
-import re
 import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-import numpy as np
 import pandas as pd
 
 from .._naming import canonical_stem
-from ..gloss_downloader import GlossDownloader
 # Avoid importing section/classifier here; extract phase does not use them.
-from .corpus_skiplist import _SkiplistManager, _resolve_skiplist_path
 from .corpus_state import _ProcessingStateManager
-from .corpus_utils import _maybe_import_torch as _maybe_import_torch_fallback
-
-# Wrapper to allow tests to monkeypatch glossapi.corpus._maybe_import_torch.
-def _maybe_import_torch(force: bool = False):
-    try:
-        import glossapi.corpus as _corpus_pkg  # defer import to avoid cycles
-        pkg_fn = getattr(_corpus_pkg, "_maybe_import_torch", None)
-        if callable(pkg_fn):
-            return pkg_fn(force=force)
-    except Exception:
-        pass
-    return _maybe_import_torch_fallback(force=force)
+from .corpus_utils import _maybe_import_torch
 
 
 class ExtractPhaseMixin:
@@ -89,12 +70,13 @@ class ExtractPhaseMixin:
             threads_effective = int(num_threads) if isinstance(num_threads, int) else 2
         self.extractor.enable_accel(threads=threads_effective, type=accel_type)
 
-        # Images scale env default
-        try:
-            import os as _os
-            images_scale_env = _os.getenv("GLOSSAPI_IMAGES_SCALE", "1.25")
-        except Exception:
-            images_scale_env = "1.25"
+        # Images scale env default (boost OCR fidelity when OCR is enabled)
+        default_scale = "1.5" if force_ocr else "1.25"
+        images_scale_env = os.getenv("GLOSSAPI_IMAGES_SCALE", default_scale)
+
+        # OCR languages (comma-separated), e.g. GLOSSAPI_OCR_LANGS=el,en
+        ocr_langs_env = os.getenv("GLOSSAPI_OCR_LANGS", "")
+        ocr_langs = [lang.strip() for lang in ocr_langs_env.split(",") if lang.strip()]
 
         # Hard GPU preflight before we attempt to build OCR/enrichment pipelines
         self._gpu_preflight(
@@ -119,6 +101,7 @@ class ExtractPhaseMixin:
             code_enrichment=bool(code_enrichment),
             images_scale=float(images_scale_env),
             use_cls=bool(use_cls),
+            ocr_langs=ocr_langs or None,
             profile_timings=not bool(benchmark_mode),
         )
 
@@ -154,22 +137,17 @@ class ExtractPhaseMixin:
         require_math: bool,
         require_backend_gpu: bool = False,
     ) -> None:
-        """Abort early when GPU OCR/math is requested but CUDA is unavailable."""
+        """Abort early when GPU OCR/math is requested but GPU backends are unavailable."""
         if not (require_ocr or require_math or require_backend_gpu):
             return
 
-        instructions = (
-            "GPU OCR and math enrichment require CUDA-enabled torch and onnxruntime-gpu. "
-            "Install the CUDA wheels and ensure NVIDIA drivers expose the desired devices."
-        )
-
-        # Enforce non-CPU accelerator selection when OCR/math is forced
+        # If the caller explicitly selected CPU, allow it (RapidOCR CPUExecutionProvider works, just slower).
         accel_lower = str(accel_type or "").strip().lower()
         if accel_lower.startswith("cpu"):
-            raise RuntimeError(
-                "GPU OCR was requested (force_ocr/math) but accel_type='CPU'. "
-                f"{instructions}"
+            self.logger.info(
+                "GPU preflight: CPU mode selected; OCR will use CPUExecutionProvider (slower than GPU/CoreML)."
             )
+            return
 
         try:
             import onnxruntime as _ort  # type: ignore
@@ -177,39 +155,83 @@ class ExtractPhaseMixin:
         except Exception as exc:
             raise RuntimeError(
                 "onnxruntime not available while attempting GPU OCR. "
-                "Install onnxruntime-gpu and rerun."
+                "Install onnxruntime (CPU/CoreML) or onnxruntime-gpu (CUDA) and rerun."
             ) from exc
 
-        if "CUDAExecutionProvider" not in providers:
-            raise RuntimeError(
-                "CUDAExecutionProvider missing from onnxruntime providers. "
-                f"Detected providers={providers}. {instructions}"
-            )
+        has_cuda_ep = "CUDAExecutionProvider" in providers
+        has_coreml_ep = "CoreMLExecutionProvider" in providers
 
         torch_mod = _maybe_import_torch(force=True)
-        if torch_mod is None or not getattr(torch_mod, "cuda", None) or not torch_mod.cuda.is_available():
-            raise RuntimeError(
-                "Torch CUDA is not available but GPU OCR/math was requested. "
-                "Install the CUDA wheel (e.g. torch==2.5.1+cu121) and ensure CUDA drivers/devices are visible."
-            )
+        has_cuda = bool(torch_mod) and getattr(torch_mod, "cuda", None) and torch_mod.cuda.is_available()
+        try:
+            has_mps = bool(torch_mod) and getattr(torch_mod, "backends", None) and torch_mod.backends.mps.is_available()
+        except Exception:
+            has_mps = False
 
-        device_count = torch_mod.cuda.device_count()
-        if device_count < 1:
-            raise RuntimeError(
-                "Torch CUDA initialised but reports zero devices visible. "
-                "Set CUDA_VISIBLE_DEVICES appropriately before running GPU OCR."
-            )
-        device_names = []
-        for idx in range(device_count):
-            try:
-                device_names.append(torch_mod.cuda.get_device_name(idx))
-            except Exception:
-                device_names.append(f"cuda:{idx}")
+        want_cuda = accel_lower.startswith("cuda")
+        want_mps = accel_lower.startswith("mps")
+        want_auto = accel_lower in ("auto", "")
+
+        if want_auto:
+            if has_cuda_ep and has_cuda:
+                want_cuda = True
+            elif has_coreml_ep and has_mps:
+                want_mps = True
+            else:
+                raise RuntimeError(
+                    "GPU OCR/math requested but no compatible GPU backend found. "
+                    f"Detected providers={providers}. "
+                    "Install CUDA-enabled torch + onnxruntime-gpu (Linux/Windows) or torch MPS + CoreML EP (macOS)."
+                )
+
+        if want_cuda:
+            if not has_cuda_ep:
+                raise RuntimeError(
+                    "CUDAExecutionProvider missing from onnxruntime providers. "
+                    f"Detected providers={providers}. Install onnxruntime-gpu and CUDA drivers."
+                )
+            if not has_cuda:
+                raise RuntimeError(
+                    "Torch CUDA is not available but GPU OCR/math was requested. "
+                    "Install the CUDA wheel (e.g. torch==2.5.1+cu121) and ensure CUDA drivers/devices are visible."
+                )
+            device_count = torch_mod.cuda.device_count() if torch_mod is not None else 0
+            if device_count < 1:
+                raise RuntimeError(
+                    "Torch CUDA initialised but reports zero devices visible. "
+                    "Set CUDA_VISIBLE_DEVICES appropriately before running GPU OCR."
+                )
+            device_names = []
+            for idx in range(device_count):
+                try:
+                    device_names.append(torch_mod.cuda.get_device_name(idx))
+                except Exception:
+                    device_names.append(f"cuda:{idx}")
+            banner = "CUDA"
+        else:
+            if not has_coreml_ep:
+                raise RuntimeError(
+                    "CoreMLExecutionProvider missing from onnxruntime providers. "
+                    f"Detected providers={providers}. Install onnxruntime for macOS with CoreML support."
+                )
+            if not has_mps:
+                raise RuntimeError(
+                    "Torch MPS is not available but GPU OCR/math was requested. "
+                    "Install a macOS PyTorch build with MPS support and ensure you are on macOS 13+ with Metal enabled."
+                )
+            device_names = ["mps"]
+            banner = "MPS/Metal"
 
         if not self._gpu_banner_logged:
             self.logger.info(
-                "GPU preflight: using torch + onnxruntime GPU backends; ensure CUDA drivers are available."
+                "GPU preflight: using %s backends via torch + onnxruntime; ensure GPU drivers are available.",
+                banner,
             )
+            if banner == "MPS/Metal":
+                self.logger.info(
+                    "GPU preflight: CoreML acceleration will be injected into "
+                    "RapidOCR ONNX sessions for Apple Neural Engine / GPU inference."
+                )
             self._gpu_banner_logged = True
 
         self.logger.info(
@@ -255,13 +277,12 @@ class ExtractPhaseMixin:
 
         """
         if not file_paths:
-            self.logger.info(f"Extracting {input_format} files to markdown...")
+            self.logger.info("Extracting %s files to markdown...", input_format)
 
         # We will prepare the extractor later (single-GPU branch). For multi-GPU,
         # we avoid importing heavy OCR deps in the parent.
-        import os as _os
-        images_scale_env = _os.getenv("GLOSSAPI_IMAGES_SCALE", "1.25")
-        formula_batch_env = _os.getenv("GLOSSAPI_FORMULA_BATCH", "16")
+        images_scale_env = os.getenv("GLOSSAPI_IMAGES_SCALE", "1.25")
+        formula_batch_env = os.getenv("GLOSSAPI_FORMULA_BATCH", "16")
         # Create output directory for downstream stages
         os.makedirs(self.markdown_dir, exist_ok=True)
 
@@ -280,7 +301,7 @@ class ExtractPhaseMixin:
 
         # If downloads directory doesn't exist or is empty, check input directory and move files
         if not downloads_dir.exists() or not any(downloads_dir.iterdir()):
-            self.logger.info(f"Downloads directory not found or empty at {downloads_dir}, checking input directory...")
+            self.logger.info("Downloads directory not found or empty at %s, checking input directory...", downloads_dir)
 
             # Create downloads directory if it doesn't exist
             os.makedirs(downloads_dir, exist_ok=True)
@@ -290,7 +311,7 @@ class ExtractPhaseMixin:
             for ext in supported_formats:
                 found_files = list(self.input_dir.glob(f"*.{ext}"))
                 if found_files:
-                    self.logger.info(f"Found {len(found_files)} .{ext} files in input directory, moving to downloads...")
+                    self.logger.info("Found %d .%s files in input directory, moving to downloads...", len(found_files), ext)
                     input_files_to_move.extend(found_files)
 
             # Move files to downloads directory
@@ -298,9 +319,9 @@ class ExtractPhaseMixin:
                 target_path = downloads_dir / file_path.name
                 if not target_path.exists():
                     shutil.copy2(file_path, target_path)
-                    self.logger.debug(f"Copied {file_path.name} to downloads directory")
+                    self.logger.debug("Copied %s to downloads directory", file_path.name)
 
-            self.logger.info(f"Moved {len(input_files_to_move)} files to downloads directory")
+            self.logger.info("Moved %d files to downloads directory", len(input_files_to_move))
 
         # Get input files from downloads directory unless explicit paths were provided
         input_files: List[Path] = []
@@ -309,14 +330,14 @@ class ExtractPhaseMixin:
                 input_files = [Path(p) for p in file_paths]
             except Exception as exc:
                 raise ValueError(f"Invalid file path supplied to extract(): {exc}")
-            self.logger.info(f"[Worker Batch] Processing {len(input_files)} direct file paths")
+                self.logger.info("[Worker Batch] Processing %d direct file paths", len(input_files))
         elif input_format.lower() == "all":
             input_files = []
             for ext in supported_formats:
                 found_files = list(downloads_dir.glob(f"*.{ext}"))
                 input_files.extend(found_files)
                 if found_files:
-                    self.logger.info(f"Found {len(found_files)} .{ext} files in downloads directory")
+                    self.logger.info("Found %d .%s files in downloads directory", len(found_files), ext)
 
             doc_files = list(downloads_dir.glob("*.doc"))
             if doc_files:
@@ -337,7 +358,7 @@ class ExtractPhaseMixin:
                     continue
 
                 current_files = list(downloads_dir.glob(f"*.{ext}"))
-                self.logger.info(f"Found {len(current_files)} files with extension .{ext}")
+                self.logger.info("Found %d files with extension .%s", len(current_files), ext)
                 input_files.extend(current_files)
         else:
             ext = "xml" if input_format.lower() == "xml_jats" else input_format.lower()
@@ -353,14 +374,13 @@ class ExtractPhaseMixin:
         if filenames and not file_paths:
             names = {str(n) for n in filenames}
             input_files = [p for p in input_files if p.name in names]
-            self.logger.info(f"Filtered to {len(input_files)} files from provided filename list")
+            self.logger.info("Filtered to %d files from provided filename list", len(input_files))
 
         if not input_files:
-            self.logger.warning(f"No {input_format} files found in {downloads_dir}")
+            self.logger.warning("No %s files found in %s", input_format, downloads_dir)
             return
 
-        skiplist_path = _resolve_skiplist_path(self.output_dir, self.logger)
-        skip_mgr = _SkiplistManager(skiplist_path, self.logger)
+        skip_mgr = self._get_skip_manager()
         skipped_stems = skip_mgr.load()
         if skipped_stems:
             before = len(input_files)
@@ -369,16 +389,16 @@ class ExtractPhaseMixin:
             if removed:
                 self.logger.warning(
                     "Skip-list %s filtered %d file(s) from Phase-1 dispatch.",
-                    skiplist_path,
+                    skip_mgr.path,
                     removed,
                 )
         else:
             skipped_stems = set()
 
-        self.logger.info(f"Found {len(input_files)} files to extract")
+        self.logger.info("Found %d files to extract", len(input_files))
 
         # Process all files
-        self.logger.info(f"Processing {len(input_files)} files...")
+        self.logger.info("Processing %d files...", len(input_files))
 
         # Multi-GPU orchestrator
         if str(use_gpus).lower() == "multi":
@@ -497,6 +517,17 @@ class ExtractPhaseMixin:
                 procs: List[Any] = []
                 proc_gpu: Dict[int, int] = {}
                 marker_files: Dict[int, Path] = {dev_id: marker_base / f"gpu{dev_id}.current" for dev_id in devs}
+                # Perf metrics: start timing multi-GPU extraction
+                _perf_profiler = getattr(self, '_profiler', None)
+                _perf_sampler = None
+                _perf_t0_mgpu = time.monotonic()
+                if _perf_profiler is not None:
+                    try:
+                        from glossapi.perf_metrics import PowerSampler as _PowerSamplerExtract
+                        _perf_sampler = _PowerSamplerExtract()
+                        _perf_sampler.start()
+                    except Exception:
+                        pass
                 for dev_id in devs:
                     p = ctx.Process(
                         target=gpu_extract_worker_queue,
@@ -723,6 +754,36 @@ class ExtractPhaseMixin:
                         len(processed_files),
                         len(problematic_files),
                     )
+                # Perf metrics: stop timing and record sample
+                if _perf_profiler is not None:
+                    try:
+                        from glossapi.perf_metrics import count_pages_from_files as _cpf_mgpu
+                        _perf_elapsed_mgpu = time.monotonic() - _perf_t0_mgpu
+                        if _perf_sampler is not None:
+                            _perf_energy_mgpu, _perf_src_mgpu, _perf_avgw_mgpu = _perf_sampler.stop()
+                        else:
+                            _perf_energy_mgpu, _perf_src_mgpu, _perf_avgw_mgpu = 0.0, "unavailable", None
+                        _perf_pages_mgpu = _cpf_mgpu(input_files)
+                        _perf_profiler.record_sample(
+                            "extract",
+                            active_sec=_perf_elapsed_mgpu,
+                            pages=_perf_pages_mgpu,
+                            energy_joules=_perf_energy_mgpu if _perf_src_mgpu != "unavailable" else None,
+                            avg_watts=_perf_avgw_mgpu,
+                            power_source=_perf_src_mgpu,
+                            backend=backend_choice,
+                            timing_note="includes_orchestration_overhead",
+                        )
+                    except Exception as _perf_exc:
+                        try:
+                            self.logger.debug("perf_metrics: multi-GPU extract recording failed: %s", _perf_exc)
+                        except Exception:
+                            pass
+                # Auto-emit perf snapshot after completed multi-GPU extraction
+                try:
+                    self._maybe_emit_perf_report()
+                except Exception:
+                    pass
                 return
 
         # Single GPU path
@@ -732,7 +793,7 @@ class ExtractPhaseMixin:
                 from ..gloss_extract import GlossExtract  # local import to avoid import-time heavy deps
                 self.extractor = GlossExtract(url_column=self.url_column)
             except Exception as e:
-                self.logger.error(f"Failed to initialize GlossExtract: {e}")
+                self.logger.error("Failed to initialize GlossExtract: %s", e)
                 raise
         # Configure Phase-1 helpers on extractor
         try:
@@ -796,10 +857,29 @@ class ExtractPhaseMixin:
             setattr(self.extractor, "benchmark_mode", bool(benchmark_mode))
         except Exception:
             pass
-        # Extract files to markdown
+        # Extract files to markdown — time only the active processing segment
         os.makedirs(self.markdown_dir, exist_ok=True)
-        self.extractor.extract_path(input_files, self.markdown_dir, skip_existing=skip_existing)
-        self.logger.info(f"Extraction complete. Markdown files saved to {self.markdown_dir}")
+        _perf_profiler_sg = getattr(self, '_profiler', None)
+        if _perf_profiler_sg is not None:
+            try:
+                from glossapi.perf_metrics import count_pages_from_files as _cpf_sg
+                _perf_pages_sg = _cpf_sg(input_files)
+                with _perf_profiler_sg.measure("extract", backend=backend_choice, pages=_perf_pages_sg):
+                    self.extractor.extract_path(input_files, self.markdown_dir, skip_existing=skip_existing)
+            except Exception as _perf_exc_sg:
+                try:
+                    self.logger.debug("perf_metrics: single-GPU extract recording failed: %s", _perf_exc_sg)
+                except Exception:
+                    pass
+                self.extractor.extract_path(input_files, self.markdown_dir, skip_existing=skip_existing)
+        else:
+            self.extractor.extract_path(input_files, self.markdown_dir, skip_existing=skip_existing)
+        self.logger.info("Extraction complete. Markdown files saved to %s", self.markdown_dir)
+        # Auto-emit perf snapshot after completed extraction
+        try:
+            self._maybe_emit_perf_report()
+        except Exception:
+            pass
         try:
             release = getattr(self.extractor, "release_resources", None)
             if callable(release):

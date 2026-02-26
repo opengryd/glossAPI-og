@@ -1,0 +1,13 @@
+# DeepSeek OCR v2 profile (non-macOS fallback)
+# MLX is macOS-only; this base file tracks vanilla requirements.
+
+-r requirements-glossapi-vanilla.txt
+
+# DeepSeek OCR v2 CLI deps
+tokenizers>=0.20.3
+PyMuPDF
+img2pdf
+easydict
+addict
+Pillow
+matplotlib

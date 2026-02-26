@@ -13,7 +13,7 @@ readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
     # Core pipeline deps
-    "pandas>=1.3.0",
+    "pandas>=1.3.0,<3.0.0",
     "numpy<2",  # ORT+RapidOCR best compatibility
     "scikit-learn==1.6.1",
     "joblib>=1.0.0",
@@ -25,6 +25,9 @@ dependencies = [
     "tenacity>=8.0.0",
     "tqdm>=4.67.0",
     "pyyaml>=6.0",
+    "questionary>=2.0.1",
+    "rich>=13.7.1",
+    "typer>=0.12.3",
     # Math/JSON enrichment helpers
     "pypdfium2>=4.0.0",
     "zstandard>=0.22.0",
@@ -54,17 +57,32 @@ cuda = [
 # DeepSeek OCR backend extras (CUDA 12.1 build of vLLM). Torch is not pinned here
 # because users should install the CUDA wheel from the PyTorch index
 # (see docs: installing torch==2.5.1+cu121 via extra index URL).
-deepseek = [
+deepseek-ocr = [
     "vllm>=0.11.0",
     "transformers>=4.45,<5",
     "accelerate>=1.2.1,<2",
     "pymupdf==1.24.10",
     "Pillow==10.4.0",
 ]
+# DeepSeek OCR v1 MLX/MPS backend extras (Apple Silicon only).
+# mlx-vlm provides the MLX model loader and generation utilities.
+# mlx is a transitive dep of mlx-vlm but is listed explicitly for clarity.
+# Install: pip install '.[deepseek-ocr-mlx]'  (macOS / Apple Silicon only)
+deepseek-ocr-mlx = [
+    "mlx-vlm>=0.1.0",
+    "mlx>=0.16.0",
+    "transformers>=4.45,<5",
+    "Pillow>=10.0",
+    "pypdfium2>=4.0",
+    "tqdm>=4.0",
+]
 docs = [
     "mkdocs>=1.5",
     "mkdocs-material>=9.5",
 ]
+
+[project.scripts]
+glossapi = "glossapi.console:app"
 
 [tool.maturin]
 bindings = "pyo3"
@@ -75,11 +93,12 @@ python-source = "src"
 manifest-path = "rust/glossapi_rs_noise/Cargo.toml"
 include = ["src/**"]
 python-packages = [
-    "glossapi"
+    "glossapi",
+    "ppocr"
 ]
 
 [tool.pytest.ini_options]
 markers = [
     "rapidocr: requires the RapidOCR/Docling execution stack",
-    "deepseek: exercises the DeepSeek OCR pipeline",
+    "deepseek_ocr: exercises the DeepSeek OCR pipeline",
 ]

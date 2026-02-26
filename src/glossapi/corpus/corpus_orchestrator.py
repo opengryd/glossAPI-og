@@ -1,24 +1,14 @@
 from __future__ import annotations
 
-import json
+import functools
 import logging
-import math
 import os
-import queue
-import random
-import re
-import shutil
-import subprocess
-import sys
-import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
-import numpy as np
 import pandas as pd
 
 from .._naming import canonical_stem
-from ..gloss_downloader import GlossDownloader
 from ..gloss_section import GlossSection
 try:
     from ..gloss_section_classifier import GlossSectionClassifier  # type: ignore
@@ -85,43 +75,15 @@ class Corpus(
             log_level: Logging level (default: logging.INFO)
             verbose: Whether to enable verbose logging for debugging (default: False)
         """
-        # Setup module logger without forcing global configuration
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(log_level)
-        try:
-            if not self.logger.handlers:
-                _handler = logging.StreamHandler()
-                _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s:%(name)s: %(message)s", "%H:%M:%S"))
-                self.logger.addHandler(_handler)
-            self.logger.propagate = False
-        except Exception:
-            pass
-        
         # Verbose flag for detailed logging
         self.verbose = verbose
-        
-        # Store paths
         self.input_dir = Path(input_dir)
         self.output_dir = Path(output_dir)
         self._metadata_parquet_path: Optional[Path] = None
-        
-        # Package directory for default models
-        package_dir = Path(__file__).parent
-        
-        # Handle section classifier model path
-        if section_classifier_model_path:
-            self.section_classifier_model_path = Path(section_classifier_model_path)
-        else:
-            # Use default model path in the package
-            self.section_classifier_model_path = package_dir / "models" / "section_classifier.joblib"
-        
-        # Handle extraction model path
-        if extraction_model_path:
-            self.extraction_model_path = Path(extraction_model_path)
-        else:
-            # Use default model path in the package
-            self.extraction_model_path = package_dir / "models" / "kmeans_weights.joblib"
-            
+
+        self._setup_logging(log_level if not verbose else logging.DEBUG)
+        self._resolve_model_paths(section_classifier_model_path, extraction_model_path)
+
         self.metadata_path = Path(metadata_path) if metadata_path else None
         if self.metadata_path is not None:
             try:
@@ -132,56 +94,155 @@ class Corpus(
                     self.metadata_path = None
             except Exception:
                 self.metadata_path = None
-        
-        # Store annotation mapping - default is to treat 'Κεφάλαιο' as chapter
+
         self.annotation_mapping = annotation_mapping or {'Κεφάλαιο': 'chapter'}
-        
-        # Create output directory if it doesn't exist
-        os.makedirs(self.output_dir, exist_ok=True)
-        
-        # Initialize downloader config first
         self.downloader_config = downloader_config or {}
-        
-        # Initialize component classes
-        # Get the URL column from downloader config or use default 'url'
         self.url_column = self.downloader_config.get('url_column', 'url')
+
         # Lazy-create extractor to avoid heavy imports unless needed
         self.extractor = None
         self.sectioner = GlossSection()
         try:
             self.classifier = GlossSectionClassifier() if GlossSectionClassifier is not None else None  # type: ignore[call-arg, assignment]
-        except Exception:
+        except Exception as exc:
+            self.logger.debug("GlossSectionClassifier init failed (model/deps unavailable): %s", exc)
             self.classifier = None
-        
-        self.output_dir = Path(output_dir)
-        self.downloads_dir = self.output_dir / "downloads"
-        self.markdown_dir = self.output_dir / "markdown"
-        self.ocr_model_dir = None  # Will use default discovery or user-specified path
-        self.sections_dir = self.output_dir / "sections"
-        # Directory that will hold cleaned markdown after Rust-powered cleaning
-        self.cleaned_markdown_dir = self.output_dir / "clean_markdown"
-        # Define models_dir path but don't create the directory yet - only create it when needed
-        self.models_dir = self.output_dir / "models"
-        self.logs_dir = self.output_dir / "logs"
 
-        # Track whether we've already printed the GPU setup banner in this process
         self._gpu_banner_logged = False
         self._phase1_backend = "safe"
 
+        self._create_output_dirs()
+
+        # Performance & Power Profiler — lazily imported to keep vanilla install lightweight.
+        try:
+            from glossapi.perf_metrics import PipelineProfiler as _PipelineProfiler
+            self._profiler = _PipelineProfiler(output_dir=self.output_dir)
+        except Exception:
+            self._profiler = None  # type: ignore[assignment]
+        self._perf_last_reported_count: int = 0
+
+        self.sections_parquet = self.sections_dir / "sections_for_annotation.parquet"
+        self.classified_parquet = self.output_dir / "classified_sections.parquet"
+        self.fully_annotated_parquet = self.output_dir / "fully_annotated_sections.parquet"
+        self.filename_to_doctype = {}
+
+        self._load_metadata()
+
+    # ------------------------------------------------------------------
+    # __init__ helpers
+    # ------------------------------------------------------------------
+
+    def _setup_logging(self, log_level: int) -> None:
+        """Configure the instance logger without touching global logging state."""
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(log_level)
+        try:
+            if not self.logger.handlers:
+                _handler = logging.StreamHandler()
+                _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s:%(name)s: %(message)s", "%H:%M:%S"))
+                self.logger.addHandler(_handler)
+            self.logger.propagate = False
+        except Exception:
+            pass
+
+    def _resolve_model_paths(
+        self,
+        section_classifier_model_path: Optional[Union[str, Path]],
+        extraction_model_path: Optional[Union[str, Path]],
+    ) -> None:
+        """Resolve and store section classifier and extraction model paths."""
+        models_dir = Path(__file__).resolve().parent.parent / "models"
+        self.section_classifier_model_path = (
+            Path(section_classifier_model_path)
+            if section_classifier_model_path
+            else models_dir / "section_classifier.joblib"
+        )
+        self.extraction_model_path = (
+            Path(extraction_model_path)
+            if extraction_model_path
+            else models_dir / "kmeans_weights.joblib"
+        )
+
+    def _create_output_dirs(self) -> None:
+        """Create all required output sub-directories under ``self.output_dir``."""
+        self.downloads_dir = self.output_dir / "downloads"
+        self.markdown_dir = self.output_dir / "markdown"
+        self.sections_dir = self.output_dir / "sections"
+        self.cleaned_markdown_dir = self.output_dir / "clean_markdown"
+        # models_dir is defined here but created on demand (not guaranteed to exist)
+        self.models_dir = self.output_dir / "models"
+        self.logs_dir = self.output_dir / "logs"
+        os.makedirs(self.output_dir, exist_ok=True)
         os.makedirs(self.markdown_dir, exist_ok=True)
         os.makedirs(self.sections_dir, exist_ok=True)
         os.makedirs(self.cleaned_markdown_dir, exist_ok=True)
         os.makedirs(self.logs_dir, exist_ok=True)
-        
-        # Setup output files
-        self.sections_parquet = self.sections_dir / "sections_for_annotation.parquet"
-        self.classified_parquet = self.output_dir / "classified_sections.parquet"
-        self.fully_annotated_parquet = self.output_dir / "fully_annotated_sections.parquet"
-        
-        # Initialize document type mapping
-        self.filename_to_doctype = {}
-        
-        self._load_metadata()
+
+    # ------------------------------------------------------------------
+    # Performance & Power Metrics
+    # ------------------------------------------------------------------
+
+    def perf_report(self, *, backend: Optional[str] = None) -> Dict[str, Any]:
+        """Generate and save a Performance & Power Report for all recorded phases.
+
+        Returns a structured dict with per-phase and end-to-end metrics::
+
+            {
+              "run_id": "...",
+              "backend": "deepseek-ocr",
+              "total_pages": 120,
+              "power_source": "nvml",       # or 'rapl' / 'unavailable'
+              "phases": {
+                "extract": {"active_sec": 45.2, "pps": 2.65, "ppw": 0.012, ...},
+                "ocr":     {"active_sec": 210.5, "pps": 0.57, ...},
+                "clean":   {"active_sec": 3.1,   "pps": 38.7, ...}
+              },
+              "end_to_end": {"pps": 0.46, "ppw": 0.009, ...}
+            }
+
+        The report JSON is also saved to
+        ``output_dir/logs/perf_report_<backend>_<timestamp>.json``.
+
+        Call this after running one or more pipeline phases::
+
+            corpus.extract()
+            corpus.clean()
+            corpus.ocr(backend="deepseek-ocr")
+            report = corpus.perf_report(backend="deepseek-ocr")
+        """
+        if self._profiler is None:
+            self.logger.warning("perf_report(): profiler not initialised (perf_metrics unavailable).")
+            return {}
+        try:
+            return self._profiler.report(backend=backend)
+        except Exception as exc:
+            self.logger.warning("perf_report() failed: %s", exc)
+            return {}
+
+    def reset_perf_metrics(self) -> None:
+        """Clear all accumulated phase samples and start fresh.
+
+        Call this before re-running the pipeline on a different dataset to
+        avoid mixing measurements from separate runs.
+        """
+        if self._profiler is not None:
+            self._profiler.reset()
+        self._perf_last_reported_count = 0
+
+    def _maybe_emit_perf_report(self, backend: Optional[str] = None) -> None:
+        """Log a compact snapshot for the most recently completed phase.
+
+        Provides per-phase progress visibility without writing a full JSON
+        report after every phase.  The full JSON report is only written when
+        :py:meth:`perf_report` is called explicitly (or by the pipeline wizard)
+        at the end of the full pipeline sequence.
+        """
+        if self._profiler is None:
+            return
+        try:
+            self._profiler._log_phase_snapshot()
+        except Exception:
+            pass
 
     def _get_cached_metadata_parquet(self) -> Optional[Path]:
         """Return cached metadata parquet path if it still exists."""
@@ -232,120 +293,68 @@ class Corpus(
                         return self._cache_metadata_parquet(located)
         return None
 
+    # ------------------------------------------------------------------
+    # Shared pipeline helpers (available to all phase mixins via self)
+    # ------------------------------------------------------------------
+
+    @functools.cached_property
+    def _parquet_schema(self) -> "ParquetSchema":  # type: ignore[name-defined]
+        """Shared ParquetSchema instance, keyed by this corpus's url_column."""
+        from glossapi.parquet_schema import ParquetSchema
+        return ParquetSchema({"url_column": self.url_column})
+
+    def _get_skip_manager(self) -> "_SkiplistManager":
+        """Return a fresh skip-list manager backed by this run's skiplist file."""
+        path = _resolve_skiplist_path(self.output_dir, self.logger)
+        return _SkiplistManager(path, self.logger)
+
     def _load_metadata(self) -> None:
-        """Load metadata file if provided and extract document type mapping."""
-        if self.metadata_path and self.metadata_path.exists():
-            try:
-                self.logger.info(f"Loading metadata from {self.metadata_path}")
-                metadata_df = pd.read_parquet(self.metadata_path)
-                
-                # Debug information
-                self.logger.info(f"Metadata file has {len(metadata_df)} rows and columns: {metadata_df.columns.tolist()}")
-                try:
-                    self.logger.info(f"Sample filenames: {metadata_df['filename'].head(3).tolist()}")
-                except Exception:
-                    pass
-                if 'document_type' not in metadata_df.columns:
-                    import pandas as _pd
-                    # Create a blank document_type column for downstream compatibility
-                    metadata_df['document_type'] = _pd.Series([_pd.NA] * len(metadata_df))
-                    self.logger.info("Added missing 'document_type' column to metadata (blank values)")
-                else:
-                    self.logger.info(f"Sample document types: {metadata_df['document_type'].head(3).tolist()}")
-                
-                # Create a mapping from filename to document_type
-                if 'filename' in metadata_df.columns and 'document_type' in metadata_df.columns:
-                    self.logger.info("Both 'filename' and 'document_type' columns found in metadata")
-                    
-                    # Check if filenames have extensions
-                    sample_filenames = metadata_df['filename'].head(100).tolist()
-                    if any('.' in str(f) for f in sample_filenames):
-                        self.logger.warning("Some filenames in metadata contain extensions. This may cause matching issues.")
-                        self.logger.warning("Will attempt to match filenames both with and without extensions.")
-                        
-                        # Create a mapping that works with or without extensions
-                        self.filename_to_doctype = {}
-                        
-                        for idx, row in metadata_df.iterrows():
-                            filename = row['filename']
-                            doctype = row['document_type']
-                            # Skip empty/NA document types
-                            try:
-                                if doctype is None:
-                                    continue
-                                import pandas as _pd
-                                if doctype is _pd.NA or _pd.isna(doctype):
-                                    continue
-                                if not str(doctype).strip():
-                                    continue
-                            except Exception:
-                                pass
-                            
-                            # Add the original filename
-                            self.filename_to_doctype[filename] = doctype
-                            
-                            # Add filename without extension
-                            if '.' in filename:
-                                base_filename = filename.rsplit('.', 1)[0]
-                                self.filename_to_doctype[base_filename] = doctype
-                            
-                            # Add filename with .md extension
-                            if not filename.endswith('.md'):
-                                md_filename = f"{filename}.md"
-                                self.filename_to_doctype[md_filename] = doctype
-                    else:
-                        # Simple dictionary mapping without extension handling (skip empty types)
-                        try:
-                            import pandas as _pd
-                            df_nt = metadata_df.copy()
-                            mask = (~df_nt['document_type'].isna()) & (df_nt['document_type'].astype(str).str.strip() != '')
-                            df_nt = df_nt[mask]
-                            self.filename_to_doctype = dict(zip(
-                                df_nt['filename'], 
-                                df_nt['document_type']
-                            ))
-                        except Exception:
-                            self.filename_to_doctype = {}
-                    
-                    self.logger.info(f"Loaded {len(self.filename_to_doctype)} filename-to-doctype mappings")
-                else:
-                    self.logger.warning("Metadata file does not contain 'filename' or 'document_type' columns")
-            except Exception as e:
-                self.logger.error(f"Error loading metadata: {e}")
-        else:
+        """Load the metadata parquet and build a *canonical stem \u2192 document type* mapping."""
+        if not (self.metadata_path and self.metadata_path.exists()):
             if self.metadata_path:
-                self.logger.warning(f"Metadata file not found: {self.metadata_path}")
+                self.logger.warning("Metadata file not found: %s", self.metadata_path)
+            return
 
-    # Download phase                                                     #
-    # Extraction phase                                                   #
+        try:
+            metadata_df = pd.read_parquet(self.metadata_path)
+            self.logger.info(
+                "Loading metadata from %s (%d rows, columns: %s)",
+                self.metadata_path,
+                len(metadata_df),
+                metadata_df.columns.tolist(),
+            )
 
+            if "document_type" not in metadata_df.columns:
+                metadata_df["document_type"] = pd.NA
+                self.logger.info("Added missing 'document_type' column to metadata")
+            if "filename" not in metadata_df.columns:
+                self.logger.warning("Metadata file is missing a 'filename' column; skipping mapping")
+                return
 
+            # Drop rows where document_type is absent or blank
+            mask = metadata_df["document_type"].notna() & (
+                metadata_df["document_type"].astype(str).str.strip() != ""
+            )
+            df_valid = metadata_df[mask]
 
-    
+            # canonical_stem normalises any extension variant, so a single key
+            # per document matches regardless of .pdf / .md / no-extension form.
+            self.filename_to_doctype = {
+                canonical_stem(fn): dt
+                for fn, dt in zip(
+                    df_valid["filename"].astype(str),
+                    df_valid["document_type"].astype(str),
+                )
+                if fn
+            }
+            self.logger.info(
+                "Loaded %d filename-to-doctype mappings", len(self.filename_to_doctype)
+            )
+        except Exception as exc:
+            self.logger.error("Error loading metadata from %s: %s", self.metadata_path, exc)
 
-    
+    # All phase logic lives in the respective PhaseMixin classes inherited above.
 
-
-
-
-
-
-    # Cleaning phase                                                     #
-
-    # Backwards-compatibility shim – filter() now delegates to clean()
-    
-    # OCR & math enrichment                                             #
-
-
-    # Sectioning & annotation                                           #
-    
-
-    
-    
-    
-
-
-    
 
 # Top-level worker function for multi-GPU extraction (picklable by multiprocessing)
 def gpu_extract_worker_queue(

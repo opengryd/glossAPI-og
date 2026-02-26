@@ -8,8 +8,15 @@ This document summarizes how GlossAPI uses the GPU for OCR and formula/code enri
 - Phase‑2 (Enrich): From Docling JSON, decode math/code on the GPU (CodeFormula) and re‑emit enriched Markdown.
 
 Backends
-- `backend='rapidocr'` (default): Docling + RapidOCR; Phase‑2 math runs from Docling JSON.
-- `backend='deepseek'`: DeepSeek‑OCR; equations are included inline in OCR output, so Phase‑2 math is not required and is treated as a no‑op.
+
+| Backend | GPU platform | Math handling |
+|---|---|---|
+| `backend='rapidocr'` (default) | CUDA (Linux/Windows), CoreML/MPS (macOS) | Separate Phase-2 enrichment from Docling JSON |
+| `backend='deepseek-ocr'` | CUDA/vLLM (Linux/Windows) **or** MPS/MLX (macOS Apple Silicon) | Inline — Phase-2 is a no-op |
+| `backend='deepseek-ocr-2'` | MLX/MPS (macOS Apple Silicon only) | Inline — Phase-2 is a no-op |
+| `backend='glm-ocr'` | MLX/MPS (macOS Apple Silicon only) | Inline — Phase-2 is a no-op |
+| `backend='olmocr'` | CUDA/vLLM (Linux) **or** MLX/MPS (macOS Apple Silicon) | Inline — Phase-2 is a no-op |
+| `backend='mineru'` | CUDA / MPS / CPU | Inline — Phase-2 is a no-op |
 
 Policy: never OCR and math on the same file
 - If a file needs OCR, GlossAPI runs OCR only (no Phase‑2 on that file in the same pass).
@@ -17,25 +24,75 @@ Policy: never OCR and math on the same file
 
 ### Python API layout
 
-- DeepSeek entry point: `glossapi.ocr.deepseek.runner.run_for_files(...)`
+- DeepSeek-OCR entry point: `glossapi.ocr.deepseek_ocr.runner.run_for_files(...)`
+- DeepSeek OCR v2 entry point: `glossapi.ocr.deepseek_ocr2.runner.run_for_files(...)`
+- MinerU entry point: `glossapi.ocr.mineru.runner.run_for_files(...)`
+- GLM-OCR entry point: `glossapi.ocr.glm_ocr.runner.run_for_files(...)`
+- OlmOCR-2 entry point: `glossapi.ocr.olmocr.runner.run_for_files(...)`
 - RapidOCR dispatcher: `glossapi.ocr.rapidocr.dispatch.run_via_extract(...)`
 - Math enrichment: `glossapi.ocr.math.enrich.enrich_from_docling_json(...)`
 - Utility helpers (Docling JSON / cleaning): `glossapi.ocr.utils.*`
 
 ## Prerequisites
 
-- RapidOCR/Docling stack: `pip install '.[rapidocr]'`
-- DeepSeek CLI stack (in a dedicated venv recommended): `pip install '.[deepseek]'`
-- ONNXRuntime GPU installed (no CPU ORT): `onnxruntime-gpu==1.18.1`
-- Torch CUDA installed: e.g., `torch==2.5.1+cu121`
-- Packaged RapidOCR models/keys found under `glossapi/models/rapidocr/{onnx,keys}` or via `GLOSSAPI_RAPIDOCR_ONNX_DIR`.
-- Optional helpers for Phase‑2 JSON: `pypdfium2`, `zstandard`.
+### RapidOCR / Docling (CUDA or CoreML/MPS)
+
+- Install: `pip install '.[rapidocr]'`
+- Linux/Windows GPU: `onnxruntime-gpu==1.18.1` (uninstall `onnxruntime` CPU first) + `torch==2.5.1+cu121`
+- macOS (Apple Silicon): `onnxruntime==1.18.1` with CoreMLExecutionProvider (Metal) + PyTorch with MPS support
+- Packaged RapidOCR models/keys under `glossapi/models/rapidocr/{onnx,keys}` (or `GLOSSAPI_RAPIDOCR_ONNX_DIR`)
+- Optional for Phase-2 JSON: `pypdfium2`, `zstandard`
+
+### DeepSeek-OCR (CUDA/vLLM on Linux/Windows **or** MPS/MLX on macOS Apple Silicon)
+
+**CUDA path (Linux/Windows):**
+
+- Install: `pip install '.[deepseek-ocr]'` in a dedicated venv
+- Requires: NVIDIA GPU, CUDA 12.x toolkit with `nvcc`, `torch==2.5.1+cu121`, `vllm`
+
+**MPS path (macOS Apple Silicon):**
+
+- Install: `pip install '.[deepseek-ocr-mlx]'`
+- Requires: Apple Silicon Mac (M1+) with macOS 13+; will not work on Intel Macs or Linux
+- Weights: auto-downloaded from `mlx-community/DeepSeek-OCR-8bit` or set `GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR`
+- No CUDA, no vLLM required
+
+### DeepSeek OCR v2 (MLX — macOS Apple Silicon only)
+
+- Install: `pip install mlx-vlm pypdfium2 Pillow` in a dedicated venv
+- Requires: Apple Silicon Mac (M1+); will not work on Intel Macs or Linux
+- Weights: auto-downloaded from `mlx-community/DeepSeek-OCR-2-8bit` or set `GLOSSAPI_DEEPSEEK2_MODEL_DIR`
+
+### GLM-OCR (MLX — macOS Apple Silicon only)
+
+- Install: `pip install 'mlx-vlm>=0.3.12' pypdfium2 Pillow`
+- Requires: Apple Silicon Mac (M1+); will not work on Intel Macs or Linux
+- Weights: auto-downloaded from `mlx-community/GLM-OCR-4bit` or set `GLOSSAPI_GLMOCR_MODEL_DIR`
+
+### OlmOCR-2 (CUDA/vLLM on Linux **or** MLX/MPS on macOS)
+
+- CUDA path: `pip install 'olmocr[gpu]'` in a dedicated venv; requires NVIDIA GPU with ≥12 GB VRAM and `poppler-utils` on PATH
+- MLX path (macOS Apple Silicon): `pip install mlx-vlm pypdfium2 Pillow`; weights auto-downloaded from `mlx-community/olmOCR-2-7B-1025-4bit` or set `GLOSSAPI_OLMOCR_MLX_MODEL_DIR`
+
+### MinerU (CUDA / MPS / CPU)
+
+- Install: `pip install 'mineru[all]'` (preferably in a Python 3.11 venv)
+- Ensure `magic-pdf` is on PATH (or set `GLOSSAPI_MINERU_COMMAND`)
+- macOS GPU: Torch MPS is available automatically inside a `mineru[all]` venv
 
 Verify GPU readiness before forcing OCR or math:
 
 ```bash
+# Linux/Windows — CUDA (RapidOCR, DeepSeek-OCR, OlmOCR-2 CUDA path)
 python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_count())"  # expects True, >=1
 python -c "import onnxruntime as ort; print(ort.get_available_providers())"            # must include CUDAExecutionProvider
+
+# macOS (Apple Silicon) — MPS/Metal (RapidOCR CoreML, MinerU MPS)
+python -c "import torch; print(getattr(torch.backends, 'mps', None) and torch.backends.mps.is_available())"
+python -c "import onnxruntime as ort; print(ort.get_available_providers())"            # must include CoreMLExecutionProvider
+
+# macOS (Apple Silicon) — MLX (DeepSeek-OCR V1 MLX, DeepSeek OCR v2, GLM-OCR, OlmOCR-2 MLX path)
+python -c "import mlx.core as mx; print(mx.default_device())"                          # expects Device(gpu, 0)
 ```
 
 ## Running Phase‑1 (Extract)
@@ -47,13 +104,14 @@ c = Corpus('IN','OUT')
 # GPU OCR on PDFs; emit JSON + formula index for Phase‑2
 c.extract(
     input_format='pdf',
-    accel_type='CUDA',           # or use_gpus='multi' for multi‑GPU
+    accel_type='CUDA',           # Linux/Windows — or use_gpus='multi' for multi-GPU
+  # accel_type='MPS',           # macOS Apple Silicon (Metal/MPS)
     force_ocr=True,              # OCR always on for PDFs
     emit_formula_index=True,     # request json/<stem>.formula_index.jsonl alongside the default JSON
 )
 ```
 
-When `force_ocr=True` (or when math/code enrichment is enabled), GlossAPI automatically switches to the Docling backend and aborts if CUDA‑enabled torch/ONNXRuntime providers are not available.
+When `force_ocr=True` (or when math/code enrichment is enabled), GlossAPI automatically switches to the Docling backend and aborts if CUDA/MPS-enabled torch/ONNXRuntime providers are not available.
 
 Outputs:
 - `markdown/<stem>.md`
@@ -68,7 +126,8 @@ c = Corpus('OUT','OUT')  # same folder for both
 
 # GPU formula/code decoding from JSON (writes enriched MD to markdown/<stem>.md)
 c.formula_enrich_from_json(
-    device='cuda',
+    device='cuda',       # Linux/Windows — CUDA
+  # device='mps',        # macOS Apple Silicon (Metal/MPS)
     batch_size=12,       # tune for your GPU
 )
 ```
@@ -77,22 +136,174 @@ Outputs:
 - `markdown/<stem>.md` — enriched Markdown overwrites the plain MD
 - `json/<stem>.latex_map.jsonl` — LaTeX strings + acceptance/metrics per item
 
-## DeepSeek usage
+### Phase‑2 on Apple Silicon
 
-Run OCR for files flagged by the cleaner as needing OCR (math flags are ignored for DeepSeek):
+On M-series hardware the Phase-2 enrichment loop uses two concurrent execution units:
+
+- **Background prefetch thread** — rasterizes upcoming PDF pages via pypdfium2 (CPU-bound) while
+  the main thread is running the CodeFormula model on the ANE/GPU.  This keeps both units
+  continuously busy rather than alternating.
+- **True LRU page cache** — 16-page capacity (up from 4), thread-safe, with O(1) hit promotion.
+  Hot pages with many formulas are no longer evicted in favour of cold pages.
+- **Single-render path** — adaptive DPI is computed from native PDF point coordinates (a free
+  metadata read) so each page is rendered exactly once at the final DPI, halving peak memory
+  usage during enrichment.
+- **Metal buffer cleanup** — `torch.mps.synchronize()` + `torch.mps.empty_cache()` are called
+  after each document to return fragmented Metal allocator heap pages to the OS pool before
+  the next document is processed, preventing swap pressure on long runs.
+
+## DeepSeek-OCR usage
+
+Run OCR for files flagged by the cleaner as needing OCR (math flags are ignored for DeepSeek-OCR):
 
 ```python
 from glossapi import Corpus
 c = Corpus('IN','OUT')
-c.ocr(backend='deepseek', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
+c.ocr(backend='deepseek-ocr', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
+# → runs OCR only for bad files; equations are included inline; Phase-2 is skipped
+```
+
+The runner auto-detects the platform and selects the appropriate strategy:
+- **macOS (Apple Silicon):** in-process MLX → MLX CLI subprocess → stub
+- **Linux/Windows (CUDA):** vLLM CLI subprocess → stub
+
+**Minimal env setup (MPS/Apple Silicon):**
+
+```bash
+export GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0
+export GLOSSAPI_DEEPSEEK_OCR_DEVICE=mps
+# Optional: point to local MLX weights (otherwise auto-downloaded from HuggingFace)
+# export GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR=/path/to/deepseek-ocr-1-mlx
+python -m glossapi.ocr.deepseek_ocr.preflight
+```
+
+**Minimal env setup (CUDA/Linux):**
+
+```bash
+export GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0
+export GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR=1
+export GLOSSAPI_DEEPSEEK_OCR_DEVICE=cuda
+export GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR=/path/to/model_weights/deepseek-ocr
+python -m glossapi.ocr.deepseek_ocr.preflight
+```
+
+## DeepSeek OCR v2 (MLX/MPS) usage
+
+Run OCR for files flagged by the cleaner as needing OCR (math flags are ignored for DeepSeek OCR v2):
+
+```python
+from glossapi import Corpus
+c = Corpus('IN','OUT')
+c.ocr(backend='deepseek-ocr-2', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
 # → runs OCR only for bad files; equations are included inline; Phase‑2 is skipped
 ```
+
+The runner first tries **in-process MLX** (fast — model stays loaded across files),
+then falls back to **CLI subprocess**, then **stub**.  Minimal env setup:
+
+```bash
+export GLOSSAPI_DEEPSEEK2_ENABLE_STUB=0
+export GLOSSAPI_DEEPSEEK2_DEVICE=mps
+# Optional: point to local weights (otherwise auto-downloaded from HuggingFace)
+# export GLOSSAPI_DEEPSEEK2_MODEL_DIR=/path/to/DeepSeek-OCR-MLX
+python -m glossapi.ocr.deepseek_ocr2.preflight
+```
+
 
 If you need Phase‑2 math on files that do not require OCR, use RapidOCR/Docling and math‑only (expects Docling JSON from Phase‑1):
 
 ```python
 c.ocr(backend='rapidocr', fix_bad=False, math_enhance=True, mode='math_only')
 # → runs Phase‑2 on non‑OCR files only (requires Docling JSON)
+```
+
+## MinerU usage
+
+Run OCR for files flagged by the cleaner as needing OCR (math flags are ignored for MinerU):
+
+```python
+from glossapi import Corpus
+c = Corpus('IN','OUT')
+c.ocr(backend='mineru', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
+# → runs OCR only for bad files; equations are included inline; Phase‑2 is skipped
+```
+
+Recommended macOS GPU settings:
+
+```bash
+export GLOSSAPI_MINERU_BACKEND="hybrid-auto-engine"
+export GLOSSAPI_MINERU_DEVICE_MODE="mps"
+export MINERU_TOOLS_CONFIG_JSON="$GLOSSAPI_WEIGHTS_ROOT/mineru/magic-pdf.json"
+python -m glossapi.ocr.mineru.preflight
+```
+
+Validate your MinerU setup (CLI, config, device, and model paths):
+
+```bash
+python -m glossapi.ocr.mineru.preflight
+```
+
+## OlmOCR-2 usage
+
+OlmOCR-2 is a high-accuracy VLM-based OCR toolkit (Qwen2.5-VL fine-tune) that supports both
+CUDA (via vLLM) on Linux and Apple Silicon MPS (via MLX) on macOS. Equations are included inline
+— Phase-2 math enrichment is not required and is treated as a no-op.
+
+```python
+from glossapi import Corpus
+c = Corpus('IN', 'OUT')
+c.ocr(backend='olmocr', fix_bad=True, math_enhance=True, mode='ocr_bad_then_math')
+# → runs OCR only for bad files; equations are included inline; Phase-2 is skipped
+```
+
+### macOS (MLX/MPS) minimal setup
+
+The runner tries **in-process MLX** first (model stays loaded across files), then **MLX CLI subprocess**, then fallback strategies. Set `GLOSSAPI_OLMOCR_ENABLE_STUB=0` to prevent silent placeholder output:
+
+```bash
+export GLOSSAPI_OLMOCR_ENABLE_STUB=0
+export GLOSSAPI_OLMOCR_DEVICE=mps
+# Optional: point to local MLX weights (otherwise auto-downloaded from HuggingFace)
+# export GLOSSAPI_OLMOCR_MLX_MODEL_DIR=/path/to/olmOCR-MLX
+python -m glossapi.ocr.olmocr.preflight
+```
+
+### Linux (CUDA/vLLM) minimal setup
+
+The runner tries **in-process vLLM** first (model stays loaded), then **vLLM CLI subprocess**, then the OlmOCR pipeline subprocess as a last resort before the stub:
+
+```bash
+export GLOSSAPI_OLMOCR_ENABLE_STUB=0
+export GLOSSAPI_OLMOCR_ENABLE_OCR=1
+export GLOSSAPI_OLMOCR_DEVICE=cuda
+export GLOSSAPI_OLMOCR_MODEL_DIR=/path/to/model_weights/olmocr
+# Tune VRAM fraction (default 0.85); lower if you see OOM:
+# export GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION=0.75
+# Fix "libcudart.so.12 not found" if CUDA runtime is not in the default library path:
+# export GLOSSAPI_OLMOCR_LD_LIBRARY_PATH=/usr/local/cuda/lib64
+python -m glossapi.ocr.olmocr.preflight
+```
+
+### Strategy cascade
+
+The OlmOCR runner tries strategies in this order:
+
+| Step | Strategy | Platform |
+|---|---|---|
+| 1 | In-process MLX | macOS only (`mlx_vlm` importable) |
+| 2 | MLX CLI subprocess | macOS only |
+| 3 | In-process vLLM | Linux/CUDA only (`vllm` importable) |
+| 4 | vLLM CLI subprocess | Linux/CUDA only |
+| 5 | OlmOCR CLI subprocess | Any (`GLOSSAPI_OLMOCR_ENABLE_OCR=1`) |
+| 6 | Stub | Any (default; `GLOSSAPI_OLMOCR_ENABLE_STUB=1`) |
+
+### Using an external vLLM server
+
+For multi-node or shared-server deployments, point OlmOCR at a running vLLM endpoint:
+
+```bash
+export GLOSSAPI_OLMOCR_SERVER=http://my-vllm-host:8000
+export GLOSSAPI_OLMOCR_API_KEY=sk-...   # if auth is required
 ```
 
 ## Multi‑GPU
@@ -147,14 +358,24 @@ The policy is centralized in `glossapi.text_sanitize`. Phase‑2 enrichment and 
 ```
 OUT/
 ├── markdown/
-│   └── <stem>.md                     # enriched Markdown (canonical)
+│   └── <stem>.md                     # enriched Markdown (canonical — overwrites Phase-1)
 ├── json/
-│   ├── <stem>.docling.json(.zst)
-│   ├── <stem>.formula_index.jsonl
-│   ├── <stem>.latex_map.jsonl
-│   └── metrics/
-│       ├── <stem>.metrics.json
-│       └── <stem>.per_page.metrics.json
+│   ├── <stem>.docling.json(.zst)     # Docling layout JSON
+│   ├── <stem>.formula_index.jsonl    # Formula/code item index (Phase-1)
+│   ├── <stem>.latex_map.jsonl        # LaTeX strings + acceptance (Phase-2)
+│   ├── metrics/
+│   │   ├── <stem>.metrics.json       # Document-level metrics
+│   │   └── <stem>.per_page.metrics.json  # Per-page timing + formula counts
+│   └── problematic_math/            # Quarantined artifacts (respawn cap exceeded)
+├── clean_markdown/                   # Rust-cleaned Markdown (from corpus.clean())
+├── sidecars/
+│   ├── extract/                      # Per-file extraction metadata
+│   ├── triage/                       # Formula density / OCR routing decisions
+│   └── math/                         # Math enrichment metadata
+├── downloads/
+│   └── problematic_math/            # Quarantined PDFs
+└── download_results/
+    └── download_results.parquet      # Canonical metadata store (updated by all phases)
 ```
 
 ## Troubleshooting
@@ -164,6 +385,15 @@ OUT/
 - Torch reports no CUDA
   - Check `nvidia-smi` and match Torch CUDA build to your driver.
 - OCR is slow or falls back to CPU
-  - Confirm ORT providers include CUDAExecutionProvider and that `accel_type='CUDA'` is used.
-- Out of memory
+  - Confirm ORT providers include `CUDAExecutionProvider` (Linux) or `CoreMLExecutionProvider` (macOS)
+    and that `accel_type='CUDA'`/`'MPS'` is used for `c.extract()`.  When calling
+    `c.ocr(backend='rapidocr')` the accelerator is auto-detected — no explicit `accel_type` needed.
+  - On macOS, if `CoreMLExecutionProvider` is absent in `onnxruntime`, consider the native
+    Apple Vision Framework path instead (see [Apple Vision Framework](configuration.md#apple-vision-framework-macos-only)).
+- Out of memory during Phase‑2 on Apple Silicon
+  - Lower `batch_size` (e.g. `8`) and reduce `GLOSSAPI_IMAGES_SCALE` (e.g. `1.1`).
+  - The cleanup pass at end of each document (`torch.mps.synchronize` + `torch.mps.empty_cache`)
+    is automatic; if pressure persists, increase the inter-document gap by calling
+    `time.sleep(0.5)` between documents in a custom loop.
+- Out of memory (CUDA)
   - Lower `batch_size` for Phase‑2, reduce `GLOSSAPI_IMAGES_SCALE`, or split inputs.

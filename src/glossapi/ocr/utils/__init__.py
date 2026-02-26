@@ -7,9 +7,11 @@ from typing import Any
 
 __all__ = [
     "cleaning",
+    "cuda",
     "json_io",
     "page",
     "triage",
+    "weights",
 ]
 
 

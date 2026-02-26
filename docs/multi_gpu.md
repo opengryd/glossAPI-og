@@ -31,10 +31,32 @@ c.ocr(use_gpus='multi', math_batch_size=12)
 - Crashed workers are respawned automatically; control the retry budget per GPU with `GLOSSAPI_MATH_RESPAWN_CAP` (default `5`). Use `GLOSSAPI_WORKER_LOG_VERBOSE=0` to silence the banner that prints the binding info.
 - When a device exceeds the respawn cap, remaining stems are added to the fatal skip-list and their artifacts are quarantined under `downloads/problematic_math/` and `json/problematic_math/` for follow-up.
 
+## macOS / Apple Silicon (MPS)
+
+Multi-GPU is CUDA-only. On macOS with Apple Silicon, use single-GPU mode with MPS:
+
+```python
+c.extract(input_format='pdf', accel_type='MPS', force_ocr=True)
+c.ocr(device='mps')
+```
+
+For DeepSeek OCR v2 (MLX-based), the backend manages MPS natively — set `GLOSSAPI_DEEPSEEK2_DEVICE=mps` (default).
+
+## OCR Language Selection
+
+Set `GLOSSAPI_OCR_LANGS` (comma-separated) to control which languages RapidOCR recognizes:
+
+```bash
+export GLOSSAPI_OCR_LANGS=el,en
+```
+
+This is picked up by `extract()` and `prime_extractor()` during Phase-1.
+
 ## Provider & Device Checks
 
-- ONNXRuntime providers must include `CUDAExecutionProvider`.
-- Torch must see CUDA devices (`torch.cuda.is_available()` and device count).
+- **CUDA:** ONNXRuntime providers must include `CUDAExecutionProvider`. `torch.cuda.is_available()` must return `True`.
+- **MPS (macOS):** `torch.backends.mps.is_available()` must return `True`. Use `accel_type='MPS'`.
+- **CPU:** No GPU provider needed. Use `accel_type='CPU'`.
 
 ## Benchmarking Tips
 

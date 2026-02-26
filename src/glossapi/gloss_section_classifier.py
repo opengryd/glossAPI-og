@@ -49,20 +49,6 @@ class GlossSectionClassifier:
         self.clf_pipeline = None
         self.combined_text_pipeline = None
         self.preprocessor = None
-        
-    # Keep this method for backward compatibility with existing saved models
-    def _combine_text(self, df):
-        """
-        Combine header and section text into a single text field for analysis.
-        For backward compatibility with existing models.
-        
-        Args:
-            df (pandas.DataFrame): DataFrame containing 'header' and 'section' columns
-            
-        Returns:
-            numpy.ndarray: Array of combined text strings
-        """
-        return combine_text(df)
 
     def load_model(self, model_file=None):
         """
@@ -599,6 +585,7 @@ class GlossSectionClassifier:
             updated_group = self.fully_annotate_text_group(group)
             if updated_group is None:
                 files_missing_boundaries += 1
+                updated_groups.append(group)  # Keep original SVM labels — no boundary reclassification
             else:
                 updated_groups.append(updated_group)
         
@@ -664,7 +651,7 @@ class GlossSectionClassifier:
             else:
                 self.logger.warning(f"'β' boundary marker missing for {group['filename'].iloc[0]}. Keeping original labels.")
                 
-            return group  # Return with original labels
+            return None  # Signal caller that boundaries were missing; caller preserves original labels
     
     def fully_annotate_chapter(self, df: pd.DataFrame) -> pd.DataFrame:
         """

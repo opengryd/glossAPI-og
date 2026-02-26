@@ -1,21 +1,8 @@
-tokenization/preprocessing/preprocessor
-tokenization/preprocessing/text
-tokenization/preprocessing/text.txt
-tokenization/preprocessing/re_text.txt
-tokenization/new.bin
-tokenization/new.txt
-tokenization/text.bin
-tokenization/text.txt
-tokenization/tokenize
-tokenization/tokenizer
-.gitignore
-tokenization/freqency.txt
-tokenization/paper_1.txt
-tokenization/cleaned_filtered_extracted_txt
-tokenization/cleaned_filtered_extracted_txt_v2/*
-gutenberg_books
-clean_books
-# Python build artifacts
+# ============================================================
+# GlossAPI .gitignore
+# ============================================================
+
+# ----- Python build artifacts -----
 __pycache__/
 *.py[cod]
 *.class
@@ -24,7 +11,6 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-downloads/
 eggs/
 .eggs/
 lib/
@@ -37,45 +23,70 @@ wheels/
 .installed.cfg
 *.egg
 
-
-# === Python & Rust ignores ===
-# Rust build artifacts
+# ----- Rust build artifacts -----
 rust/**/target/
-# Top-level target (if created)
 target/
-# Maturin build cache
 .maturin/
 
-# Python caches and test artifacts
-**/__pycache__/
-*.pyc
+# ----- Linters / test / coverage -----
 .pytest_cache/
 .coverage
 htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# OCR test outputs
+# ----- Virtual environments (any name) -----
+.venv*/
+dependency_setup/.venvs/
+
+# ----- Generated env files (written by setup_glossapi.sh) -----
+dependency_setup/.env_*
+!dependency_setup/.env_*.example
+
+# ----- Backend state file (written by 'glossapi setup'; contains local paths) -----
+dependency_setup/.glossapi_state.json
+dependency_setup/.glossapi_state.tmp
+
+# ----- Model weights (downloaded, never committed) -----
+model_weights/
+dependency_setup/mineru/
+
+# ----- Legacy weight dirs (before unified model_weights/) -----
+deepseek-ocr/
+deepseek-ocr-2/
+
+# ----- OCR test / demo outputs -----
 test_ocr_*_output/
 *_demo_output/
-
-# OCR model weights (if downloaded locally)
 nanonets/
 ocr_models/
 
-# Noise analysis reports
+# ----- Pipeline output artifacts -----
+artifacts/
+
+# ----- Reports -----
 glossapi_noise_analysis_report.md
 
-# private plans & reviews (not published)
+# ----- Private plans & reviews (not published) -----
 plans_reviews/
 
-# Local virtual environments
-glossapi_venv/
-glossapi_vanilla_venv/
-deepseek_venv/
-dependency_setup/.venvs/
-.venv_docling/
-deepseek-ocr/DeepSeek-OCR-empty/
-# Local DeepSeek checkout and repro scripts (keep out of master)
-deepseek-ocr/
+# ----- Misc local files -----
 repro_rapidocr_onnx/
+
+# ----- Legacy tokenization outputs -----
+tokenization/preprocessing/preprocessor
+tokenization/preprocessing/text
+tokenization/preprocessing/text.txt
+tokenization/preprocessing/re_text.txt
+tokenization/new.bin
+tokenization/new.txt
+tokenization/text.bin
+tokenization/text.txt
+tokenization/tokenize
+tokenization/tokenizer
+tokenization/freqency.txt
+tokenization/paper_1.txt
+tokenization/cleaned_filtered_extracted_txt
+tokenization/cleaned_filtered_extracted_txt_v2/*
+gutenberg_books
+clean_books

@@ -8,34 +8,46 @@ The `Corpus` class is the stable surface of the project. New functionality shoul
 
 ## Stages
 
-- Download (optional): fetch source files from URLs → `downloads/`
-- Extract (Phase‑1): parse PDFs to Markdown; optional GPU OCR → `markdown/<stem>.md`
-- Clean: compute quality metrics and filter low‑quality items; decide which to OCR
-- OCR (compat shim): re‑run extract on filtered items with `force_ocr=True`
-- JSON + index (optional): emit `json/<stem>.docling.json(.zst)` and `json/<stem>.formula_index.jsonl` for Phase‑2
-- Enrich (Phase‑2): decode FORMULA/CODE from JSON on GPU → overwrite `markdown/<stem>.md`, write `json/<stem>.latex_map.jsonl`
-- Section: produce `sections/sections_for_annotation.parquet`
-- Annotate: classify sections; produce `classified_sections.parquet` and `fully_annotated_sections.parquet`
+| Phase | Method | Description |
+|---|---|---|
+| Download | `corpus.download()` | Fetch PDFs from a URL parquet (resume-aware, parallel scheduler grouping). |
+| Extract | `corpus.extract()` | Convert documents to Markdown. Backends: `"safe"` (PyPDFium), `"docling"`, or `"auto"`. Supports PDF, DOCX, HTML, XML/JATS, PPTX, CSV, MD. |
+| Clean | `corpus.clean()` | Rust-powered cleaning and mojibake detection via `glossapi_rs_cleaner` + quality scoring via `glossapi_rs_noise`. Sets `needs_ocr` flag in metadata. |
+| OCR / Math | `corpus.ocr()` | Re-OCR bad documents and/or enrich math. Backends: `"rapidocr"`, `"deepseek-ocr"`, `"deepseek-ocr-2"`, `"glm-ocr"`, `"mineru"`, `"olmocr"`. |
+| Section | `corpus.section()` | Extract sections from Markdown into a structured Parquet. |
+| Annotate | `corpus.annotate()` | Classify sections with a pre-trained model. Modes: `"text"`, `"chapter"`, `"auto"`. |
+| Export | `corpus.jsonl()` / `corpus.jsonl_sharded()` | Produce JSONL (optionally zstd-compressed shards) with merged metadata. |
+
+A convenience method `corpus.process_all()` chains `extract → section → annotate` in one call (optionally `download()` first via `download_first=True`). It does not include `clean()` or `ocr()` steps.
 
 ## Artifact Layout
 
 ```
 OUT/
-├── downloads/
-│   └── problematic_math/
-├── download_results/
-├── markdown/
+├── downloads/               # Raw downloaded files
+│   └── problematic_math/    # Quarantined PDFs (respawn cap exceeded)
+├── download_results/        # Download metadata parquet(s)
+├── markdown/                # Phase-1 extracted Markdown (overwritten by enrichment)
 │   └── <stem>.md
-├── json/
+├── json/                    # Docling JSON + formula indexes
 │   ├── <stem>.docling.json(.zst)
 │   ├── <stem>.formula_index.jsonl
 │   ├── <stem>.latex_map.jsonl
 │   ├── metrics/
-│       ├── <stem>.metrics.json
-│       └── <stem>.per_page.metrics.json
-│   └── problematic_math/
-├── sections/
-│   └── sections_for_annotation.parquet
+│   │   ├── <stem>.metrics.json
+│   │   └── <stem>.per_page.metrics.json
+│   └── problematic_math/    # Quarantined Docling artifacts
+├── clean_markdown/          # Rust-cleaned Markdown (phase clean output)
+├── sidecars/                # Per-file metadata
+│   ├── extract/             # Extraction metadata
+│   ├── triage/              # Formula density / OCR routing
+│   └── math/                # Math enrichment metadata
+├── sections/                # sections_for_annotation.parquet
+├── logs/                    # Per-run log files
+│   ├── ocr_workers/         # Per-GPU OCR worker logs
+│   └── math_workers/        # Per-GPU math worker logs + gpu<N>.current
+├── skiplists/               # fatal_skip.txt + phase-specific skiplists
+├── export/                  # JSONL / sharded JSONL output (.jsonl.zst)
 ├── classified_sections.parquet
 └── fully_annotated_sections.parquet
 ```

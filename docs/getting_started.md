@@ -4,15 +4,17 @@ This guide gets a new GlossAPI contributor from clone → first extraction with 
 
 ## Checklist
 
-- Python 3.8+ (3.10 recommended)
+- Python 3.8+ (3.11–3.12 recommended; CI uses 3.11)
 - Recent `pip` (or `uv`) and a C/C++ toolchain for Rust wheels
+- Rust stable toolchain (for building `glossapi_rs_cleaner` and `glossapi_rs_noise`)
 - Optional: NVIDIA GPU with CUDA 12.x drivers for Docling/RapidOCR acceleration
+- Optional: Apple Silicon Mac with Metal/MPS for GPU-accelerated OCR on macOS
 
 ## Install GlossAPI
 
 ### Recommended — mode-aware setup script
 
-Use `dependency_setup/setup_glossapi.sh` to build an isolated virtualenv with the correct dependency set for vanilla, RapidOCR, or DeepSeek runs. Examples:
+Use `dependency_setup/setup_glossapi.sh` to build an isolated virtualenv with the correct dependency set. Supported modes: `vanilla`, `rapidocr`, `deepseek-ocr`, `deepseek-ocr-2`, `glm-ocr`, `olmocr`, `mineru`. Examples:
 
 ```bash
 # Vanilla pipeline (CPU-only OCR)
@@ -21,28 +23,137 @@ Use `dependency_setup/setup_glossapi.sh` to build an isolated virtualenv with th
 # RapidOCR GPU stack
 ./dependency_setup/setup_glossapi.sh --mode rapidocr --venv dependency_setup/.venvs/rapidocr --run-tests
 
-# DeepSeek OCR on GPU (expects weights under /path/to/deepseek-ocr/DeepSeek-OCR)
+# DeepSeek-OCR CUDA path (Linux/Windows — weights under $GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr)
 ./dependency_setup/setup_glossapi.sh \
-  --mode deepseek \
-  --venv dependency_setup/.venvs/deepseek \
-  --weights-dir /path/to/deepseek-ocr \
+  --mode deepseek-ocr \
+  --venv dependency_setup/.venvs/deepseek-ocr \
+  --weights-root /path/to/model_weights \
   --run-tests --smoke-test
 ```
 
-Add `--download-deepseek` if you need the script to fetch weights via Hugging Face; otherwise it searches `${REPO_ROOT}/deepseek-ocr/DeepSeek-OCR` unless you override `--weights-dir`. Inspect `dependency_setup/dependency_notes.md` for the latest pins, caveats, and validation runs. The script installs GlossAPI and its Rust crates in editable mode so source changes are picked up immediately.
+Add `--download-deepseek-ocr` if you need the script to fetch weights via Hugging Face; otherwise set `GLOSSAPI_WEIGHTS_ROOT` so the pipeline finds weights at `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr`. Inspect `dependency_setup/dependency_notes.md` for the latest pins, caveats, and validation runs. The script auto-detects Python (preferring 3.12 → 3.11 → 3.13) and installs GlossAPI with its Rust crates in editable mode so source changes are picked up immediately.
 
-**DeepSeek runtime checklist**
-- Run `python -m glossapi.ocr.deepseek.preflight` from the DeepSeek venv to assert the CLI can run (env vars, model dir, flashinfer, cc1plus, libjpeg).
+### DeepSeek-OCR V1 (MLX/MPS) setup
+
+```bash
+pip install '.[deepseek-ocr-mlx]'
+```
+
+- Targets macOS Apple Silicon via MLX (`mlx-vlm`). No CUDA, no vLLM required.
+- Weights are auto-downloaded from `mlx-community/DeepSeek-OCR-8bit` on first use, or place pre-downloaded weights under `$GLOSSAPI_WEIGHTS_ROOT/deepseek-ocr-1-mlx/`.
+- Equations are included inline — Phase-2 math enrichment is a no-op.
+
+**DeepSeek-OCR V1 MPS runtime checklist**
+- Run `python -m glossapi.ocr.deepseek_ocr.preflight` to validate the environment.
+- The runner tries in-process MLX first (fastest), then MLX CLI subprocess, then stub.
+- Set `GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0` to force real OCR.
+- Override model path with `GLOSSAPI_DEEPSEEK_OCR_MLX_MODEL_DIR` if needed.
+- Override device with `GLOSSAPI_DEEPSEEK_OCR_DEVICE` (`mps` or `cpu`, default `mps` on macOS).
+- Use `GLOSSAPI_DEEPSEEK_OCR_ENABLE_MLX_OCR` to control CLI subprocess strategy (`0` to disable, `1` to force).
+
+### DeepSeek OCR v2 (MLX/MPS) setup
+
+```bash
+./dependency_setup/setup_glossapi.sh \
+  --mode deepseek-ocr-2 \
+  --venv dependency_setup/.venvs/deepseek-ocr-2 \
+  --download-deepseek-ocr2 \
+  --run-tests
+```
+
+- Targets macOS Apple Silicon via MLX.
+- Weights are auto-downloaded from `mlx-community/DeepSeek-OCR-2-8bit` if `--download-deepseek-ocr2` is passed.
+- Equations are included inline — Phase-2 math enrichment is a no-op.
+
+**DeepSeek OCR v2 runtime checklist**
+- Run `python -m glossapi.ocr.deepseek_ocr2.preflight` to validate the environment.
+- The runner tries in-process MLX first (fastest), then CLI subprocess, then stub.
+- Set `GLOSSAPI_DEEPSEEK2_ENABLE_STUB=0` to force real OCR.
+- Override model path with `GLOSSAPI_DEEPSEEK2_MODEL_DIR` if needed.
+- Override device with `GLOSSAPI_DEEPSEEK2_DEVICE` (`mps` or `cpu`, default `mps`).
+
+### GLM-OCR setup
+
+```bash
+./dependency_setup/setup_glossapi.sh \
+  --mode glm-ocr \
+  --venv dependency_setup/.venvs/glm-ocr \
+  --download-glmocr \
+  --run-tests
+```
+
+- Targets macOS Apple Silicon via MLX.
+- Weights are auto-downloaded from `mlx-community/GLM-OCR-4bit` if `--download-glmocr` is passed.
+- Equations are included inline — Phase-2 math enrichment is a no-op.
+
+**GLM-OCR runtime checklist**
+- Run `python -m glossapi.ocr.glm_ocr.preflight` to validate the environment.
+- The runner tries in-process MLX first (fastest), then CLI subprocess, then stub.
+- Set `GLOSSAPI_GLMOCR_ENABLE_STUB=0` to force real OCR.
+- Override model path with `GLOSSAPI_GLMOCR_MODEL_DIR` if needed.
+- Override device with `GLOSSAPI_GLMOCR_DEVICE` (`mps` or `cpu`, default `mps`).
+
+### OlmOCR-2 setup
+
+OlmOCR-2 is a high-accuracy VLM-based OCR toolkit built on the Qwen2.5-VL model. It supports
+both CUDA (via vLLM) and Apple Silicon MPS (via MLX).
+
+```bash
+./dependency_setup/setup_glossapi.sh \
+  --mode olmocr \
+  --venv dependency_setup/.venvs/olmocr \
+  --download-olmocr \
+  --run-tests
+```
+
+- **CUDA path** (`olmocr[gpu]`): requires an NVIDIA GPU with ≥12 GB VRAM and `poppler-utils` on PATH.
+  vLLM is used for inference; model weights default to `allenai/olmOCR-2-7B-1025-FP8`.
+- **MLX path** (macOS Apple Silicon): uses `mlx-vlm` for in-process inference.
+  Weights are auto-downloaded from `mlx-community/olmOCR-2-7B-1025-4bit` if `--download-olmocr` is passed.
+- Equations are included inline — Phase-2 math enrichment is a no-op.
+
+**OlmOCR-2 runtime checklist**
+- Run `python -m glossapi.ocr.olmocr.preflight` to validate the environment.
+- The runner cascade is: **in-process MLX** → **MLX CLI** (macOS) / **in-process vLLM** → **vLLM CLI** → **OlmOCR CLI** → **stub** (Linux).
+- Set `GLOSSAPI_OLMOCR_ENABLE_STUB=0` to fail instead of silently producing placeholder output.
+- Set `GLOSSAPI_OLMOCR_ENABLE_OCR=1` to enable the OlmOCR CLI subprocess (requires the `olmocr` package).
+- Override model path with `GLOSSAPI_OLMOCR_MODEL_DIR` (CUDA) or `GLOSSAPI_OLMOCR_MLX_MODEL_DIR` (MLX).
+- Override device with `GLOSSAPI_OLMOCR_DEVICE` (`cuda`, `mps`, or `cpu`; auto-detected if unset).
+- For external vLLM servers, set `GLOSSAPI_OLMOCR_SERVER` and `GLOSSAPI_OLMOCR_API_KEY`.
+- Tune VRAM use with `GLOSSAPI_OLMOCR_GPU_MEMORY_UTILIZATION` (default `0.85`).
+- If CUDA runtime libraries are not in the default search path, set `GLOSSAPI_OLMOCR_LD_LIBRARY_PATH=/usr/local/cuda/lib64`.
+
+### MinerU setup
+
+```bash
+./dependency_setup/setup_glossapi.sh \
+  --mode mineru \
+  --venv dependency_setup/.venvs/mineru \
+  --download-mineru-models \
+  --run-tests
+```
+
+- Use Python 3.11 for the MinerU venv (3.10–3.13 supported upstream).
+- Ensure `magic-pdf` is on PATH (or set `GLOSSAPI_MINERU_COMMAND`).
+- Equations are included inline — Phase-2 math enrichment is a no-op.
+
+**MinerU runtime checklist**
+- Run `python -m glossapi.ocr.mineru.preflight` to validate CLI, config, device, and model paths.
+- Set `GLOSSAPI_MINERU_ENABLE_OCR=1` and `GLOSSAPI_MINERU_ENABLE_STUB=0` to force real OCR.
+- For macOS GPU: set `GLOSSAPI_MINERU_BACKEND="hybrid-auto-engine"` and `GLOSSAPI_MINERU_DEVICE_MODE="mps"`.
+
+**DeepSeek-OCR runtime checklist**
+- Run `python -m glossapi.ocr.deepseek_ocr.preflight` from the DeepSeek-OCR venv to assert the CLI can run (env vars, model dir, flashinfer, cc1plus, libjpeg).
 - Force the real CLI and avoid stub fallback by setting:
-  - `GLOSSAPI_DEEPSEEK_ALLOW_CLI=1`
-  - `GLOSSAPI_DEEPSEEK_ALLOW_STUB=0`
-  - `GLOSSAPI_DEEPSEEK_VLLM_SCRIPT=/path/to/deepseek-ocr/run_pdf_ocr_vllm.py`
-  - `GLOSSAPI_DEEPSEEK_TEST_PYTHON=/path/to/deepseek/venv/bin/python`
-  - `GLOSSAPI_DEEPSEEK_MODEL_DIR=/path/to/deepseek-ocr/DeepSeek-OCR`
-  - `GLOSSAPI_DEEPSEEK_LD_LIBRARY_PATH=/path/to/libjpeg-turbo/lib`
+  - `GLOSSAPI_DEEPSEEK_OCR_ENABLE_OCR=1`
+  - `GLOSSAPI_DEEPSEEK_OCR_ENABLE_STUB=0`
+  - `GLOSSAPI_DEEPSEEK_OCR_VLLM_SCRIPT=/path/to/deepseek-ocr/run_pdf_ocr_vllm.py`
+  - `GLOSSAPI_DEEPSEEK_OCR_TEST_PYTHON=/path/to/deepseek-ocr/venv/bin/python`
+  - `GLOSSAPI_DEEPSEEK_OCR_MODEL_DIR=/path/to/deepseek-ocr/DeepSeek-OCR`
+  - `GLOSSAPI_DEEPSEEK_OCR_LD_LIBRARY_PATH=/path/to/libjpeg-turbo/lib`
 - Install a CUDA toolkit with `nvcc` and set `CUDA_HOME` / prepend `$CUDA_HOME/bin` to `PATH` (FlashInfer/vLLM JIT expects it).
 - If FlashInfer is unstable on your stack, disable it with `VLLM_USE_FLASHINFER=0` and `FLASHINFER_DISABLE=1`.
-- Avoid FP8 KV cache issues by exporting `GLOSSAPI_DEEPSEEK_NO_FP8_KV=1`; tune VRAM use via `GLOSSAPI_DEEPSEEK_GPU_MEMORY_UTILIZATION=<0.5–0.9>`.
+- Avoid FP8 KV cache issues by exporting `GLOSSAPI_DEEPSEEK_OCR_NO_FP8_KV=1`; tune VRAM use via `GLOSSAPI_DEEPSEEK_OCR_GPU_MEMORY_UTILIZATION=<0.5–0.9>`.
 - Keep `LD_LIBRARY_PATH` pointing at the toolkit lib64 (e.g. `LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH`).
 
 ### Option 1 — pip (evaluate quickly)
@@ -78,10 +189,10 @@ The helper script provisions Python 3.10, installs Rust + `maturin`, performs an
 
 ## GPU prerequisites (optional but recommended)
 
-`setup_glossapi.sh` pulls the right CUDA/Torch/ONNX wheels for the RapidOCR and DeepSeek profiles. If you are curating dependencies manually, make sure you:
+`setup_glossapi.sh` pulls the right CUDA/Torch/ONNX wheels for the RapidOCR and DeepSeek-OCR profiles. If you are curating dependencies manually, make sure you:
 
 - Install the GPU build of ONNX Runtime (`onnxruntime-gpu`) and uninstall the CPU wheel.
-- Select the PyTorch build that matches your driver/toolkit (the repository currently targets CUDA 12.8 for DeepSeek).
+- Select the PyTorch build that matches your driver/toolkit (the repository currently targets CUDA 12.1 for DeepSeek-OCR).
 - Verify the providers with:
 
   ```bash
@@ -117,8 +228,22 @@ PY
 - Inspect `artifacts/lightweight_pdf_run/markdown/` and compare with `samples/lightweight_pdf_corpus/expected_outputs.json`.
 - Run `pytest tests/test_pipeline_smoke.py` for a reproducible regression check tied to the same corpus.
 
+## Interactive CLI
+
+Once installed, GlossAPI offers a Typer-based CLI with interactive wizards:
+
+```bash
+glossapi              # Launches pipeline wizard (default)
+glossapi pipeline     # Interactive phase-selection wizard with gum
+glossapi setup        # Environment provisioning wizard
+```
+
+Both wizards use [gum](https://github.com/charmbracelet/gum) for rich prompts, falling back to simple TTY prompts if gum is unavailable.
+
 ## Next steps
 
 - Jump into [Quickstart recipes](quickstart.md) for GPU OCR, Docling, and enrichment commands.
 - Explore [Pipeline overview](pipeline.md) to understand each processing stage and emitted artifact.
+- Read the [Corpus API reference](api_corpus_tmp.md) for complete method signatures.
+- See [Configuration](configuration.md) for the full list of `GLOSSAPI_*` environment variables.
 - When ready to contribute docs, expand the placeholders in `docs/divio/`.

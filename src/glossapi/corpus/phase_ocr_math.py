@@ -1,46 +1,84 @@
 """OCR and math enrichment helpers split from Corpus."""
 from __future__ import annotations
 
-import json
-import logging
-import math
 import os
+import platform
 import queue
-import random
-import re
-import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-import numpy as np
 import pandas as pd
 
 from .._naming import canonical_stem
-from ..gloss_downloader import GlossDownloader
-from ..gloss_section import GlossSection
-# Avoid importing classifier here; OCR/math phase does not require it at import time.
-from .corpus_skiplist import _SkiplistManager, _resolve_skiplist_path
 from .corpus_state import _ProcessingStateManager
 from .corpus_utils import _maybe_import_torch
 
+# Valid OCR backend identifiers
+_VALID_BACKENDS: frozenset = frozenset(
+    {"rapidocr", "deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "mineru", "olmocr"}
+)
+# Backends that inline equations (Phase-2 math enrichment is a no-op for these)
+_INLINE_BACKENDS: frozenset = frozenset(
+    {"deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "mineru", "olmocr"}
+)
+
 
 class OcrMathPhaseMixin:
+    def _resolve_math_device(self, device: Optional[str]) -> str:
+        device_norm = str(device or "").strip().lower()
+        if device_norm in {"cuda", "mps", "cpu"}:
+            torch = _maybe_import_torch()
+            if device_norm == "cuda":
+                if torch and getattr(torch, "cuda", None) and torch.cuda.is_available():
+                    return "cuda"
+                try:
+                    self.logger.warning("Math device 'cuda' requested but unavailable; falling back to CPU")
+                except Exception:
+                    pass
+                return "cpu"
+            if device_norm == "mps":
+                if (
+                    torch
+                    and getattr(torch.backends, "mps", None)
+                    and torch.backends.mps.is_built()
+                    and torch.backends.mps.is_available()
+                ):
+                    return "mps"
+                try:
+                    self.logger.warning("Math device 'mps' requested but unavailable; falling back to CPU")
+                except Exception:
+                    pass
+                return "cpu"
+            return "cpu"
+        torch = _maybe_import_torch()
+        if platform.system() == "Darwin":
+            if (
+                torch
+                and getattr(torch.backends, "mps", None)
+                and torch.backends.mps.is_built()
+                and torch.backends.mps.is_available()
+            ):
+                return "mps"
+        if torch and getattr(torch, "cuda", None) and torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
+
     def ocr(
         self,
         *,
         fix_bad: bool = True,
         mode: Optional[str] = None,
         backend: str = "rapidocr",
+        mineru_backend: Optional[str] = None,
         device: Optional[str] = None,
         model_dir: Optional[Union[str, Path]] = None,
         max_pages: Optional[int] = None,
         persist_engine: bool = True,
         limit: Optional[int] = None,
-        dpi: Optional[int] = None,        # reserved for future use
-        precision: Optional[str] = None,  # reserved for future use ("fp16","bf16")
+        dpi: Optional[int] = None,
+        precision: Optional[str] = None,
         # Integrated math enrichment controls
         math_enhance: bool = True,
         math_targets: Optional[Dict[str, List[Tuple[int, int]]]] = None,
@@ -48,15 +86,10 @@ class OcrMathPhaseMixin:
         math_dpi_base: int = 220,
         use_gpus: str = "single",
         devices: Optional[List[int]] = None,
-        force: Optional[bool] = None,
         reprocess_completed: Optional[bool] = None,
         skip_existing: Optional[bool] = None,
-        # Content debug: keep page separators and truncation markers when True
+        # Content debug: keep page separators and truncation markers when True.
         content_debug: bool = False,
-        CONTENT_DEBUG: Optional[bool] = None,
-        # Back-compat aliases (deprecated):
-        internal_debug: bool = False,
-        INTERNAL_DEBUG: Optional[bool] = None,
     ) -> None:
         """OCR and/or math enrichment with explicit mode control.
 
@@ -70,40 +103,35 @@ class OcrMathPhaseMixin:
             fix_bad only -> 'ocr_bad';
             math_enhance only -> 'math_only';
             neither -> no‑op.
-        - backend: 'rapidocr' (default) uses the Docling + RapidOCR path via Phase‑1 extract().
-                   'deepseek' uses the DeepSeek‑OCR path (no Docling JSON, math unsupported).
+         - backend: 'rapidocr' (default) uses the Docling + RapidOCR path via Phase-1 extract().
+             'deepseek-ocr' uses the DeepSeek OCR (vLLM) path (no Docling JSON, math unsupported).
+             'deepseek-ocr-2' uses the DeepSeek OCR v2 (MLX/MPS) path (no Docling JSON, math unsupported).
+             'glm-ocr' uses the GLM-OCR (MLX/MPS) path (no Docling JSON, math unsupported).
+             'mineru' uses the MinerU (magic-pdf) path (no Docling JSON, math unsupported).
+             'olmocr' uses the OlmOCR-2 (vLLM/MLX) path (no Docling JSON, math unsupported).
+               Supports CUDA via vLLM (Linux) and Apple Silicon via MLX (macOS).
         - fix_bad: re-run OCR on documents marked bad by the cleaner (default True).
         - math_enhance: run math/code enrichment after OCR (default True).
-        - force: [DEPRECATED] alias for fix_bad retained for backward compatibility.
         - reprocess_completed: when False, skip documents already flagged as successfully
           OCRed or math-enriched in metadata. Set True to force reprocessing. Defaults to False
           unless ``skip_existing`` overrides it.
         - skip_existing: legacy alias for ``reprocess_completed`` (``skip_existing=True`` equals
           ``reprocess_completed=False``). Prefer the explicit ``reprocess_completed`` toggle.
         """
+        # Guard reserved parameters that are not yet implemented
+        if dpi is not None:
+            raise NotImplementedError("dpi parameter is reserved for future use and not yet implemented")
+        if precision is not None:
+            raise NotImplementedError("precision parameter is reserved for future use and not yet implemented")
+
         # Normalize backend
         backend_norm = str(backend or "rapidocr").strip().lower()
-        if backend_norm not in {"rapidocr", "deepseek"}:
-            raise ValueError("backend must be 'rapidocr' or 'deepseek'")
-
-        # CONTENT_DEBUG override (preferred uppercase alias)
-        # Priority: CONTENT_DEBUG > INTERNAL_DEBUG > content_debug/internal_debug flags
-        if CONTENT_DEBUG is not None:
-            content_debug = bool(CONTENT_DEBUG)
-        elif INTERNAL_DEBUG is not None:
-            content_debug = bool(INTERNAL_DEBUG)
-        elif internal_debug:
-            content_debug = True
+        if backend_norm not in _VALID_BACKENDS:
+            raise ValueError(f"backend must be one of: {', '.join(sorted(_VALID_BACKENDS))}")
 
         # Normalize mode from explicit value or legacy flags
         mode_norm = None
         fix_bad_effective = bool(fix_bad)
-        if force is not None:
-            try:
-                self.logger.warning("Corpus.ocr(force=...) is deprecated; use fix_bad=... instead")
-            except Exception:
-                pass
-            fix_bad_effective = bool(force)
         if mode:
             m = str(mode).strip().lower()
             if m in {"ocr_bad", "math_only", "ocr_bad_then_math"}:
@@ -122,38 +150,38 @@ class OcrMathPhaseMixin:
                     "OCR: no operation requested (enable fix_bad and/or math_enhance or set mode='ocr_bad'|'math_only'|'ocr_bad_then_math')"
                 )
                 return
-        reprocess_explicit = reprocess_completed is not None
-        reprocess_flag = bool(reprocess_completed) if reprocess_explicit else False
         if skip_existing is not None:
-            skip_flag = bool(skip_existing)
-            try:
-                self.logger.warning(
-                    "Corpus.ocr(skip_existing=...) is deprecated; use reprocess_completed=... instead."
-                )
-            except Exception:
-                pass
-            desired = not skip_flag
-            if reprocess_explicit and desired != reprocess_flag:
-                try:
-                    self.logger.info(
-                        "Corpus.ocr(): skip_existing=%s overrides reprocess_completed=%s (effective reprocess_completed=%s).",
-                        skip_flag,
-                        reprocess_flag,
-                        desired,
-                    )
-                except Exception:
-                    pass
-            reprocess_flag = desired
-        reprocess_completed = reprocess_flag
+            self.logger.warning(
+                "Corpus.ocr(skip_existing=...) is deprecated and will be removed in a future major release; "
+                "use reprocess_completed=... instead."
+            )
+            reprocess_completed = not bool(skip_existing)
+        if reprocess_completed is None:
+            reprocess_completed = False
 
-        # DeepSeek semantics note
-        if backend_norm == "deepseek":
-            try:
-                self.logger.info(
-                    "DeepSeek backend: Phase-2 math is not required; equations are included inline via OCR."
-                )
-            except Exception:
-                pass
+        # Allow env override for math DPI when not explicitly set
+        try:
+            if math_dpi_base == 220:
+                env_val = os.getenv("GLOSSAPI_MATH_DPI_BASE", "")
+                if env_val:
+                    math_dpi_base = int(env_val)
+        except Exception:
+            pass
+
+        # Non-Docling backend semantics note: these backends inline equations
+        if backend_norm in _INLINE_BACKENDS:
+            _backend_labels = {
+                "deepseek-ocr": "DeepSeek OCR",
+                "deepseek-ocr-2": "DeepSeek OCR v2",
+                "glm-ocr": "GLM-OCR",
+                "mineru": "MinerU",
+                "olmocr": "OlmOCR-2",
+            }
+            label = _backend_labels.get(backend_norm, backend_norm)
+            self.logger.info(
+                "%s backend: Phase-2 math is not required; equations are included inline via OCR.",
+                label,
+            )
         # Identify bad documents from parquet (Rust cleaner output)
         bad_files: List[str] = []
         skipped_completed = 0
@@ -168,10 +196,9 @@ class OcrMathPhaseMixin:
             parquet_schema = ParquetSchema({"url_column": self.url_column})
             parquet_path = self._resolve_metadata_parquet(parquet_schema, ensure=True, search_input=True)
             if parquet_path and parquet_path.exists():
-                import pandas as _pd
-                df = _pd.read_parquet(parquet_path)
+                df = pd.read_parquet(parquet_path)
                 if "filename" in df.columns and "needs_ocr" in df.columns:
-                    bad_files = df.loc[df["needs_ocr"] == True, "filename"].dropna().astype(str).tolist()
+                    bad_files = df.loc[df["needs_ocr"].fillna(False), "filename"].dropna().astype(str).tolist()
                 else:
                     # No fallback: selection relies strictly on the 'needs_ocr' flag
                     # populated by the cleaner. If missing, we skip OCR selection.
@@ -179,14 +206,13 @@ class OcrMathPhaseMixin:
                 ocr_done: Set[str] = set()
                 if "ocr_success" in df.columns:
                     ocr_done_files = df.loc[df["ocr_success"].fillna(False), "filename"].dropna().astype(str).tolist()
-                    ocr_done = {canonical_stem(str(name)) for name in ocr_done_files}
+                    ocr_done = _ProcessingStateManager._canonical_set(ocr_done_files)
                     ocr_done_stems = set(ocr_done)
-                if "math_enriched" in df.columns:
-                    math_done_files = df.loc[df["math_enriched"].fillna(False), "filename"].dropna().astype(str).tolist()
-                elif "enriched_math" in df.columns:
-                    math_done_files = df.loc[df["enriched_math"].fillna(False), "filename"].dropna().astype(str).tolist()
+                _math_col = "math_enriched" if "math_enriched" in df.columns else "enriched_math"
+                if _math_col in df.columns:
+                    math_done_files = df.loc[df[_math_col].fillna(False), "filename"].dropna().astype(str).tolist()
                 if math_done_files:
-                    math_done_stems = {canonical_stem(str(name)) for name in math_done_files}
+                    math_done_stems = _ProcessingStateManager._canonical_set(math_done_files)
                 if not reprocess_completed and ocr_done:
                     before = len(bad_files)
                     bad_files = [name for name in bad_files if canonical_stem(name) not in ocr_done]
@@ -206,12 +232,13 @@ class OcrMathPhaseMixin:
                 parquet_meta = df
             else:
                 parquet_meta = None
-        except Exception:
-            pass
+        except Exception as exc:
+            self.logger.warning(
+                "OCR: failed to load metadata parquet; OCR selection may be empty: %s", exc
+            )
 
         ocr_candidates_initial = len(bad_files)
-        skiplist_path = _resolve_skiplist_path(self.output_dir, self.logger)
-        skip_mgr = _SkiplistManager(skiplist_path, self.logger)
+        skip_mgr = self._get_skip_manager()
         skip_stems = skip_mgr.load()
         if skip_stems:
             before = len(bad_files)
@@ -221,7 +248,7 @@ class OcrMathPhaseMixin:
                 skipped_skiplist = removed
                 self.logger.warning(
                     "Skip-list %s filtered %d document(s) from Phase-3 OCR.",
-                    skiplist_path,
+                    skip_mgr.path,
                     removed,
                 )
         try:
@@ -249,7 +276,7 @@ class OcrMathPhaseMixin:
                 if removed:
                     self.logger.warning(
                         "Skip-list %s filtered %d document(s) from Phase-2 math.",
-                        skiplist_path,
+                        skip_mgr.path,
                         removed,
                     )
                 if not stems:
@@ -267,6 +294,22 @@ class OcrMathPhaseMixin:
             local_targets = None
             if math_targets:
                 local_targets = {s: math_targets.get(s) for s in stems if s in math_targets}
+            try:
+                torch = _maybe_import_torch()
+                if torch is not None:
+                    mps_backend = getattr(torch.backends, "mps", None)
+                    mps_built = bool(getattr(mps_backend, "is_built", lambda: False)())
+                    mps_avail = bool(getattr(mps_backend, "is_available", lambda: False)())
+                    cuda_avail = bool(getattr(torch, "cuda", None) and torch.cuda.is_available())
+                    self.logger.info(
+                        "Math device probe: torch=%s mps_built=%s mps_available=%s cuda_available=%s",
+                        getattr(torch, "__version__", "unknown"),
+                        mps_built,
+                        mps_avail,
+                        cuda_avail,
+                    )
+            except Exception:
+                pass
             if str(use_gpus).lower() == "multi":
                 # Detect GPU devices
                 devs = devices or []
@@ -503,14 +546,40 @@ class OcrMathPhaseMixin:
                         else:
                             os.environ.pop("GLOSSAPI_WORKER_LOG_DIR", None)
                     return
-            # Single-GPU path
-            self.formula_enrich_from_json(
-                files=stems,
-                device=(device or "cuda"),
-                batch_size=int(math_batch_size),
-                dpi_base=int(math_dpi_base),
-                targets_by_stem=local_targets,
-            )
+            # Single-GPU path — measure math enrichment time
+            _perf_profiler_math = getattr(self, '_profiler', None)
+            if _perf_profiler_math is not None:
+                try:
+                    from glossapi.perf_metrics import count_pages_for_run as _cpf_math
+                    _perf_pages_math = _cpf_math(self.output_dir)
+                    with _perf_profiler_math.measure("math_enrich", backend="docling", pages=_perf_pages_math):
+                        self.formula_enrich_from_json(
+                            files=stems,
+                            device=self._resolve_math_device(device),
+                            batch_size=int(math_batch_size),
+                            dpi_base=int(math_dpi_base),
+                            targets_by_stem=local_targets,
+                        )
+                except Exception as _perf_exc_math:
+                    try:
+                        self.logger.debug("perf_metrics: math_enrich wrap failed: %s", _perf_exc_math)
+                    except Exception:
+                        pass
+                    self.formula_enrich_from_json(
+                        files=stems,
+                        device=self._resolve_math_device(device),
+                        batch_size=int(math_batch_size),
+                        dpi_base=int(math_dpi_base),
+                        targets_by_stem=local_targets,
+                    )
+            else:
+                self.formula_enrich_from_json(
+                    files=stems,
+                    device=self._resolve_math_device(device),
+                    batch_size=int(math_batch_size),
+                    dpi_base=int(math_dpi_base),
+                    targets_by_stem=local_targets,
+                )
 
         # Branches
         if mode_norm == "math_only":
@@ -548,9 +617,12 @@ class OcrMathPhaseMixin:
                             removed,
                         )
             _run_math(stems)
+            # Auto-emit perf snapshot after math-only run
+            try:
+                self._maybe_emit_perf_report()
+            except Exception:
+                pass
             return
-
-        # 'ocr_bad' and 'ocr_bad_then_math' paths: OCR bad files first
         if mode_norm in {"ocr_bad", "ocr_bad_then_math"} and not bad_files:
             self.logger.info("OCR: no bad documents flagged by cleaner; skipping OCR fix")
             if mode_norm == "ocr_bad_then_math":
@@ -559,61 +631,186 @@ class OcrMathPhaseMixin:
                 if json_dir.exists():
                     stems = sorted({canonical_stem(p) for p in json_dir.glob("*.docling.json*")})
                 _run_math(stems)
+            # Auto-emit perf snapshot (no bad files path)
+            try:
+                self._maybe_emit_perf_report()
+            except Exception:
+                pass
             return
 
         reran_ocr = False
 
         if mode_norm in {"ocr_bad", "ocr_bad_then_math"}:
-            if backend_norm == "deepseek":
-                # DeepSeek path: run OCR via dedicated runner (no Docling JSON)
-                from glossapi.ocr.deepseek import runner as _deepseek_runner  # type: ignore
+            if backend_norm in {"deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "mineru", "olmocr"}:
+                # Non-Docling path: run OCR via dedicated runner (no Docling JSON)
+                if backend_norm == "deepseek-ocr":
+                    from glossapi.ocr.deepseek_ocr import runner as _runner  # type: ignore
+                elif backend_norm == "deepseek-ocr-2":
+                    from glossapi.ocr.deepseek_ocr2 import runner as _runner  # type: ignore
+                elif backend_norm == "glm-ocr":
+                    from glossapi.ocr.glm_ocr import runner as _runner  # type: ignore
+                elif backend_norm == "olmocr":
+                    from glossapi.ocr.olmocr import runner as _runner  # type: ignore
+                else:
+                    from glossapi.ocr.mineru import runner as _runner  # type: ignore
 
                 try:
-                    _deepseek_runner.run_for_files(
-                        self,
-                        bad_files,
-                        model_dir=Path(model_dir) if model_dir else None,
-                        content_debug=bool(content_debug),
-                    )
+                    # Perf metrics: wrap non-Docling OCR runner
+                    _perf_profiler_ocr = getattr(self, '_profiler', None)
+                    if _perf_profiler_ocr is not None:
+                        try:
+                            from glossapi.perf_metrics import count_pages_from_files as _cpf_ocr
+                            _pdf_paths_ocr = []
+                            for _ocr_f in bad_files:
+                                for _ocr_cand in [
+                                    self.output_dir / "downloads" / _ocr_f,
+                                    self.input_dir / _ocr_f,
+                                ]:
+                                    if _ocr_cand.exists():
+                                        _pdf_paths_ocr.append(_ocr_cand)
+                                        break
+                            _perf_pages_ocr = _cpf_ocr(_pdf_paths_ocr) if _pdf_paths_ocr else len(bad_files)
+                            with _perf_profiler_ocr.measure("ocr", backend=backend_norm, pages=_perf_pages_ocr):
+                                _runner.run_for_files(
+                                    self,
+                                    bad_files,
+                                    model_dir=Path(model_dir) if model_dir else None,
+                                    content_debug=bool(content_debug),
+                                    device=device,
+                                    backend=mineru_backend if backend_norm == "mineru" else None,
+                                    max_pages=max_pages,
+                                )
+                        except Exception:
+                            _runner.run_for_files(
+                                self,
+                                bad_files,
+                                model_dir=Path(model_dir) if model_dir else None,
+                                content_debug=bool(content_debug),
+                                device=device,
+                                backend=mineru_backend if backend_norm == "mineru" else None,
+                                max_pages=max_pages,
+                            )
+                    else:
+                        _runner.run_for_files(
+                            self,
+                            bad_files,
+                            model_dir=Path(model_dir) if model_dir else None,
+                            content_debug=bool(content_debug),
+                            device=device,
+                            backend=mineru_backend if backend_norm == "mineru" else None,
+                            max_pages=max_pages,
+                        )
                 except Exception as _e:
-                    self.logger.error("DeepSeek OCR runner failed: %s", _e)
+                    self.logger.error("%s OCR runner failed: %s", backend_norm, _e)
                     raise
             else:
                 # RapidOCR/Docling path via Phase-1 extract
-                self.extract(
-                    input_format="pdf",
-                    num_threads=os.cpu_count() or 4,
-                    accel_type="CUDA",
-                    force_ocr=True,
-                    formula_enrichment=False,
-                    code_enrichment=False,
-                    filenames=bad_files,
-                    skip_existing=False,
-                    use_gpus=use_gpus,
-                    devices=devices,
-                    # Do not generate Docling JSON for OCR targets; math will skip them
-                    export_doc_json=False,
-                    emit_formula_index=False,
-                    phase1_backend="docling",
-                )
+                # Wrap with profiler so OCR time is labelled as 'ocr', not 'extract'.
+                # We suppress the inner extract() profiler to avoid double-counting.
+                accel_override = os.getenv("GLOSSAPI_OCR_ACCEL", "").strip()
+                if accel_override:
+                    accel_type = accel_override
+                else:
+                    device_lower = str(device or "").lower()
+                    if device_lower == "cpu":
+                        accel_type = "CPU"
+                    elif device_lower == "mps" or platform.system() == "Darwin":
+                        torch = _maybe_import_torch()
+                        if torch and getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+                            accel_type = "MPS"
+                        else:
+                            accel_type = "CPU"
+                    else:
+                        accel_type = "CUDA"
+                _perf_profiler_rapid = getattr(self, '_profiler', None)
+                if _perf_profiler_rapid is not None:
+                    try:
+                        from glossapi.perf_metrics import count_pages_from_files as _cpf_rapid
+                        _pdf_paths_rapid = []
+                        for _roc_f in bad_files:
+                            for _roc_cand in [
+                                self.output_dir / "downloads" / _roc_f,
+                                self.input_dir / _roc_f,
+                            ]:
+                                if _roc_cand.exists():
+                                    _pdf_paths_rapid.append(_roc_cand)
+                                    break
+                        _perf_pages_rapid = _cpf_rapid(_pdf_paths_rapid) if _pdf_paths_rapid else len(bad_files)
+                        # Temporarily suppress inner extract() profiling to avoid double-counting
+                        setattr(self, '_profiler', None)
+                        try:
+                            with _perf_profiler_rapid.measure("ocr", backend="rapidocr", pages=_perf_pages_rapid):
+                                self.extract(
+                                    input_format="pdf",
+                                    num_threads=os.cpu_count() or 4,
+                                    accel_type=accel_type,
+                                    force_ocr=True,
+                                    formula_enrichment=False,
+                                    code_enrichment=False,
+                                    filenames=bad_files,
+                                    skip_existing=False,
+                                    use_gpus=use_gpus,
+                                    devices=devices,
+                                    export_doc_json=bool(math_enhance),
+                                    emit_formula_index=False,
+                                    phase1_backend="docling",
+                                )
+                        finally:
+                            setattr(self, '_profiler', _perf_profiler_rapid)
+                    except Exception as _perf_exc_rapid:
+                        try:
+                            self.logger.debug("perf_metrics: rapidocr wrap failed: %s", _perf_exc_rapid)
+                        except Exception:
+                            pass
+                        self.extract(
+                            input_format="pdf",
+                            num_threads=os.cpu_count() or 4,
+                            accel_type=accel_type,
+                            force_ocr=True,
+                            formula_enrichment=False,
+                            code_enrichment=False,
+                            filenames=bad_files,
+                            skip_existing=False,
+                            use_gpus=use_gpus,
+                            devices=devices,
+                            export_doc_json=bool(math_enhance),
+                            emit_formula_index=False,
+                            phase1_backend="docling",
+                        )
+                else:
+                    self.extract(
+                        input_format="pdf",
+                        num_threads=os.cpu_count() or 4,
+                        accel_type=accel_type,
+                        force_ocr=True,
+                        formula_enrichment=False,
+                        code_enrichment=False,
+                        filenames=bad_files,
+                        skip_existing=False,
+                        use_gpus=use_gpus,
+                        devices=devices,
+                        # Emit Docling JSON when math enrichment is requested to recover formulas
+                        export_doc_json=bool(math_enhance),
+                        emit_formula_index=False,
+                        phase1_backend="docling",
+                    )
             reran_ocr = True
             # Update metadata to reflect successful OCR reruns
             try:
                 from glossapi.parquet_schema import ParquetSchema as _ParquetSchema
 
                 success_files: List[str] = []
+                raw_markdown_dir = self.output_dir / "markdown"
                 for _fname in bad_files:
                     stem = canonical_stem(_fname)
-                    if (self.markdown_dir / f"{stem}.md").exists():
+                    if (raw_markdown_dir / f"{stem}.md").exists():
                         success_files.append(_fname)
 
                 if success_files:
                     parquet_schema = _ParquetSchema({"url_column": self.url_column})
                     parquet_path = self._resolve_metadata_parquet(parquet_schema, ensure=True, search_input=True)
                     if parquet_path and parquet_path.exists():
-                        import pandas as _pd
-
-                        df_meta = _pd.read_parquet(parquet_path)
+                        df_meta = pd.read_parquet(parquet_path)
                         if "filename" in df_meta.columns:
                             if "filter" not in df_meta.columns:
                                 df_meta["filter"] = "ok"
@@ -629,8 +826,8 @@ class OcrMathPhaseMixin:
                                     df_meta.loc[mask, "filter"] = "ok"
                                     df_meta.loc[mask, "needs_ocr"] = False
                                     df_meta.loc[mask, "ocr_success"] = True
-                                    if backend_norm == "deepseek":
-                                        df_meta.loc[mask, "extraction_mode"] = "deepseek"
+                                    if backend_norm in {"deepseek-ocr", "deepseek-ocr-2", "glm-ocr", "mineru", "olmocr"}:
+                                        df_meta.loc[mask, "extraction_mode"] = backend_norm
                             self._cache_metadata_parquet(parquet_path)
                             parquet_schema.write_metadata_parquet(df_meta, parquet_path)
                     # Keep sectioner in sync with newly recovered files
@@ -649,7 +846,7 @@ class OcrMathPhaseMixin:
             try:
                 self.logger.info("Re-running Rust cleaner after OCR rerun to refresh metrics")
                 self.clean(
-                    input_dir=self.markdown_dir,
+                    input_dir=self.output_dir / "markdown",
                     drop_bad=False,
                 )
             except Exception as _e:
@@ -690,13 +887,17 @@ class OcrMathPhaseMixin:
                     _pq = None
                 if _pq and _pq.exists():
                     try:
-                        import pandas as _pd, json as _json
-                        _df = _pd.read_parquet(_pq)
+                        import json as _json
+                        _df = pd.read_parquet(_pq)
                         if "filename" in _df.columns:
                             _df['stem'] = _df['filename'].astype(str).str.replace(r"\.pdf$", "", regex=True)
                             _phase = _df['phase_recommended'].astype(str) == '2A' if 'phase_recommended' in _df.columns else ((_df['filename'] == _df['filename']) & False)
-                            _ft = (_df['formula_total'].fillna(0).astype('float') > 0) if 'formula_total' in _df.columns else ((_df['filename'] == _df['filename']) & False)
-                            _med = (_df['math_equations_detected'].fillna(0).astype('float') > 0) if 'math_equations_detected' in _df.columns else ((_df['filename'] == _df['filename']) & False)
+                            _ft = (
+                                pd.to_numeric(_df['formula_total'], errors='coerce') > 0
+                            ) if 'formula_total' in _df.columns else ((_df['filename'] == _df['filename']) & False)
+                            _med = (
+                                pd.to_numeric(_df['math_equations_detected'], errors='coerce') > 0
+                            ) if 'math_equations_detected' in _df.columns else ((_df['filename'] == _df['filename']) & False)
                             _mask = _phase | _ft | _med
                             _parq_stems = set(_df.loc[_mask, 'stem'].dropna().astype(str).tolist())
                             if _parq_stems:
@@ -719,6 +920,11 @@ class OcrMathPhaseMixin:
                     pass
             except Exception as _e:
                 self.logger.warning("Phase‑2 enrichment after OCR failed: %s", _e)
+        # Auto-emit perf snapshot after completed OCR phase
+        try:
+            self._maybe_emit_perf_report()
+        except Exception:
+            pass
 
     def formula_enrich_from_json(
         self,
@@ -733,7 +939,7 @@ class OcrMathPhaseMixin:
 
         Args:
             files: list of stems (without extension) to process; if None, auto‑discover.
-            device: 'cuda'|'cpu'
+            device: 'cuda'|'mps'|'cpu'
             batch_size: batch size for recognizer
             dpi_base: base DPI for crops; actual DPI adapts per ROI size
         """
@@ -789,14 +995,17 @@ class OcrMathPhaseMixin:
             pq = None
         if pq and pq.exists():
             try:
-                import pandas as _pd
-                _df = _pd.read_parquet(pq)
+                _df = pd.read_parquet(pq)
                 # derive stems from filename without extension
                 _df['stem'] = _df['filename'].astype(str).str.replace(r"\.pdf$", "", regex=True)
                 # prefer explicit phase or any formula signal (formula_total or math_equations_detected)
                 _phase = _df['phase_recommended'].astype(str) == '2A' if 'phase_recommended' in _df.columns else ((_df['filename'] == _df['filename']) & False)
-                _ft = (_df['formula_total'].fillna(0).astype('float') > 0) if 'formula_total' in _df.columns else ((_df['filename'] == _df['filename']) & False)
-                _med = (_df['math_equations_detected'].fillna(0).astype('float') > 0) if 'math_equations_detected' in _df.columns else ((_df['filename'] == _df['filename']) & False)
+                _ft = (
+                    pd.to_numeric(_df['formula_total'], errors='coerce') > 0
+                ) if 'formula_total' in _df.columns else ((_df['filename'] == _df['filename']) & False)
+                _med = (
+                    pd.to_numeric(_df['math_equations_detected'], errors='coerce') > 0
+                ) if 'math_equations_detected' in _df.columns else ((_df['filename'] == _df['filename']) & False)
                 mask = _phase | _ft | _med
                 parq_stems = _df.loc[mask, 'stem'].dropna().astype(str).tolist()
                 if parq_stems:
@@ -952,7 +1161,7 @@ class OcrMathPhaseMixin:
         try:
             from ..ocr.utils.triage import summarize_math_density_from_metrics, recommend_phase, update_download_results_parquet
         except Exception as e:
-            self.logger.warning(f"Triage utilities unavailable: {e}")
+            self.logger.warning("Triage utilities unavailable: %s", e)
             return
         md = Path(self.markdown_dir)
         if not md.exists():

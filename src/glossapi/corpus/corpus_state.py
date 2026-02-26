@@ -12,6 +12,14 @@ from .._naming import canonical_stem
 from ..parquet_schema import ParquetSchema
 
 
+def _mark_processing_stage(current: str, stage: str) -> str:
+    """Append *stage* to a comma-separated *current* stage string if not already present."""
+    parts = [p for p in (current or "").split(",") if p]
+    if stage and stage not in parts:
+        parts.append(stage)
+    return ",".join(parts)
+
+
 class _ProcessingStateManager:
     """
     Maintain resume checkpoints using the canonical pipeline metadata parquet.
@@ -60,10 +68,7 @@ class _ProcessingStateManager:
             return None
 
     def _mark_stage(self, current: str, stage: str) -> str:
-        parts = [p for p in (current or "").split(",") if p]
-        if stage and stage not in parts:
-            parts.append(stage)
-        return ",".join(parts)
+        return _mark_processing_stage(current, stage)
 
     def _guess_filename(self, stem: str) -> tuple[str, bool]:
         """Return a plausible filename for a stem and whether it exists on disk."""
@@ -175,7 +180,10 @@ class _ProcessingStateManager:
                     filename, exists = self._guess_filename(stem)
                     file_ext = Path(filename).suffix.lstrip(".")
                     row = {col: pd.NA for col in df.columns}
-                    row[self.url_column] = row.get(self.url_column, "") or ""
+                    url_value = row.get(self.url_column, "")
+                    if pd.isna(url_value):
+                        url_value = ""
+                    row[self.url_column] = url_value
                     row["filename"] = filename
                     row["file_ext"] = file_ext
                     row["filename_base"] = stem

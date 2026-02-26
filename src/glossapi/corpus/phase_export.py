@@ -6,13 +6,8 @@ import json
 import logging
 import math
 import os
-import queue
-import random
 import re
-import shutil
-import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
@@ -21,12 +16,6 @@ import pandas as pd
 import zstandard as zstd
 
 from .._naming import canonical_stem
-from ..gloss_downloader import GlossDownloader
-from ..gloss_section import GlossSection
-# Avoid importing classifier at import time; export phase does not require it.
-from .corpus_skiplist import _SkiplistManager, _resolve_skiplist_path
-from .corpus_state import _ProcessingStateManager
-from .corpus_utils import _maybe_import_torch
 
 
 class ExportPhaseMixin:

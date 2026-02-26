@@ -1,12 +1,9 @@
 """Cleaning and filtering helpers split from Corpus."""
 from __future__ import annotations
 
-import json
 import logging
 import math
 import os
-import queue
-import random
 import re
 import shutil
 import subprocess
@@ -19,11 +16,6 @@ import numpy as np
 import pandas as pd
 
 from .._naming import canonical_stem
-from ..gloss_downloader import GlossDownloader
-# Avoid importing section/classifier here; cleaning phase does not use them.
-from .corpus_skiplist import _SkiplistManager, _resolve_skiplist_path
-from .corpus_state import _ProcessingStateManager
-from .corpus_utils import _maybe_import_torch
 
 
 class CleanPhaseMixin:
@@ -123,8 +115,6 @@ class CleanPhaseMixin:
         drop_bad: bool = True,
         *,
         write_cleaned_files: bool = True,
-        ocr_model_dir: Union[str, Path, None] = None,
-        force_ocr_fallback: bool = False,
         empty_char_threshold: int = 0,
         empty_min_pages: int = 0,
     ) -> None:
@@ -136,24 +126,15 @@ class CleanPhaseMixin:
             num_threads: Rayon thread-count to pass to Rust.
             drop_bad: If True, files with badness_score > threshold are removed from downstream processing. Set to False to keep all files and only record the score.
             write_cleaned_files: Set False to skip writing cleaned markdown files; metrics and parquet updates still occur.
-            ocr_model_dir: [DEPRECATED – no effect] Use Corpus.ocr(model_dir=...) instead.
-            force_ocr_fallback: [DEPRECATED – no effect] Use Corpus.ocr(fix_bad=True) instead.
             empty_char_threshold: Character threshold (after stripping comments and whitespace) that flags markdown as nearly empty. Default 0 only enforces the zero-character safeguard.
             empty_min_pages: Minimum page count for a low-character document to trigger an OCR rerun recommendation.
         """
-        from pathlib import Path
-        import shutil
-        import pandas as pd
         from glossapi.parquet_schema import ParquetSchema
 
         if input_dir is None:
             input_dir = self.markdown_dir
         else:
             input_dir = Path(input_dir)
-
-        # Handle OCR model directory override
-        if ocr_model_dir is not None:
-            self.ocr_model_dir = Path(ocr_model_dir)
 
         self._load_rust_extension(
             "glossapi_rs_cleaner", "rust/glossapi_rs_cleaner/Cargo.toml"
@@ -168,56 +149,16 @@ class CleanPhaseMixin:
 
         # Prepare parquet helper
         parquet_schema = ParquetSchema({"url_column": self.url_column})
-        parquet_path: Optional[Path] = self._get_cached_metadata_parquet()
+        parquet_path = self._resolve_metadata_parquet(parquet_schema, ensure=True, search_input=True)
         if parquet_path is None:
-            existing_metadata = parquet_schema.find_metadata_parquet(self.input_dir)
-            if existing_metadata is not None:
-                parquet_path = self._cache_metadata_parquet(existing_metadata)
-        if parquet_path is None:
-            ensured = parquet_schema.ensure_metadata_parquet(self.output_dir)
-            if ensured is not None:
-                parquet_path = self._cache_metadata_parquet(ensured)
-        if parquet_path is None:
-            ensured = parquet_schema.ensure_metadata_parquet(self.input_dir)
-            if ensured is not None:
-                parquet_path = self._cache_metadata_parquet(ensured)
-        if parquet_path is None:
-            metadata_target = self.output_dir / "download_results" / "download_results.parquet"
+            default_path = self.output_dir / "download_results" / "download_results.parquet"
             self.logger.info(
                 "Cleaner: no metadata parquet found; will bootstrap %s when metrics become available.",
-                metadata_target,
+                default_path,
             )
-        else:
-            metadata_target = parquet_path
-        parquet_path = self._cache_metadata_parquet(metadata_target)
+            parquet_path = self._cache_metadata_parquet(default_path)
 
-        import os
         records: list = []  # will hold metrics for parquet merge
-        metrics_dir = self.output_dir / "json" / "metrics"
-
-        def _page_count_for(stem: str) -> Optional[int]:
-            candidates = [
-                metrics_dir / f"{stem}.metrics.json",
-                metrics_dir / f"{stem}.per_page.metrics.json",
-            ]
-            for candidate in candidates:
-                if not candidate.exists():
-                    continue
-                try:
-                    data = json.loads(candidate.read_text(encoding="utf-8"))
-                except Exception:
-                    continue
-                if isinstance(data, dict):
-                    pc = data.get("page_count")
-                    if pc is not None:
-                        try:
-                            return int(pc)
-                        except Exception:
-                            pass
-                    pages = data.get("pages")
-                    if isinstance(pages, list):
-                        return len(pages)
-            return None
 
         # ----- Call Rust high-level pipeline once -----
         scripts_to_keep = ["greek", "latin"]  # keep common alphabetic scripts; numbers/punctuation are added internally
@@ -341,6 +282,18 @@ class CleanPhaseMixin:
             f"{'True' if write_cleaned_files else 'False'})\n"
         )
 
+        # Perf metrics: start timing for clean phase (only active Rust subprocess)
+        _perf_profiler_clean = getattr(self, '_profiler', None)
+        _perf_sampler_clean = None
+        _perf_t0_clean = time.monotonic()
+        if _perf_profiler_clean is not None:
+            try:
+                from glossapi.perf_metrics import PowerSampler as _PowerSamplerClean
+                _perf_sampler_clean = _PowerSamplerClean()
+                _perf_sampler_clean.start()
+            except Exception:
+                pass
+
         process = subprocess.Popen(
             [sys.executable, "-c", cmd],
             stdout=subprocess.PIPE,
@@ -360,6 +313,32 @@ class CleanPhaseMixin:
             if process.stdout is not None:
                 process.stdout.close()
             progress.finalize()
+
+        # Perf metrics: stop timing and record clean sample
+        if _perf_profiler_clean is not None:
+            try:
+                from glossapi.perf_metrics import count_pages_for_run as _cpf_clean
+                _perf_elapsed_clean = time.monotonic() - _perf_t0_clean
+                if _perf_sampler_clean is not None:
+                    _perf_energy_clean, _perf_src_clean, _perf_avgw_clean = _perf_sampler_clean.stop()
+                else:
+                    _perf_energy_clean, _perf_src_clean, _perf_avgw_clean = 0.0, "unavailable", None
+                _perf_pages_clean = _cpf_clean(self.output_dir)
+                _perf_profiler_clean.record_sample(
+                    "clean",
+                    active_sec=_perf_elapsed_clean,
+                    pages=_perf_pages_clean,
+                    energy_joules=_perf_energy_clean if _perf_src_clean != "unavailable" else None,
+                    avg_watts=_perf_avgw_clean,
+                    power_source=_perf_src_clean,
+                    backend="rust-cleaner",
+                    timing_note="includes_subprocess_startup",
+                )
+            except Exception as _perf_exc_clean:
+                try:
+                    self.logger.debug("perf_metrics: clean recording failed: %s", _perf_exc_clean)
+                except Exception:
+                    pass
 
         if return_code != 0:
             # Do not abort the entire cleaning pass – proceed to evaluate gates
@@ -395,7 +374,7 @@ class CleanPhaseMixin:
         except Exception as e:
             self.logger.warning("Could not delete cleaning report %s: %s", report_parquet_path, e)
 
-        self.logger.info(f"Cleaned {len(records)} markdown files → {self.cleaned_markdown_dir}")
+        self.logger.info("Cleaned %d markdown files → %s", len(records), self.cleaned_markdown_dir)
 
         # ------------------------------------------------------------------
         # Update parquet with Mojibake metrics (single authoritative schema)
@@ -625,6 +604,13 @@ class CleanPhaseMixin:
             if min_pages < 0:
                 min_pages = 0
 
+            try:
+                threshold_value = float(threshold)
+            except Exception:
+                threshold_value = 0.10
+            if threshold_value < 0:
+                threshold_value = 0.10
+
             raw_moj = df_final.get("mojibake_badness_score")
             if isinstance(raw_moj, pd.Series):
                 mojibake_series = pd.to_numeric(raw_moj, errors="coerce")
@@ -633,7 +619,8 @@ class CleanPhaseMixin:
             if mojibake_series.notna().any():
                 # Token policy: every OCR-trigger writes a filter tag.
                 # Keep original label for compatibility with tests and downstream tools.
-                _append_reason(mojibake_series > 0.1, "mojibake>0.1", requires_ocr=True)
+                token = f"mojibake>{threshold_value:g}"
+                _append_reason(mojibake_series > threshold_value, token, requires_ocr=True)
 
             raw_gr = df_final.get("greek_badness_score")
             if isinstance(raw_gr, pd.Series):
@@ -689,18 +676,18 @@ class CleanPhaseMixin:
                 good_df = df_final[df_final["needs_ocr"] == False]
                 filenames = good_df.get("filename", pd.Series(dtype=str))
                 self.good_files = [canonical_stem(f) for f in filenames.dropna().astype(str).tolist()]
-                self.logger.info(f"After filtering, {len(self.good_files)} good files remain")
+                self.logger.info("After filtering, %d good files remain", len(self.good_files))
             else:
                 filenames = df_final.get("filename", pd.Series(dtype=str))
                 self.good_files = [canonical_stem(f) for f in filenames.dropna().astype(str).tolist()]
         else:
             self.good_files = []
 
-        # After cleaning, point markdown_dir to cleaned files for downstream stages
-        if write_cleaned_files:
-            self.markdown_dir = self.cleaned_markdown_dir
+        # Auto-emit perf snapshot after completed clean phase
+        try:
+            self._maybe_emit_perf_report()
+        except Exception:
+            pass
 
-    def filter(self, *args, **kwargs):  # type: ignore[override]
-        """Deprecated: use :py:meth:`clean` instead.  Retained for one release."""
-        self.logger.warning("Corpus.filter() is deprecated – calling clean() instead")
-        self.clean(*args, **kwargs)
+        # Keep markdown_dir pointing at raw markdown; downstream stages should
+        # explicitly use cleaned_markdown_dir when available.

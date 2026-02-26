@@ -29,7 +29,11 @@ from docling.datamodel.settings import settings
 
 
 def _maybe_import_torch(*, force: bool = False):
-    """Return the torch module if already loaded or explicitly requested."""
+    """Return the torch module if already loaded or explicitly requested.
+
+    Mirrors :func:`glossapi.corpus.corpus_utils._maybe_import_torch`; kept
+    local to avoid a corpus → extractor circular import.
+    """
     torch_mod = sys.modules.get("torch")
     if torch_mod is not None:
         return torch_mod
@@ -37,7 +41,6 @@ def _maybe_import_torch(*, force: bool = False):
         return importlib.import_module("torch")  # type: ignore
     except Exception:
         return None
-    return None
 DocumentConverter = None
 PdfFormatOption = None
 WordFormatOption = None
@@ -48,7 +51,6 @@ MarkdownFormatOption = None
 CsvFormatOption = None
 StandardPdfPipeline = None
 DoclingParseV2DocumentBackend = None
-DoclingParseDocumentBackend = None
 PyPdfiumDocumentBackend = None
 
 
@@ -84,7 +86,7 @@ def _ensure_docling_converter_loaded() -> None:
 
 def _ensure_docling_pipeline_loaded() -> None:
     global _DOC_PIPELINE_LOADED, StandardPdfPipeline
-    global DoclingParseV2DocumentBackend, DoclingParseDocumentBackend, PyPdfiumDocumentBackend
+    global DoclingParseV2DocumentBackend, PyPdfiumDocumentBackend
     if _DOC_PIPELINE_LOADED:
         return
     try:
@@ -94,9 +96,6 @@ def _ensure_docling_pipeline_loaded() -> None:
         DoclingParseV2DocumentBackend = importlib.import_module(
             "docling.backend.docling_parse_v2_backend"
         ).DoclingParseV2DocumentBackend
-        DoclingParseDocumentBackend = importlib.import_module(
-            "docling.backend.docling_parse_backend"
-        ).DoclingParseDocumentBackend
         PyPdfiumDocumentBackend = importlib.import_module(
             "docling.backend.pypdfium2_backend"
         ).PyPdfiumDocumentBackend
@@ -493,6 +492,20 @@ class GlossExtract:
             bool(getattr(self, "use_pypdfium_backend", False)),
         )
 
+    def _should_skip_docling(
+        self,
+        *,
+        enable_ocr: bool,
+        formula_enrichment: bool,
+        code_enrichment: bool,
+    ) -> bool:
+        return (
+            bool(getattr(self, "use_pypdfium_backend", False))
+            and not enable_ocr
+            and not formula_enrichment
+            and not code_enrichment
+        )
+
     def ensure_extractor(
         self,
         *,
@@ -522,6 +535,28 @@ class GlossExtract:
             ocr_langs=ocr_langs,
             profile_timings=profile_timings,
         )
+        if (
+            getattr(self, "_skip_docling_converter", False)
+            and self._last_extractor_cfg == sig
+            and os.environ.get("GLOSSAPI_SKIP_DOCLING_BOOT") == "1"
+        ):
+            return
+        if self._should_skip_docling(
+            enable_ocr=enable_ocr,
+            formula_enrichment=formula_enrichment,
+            code_enrichment=code_enrichment,
+        ) and os.environ.get("GLOSSAPI_SKIP_DOCLING_BOOT") == "1":
+            try:
+                self._log.info("Skipping Docling converter; using PyPDFium safe extractor.")
+            except Exception:
+                pass
+            self._skip_docling_converter = True
+            self.converter = None
+            self._last_extractor_cfg = sig
+            self._current_ocr_enabled = bool(enable_ocr)
+            self._active_pdf_backend = None
+            self._active_pdf_options = None
+            return
         if getattr(self, "converter", None) is not None and self._last_extractor_cfg == sig:
             try:
                 self._log.info("Reusing existing Docling converter (config unchanged)")
@@ -559,8 +594,72 @@ class GlossExtract:
         to avoid duplicated provider checks and option wiring. Falls back to the legacy
         inline path if the canonical builder is unavailable.
         """
-        _ensure_docling_converter_loaded()
-        _ensure_docling_pipeline_loaded()
+        if self._should_skip_docling(
+            enable_ocr=enable_ocr,
+            formula_enrichment=formula_enrichment,
+            code_enrichment=code_enrichment,
+        ) and os.environ.get("GLOSSAPI_SKIP_DOCLING_BOOT") == "1":
+            try:
+                self._log.info("Skipping Docling converter; using PyPDFium safe extractor.")
+            except Exception:
+                pass
+            self._skip_docling_converter = True
+            self.converter = None
+            self._current_ocr_enabled = bool(enable_ocr)
+            self._active_pdf_backend = None
+            self._active_pdf_options = None
+            try:
+                self._last_extractor_cfg = self._cfg_signature(
+                    enable_ocr=enable_ocr,
+                    force_full_page_ocr=force_full_page_ocr,
+                    text_score=text_score,
+                    images_scale=images_scale,
+                    formula_enrichment=formula_enrichment,
+                    code_enrichment=code_enrichment,
+                    use_cls=use_cls,
+                    ocr_langs=ocr_langs,
+                    profile_timings=profile_timings,
+                )
+            except Exception:
+                self._last_extractor_cfg = None
+            return None
+        try:
+            _ensure_docling_converter_loaded()
+            _ensure_docling_pipeline_loaded()
+        except Exception as exc:
+            if self._should_skip_docling(
+                enable_ocr=enable_ocr,
+                formula_enrichment=formula_enrichment,
+                code_enrichment=code_enrichment,
+            ):
+                try:
+                    self._log.warning(
+                        "Docling load failed (%s); falling back to PyPDFium safe extractor.",
+                        exc,
+                    )
+                except Exception:
+                    pass
+                self._skip_docling_converter = True
+                self.converter = None
+                self._current_ocr_enabled = bool(enable_ocr)
+                self._active_pdf_backend = None
+                self._active_pdf_options = None
+                try:
+                    self._last_extractor_cfg = self._cfg_signature(
+                        enable_ocr=enable_ocr,
+                        force_full_page_ocr=force_full_page_ocr,
+                        text_score=text_score,
+                        images_scale=images_scale,
+                        formula_enrichment=formula_enrichment,
+                        code_enrichment=code_enrichment,
+                        use_cls=use_cls,
+                        ocr_langs=ocr_langs,
+                        profile_timings=profile_timings,
+                    )
+                except Exception:
+                    self._last_extractor_cfg = None
+                return None
+            raise
         # Enable/disable Docling pipeline timings collection (for benchmarks)
         try:
             from docling.datamodel.settings import settings as _settings  # type: ignore
@@ -581,10 +680,16 @@ class GlossExtract:
                 if hasattr(torch_mod, "cuda") and isinstance(getattr(self, "pipeline_options", None), PdfPipelineOptions):
                     dev = getattr(self.pipeline_options, "accelerator_options", None)
                     dv = getattr(dev, "device", None)
-                    if (isinstance(dv, str) and dv.lower().startswith("cuda")) and not torch_mod.cuda.is_available():
+                    if isinstance(dv, str) and dv.lower().startswith("cuda") and not torch_mod.cuda.is_available():
                         raise RuntimeError("Torch CUDA not available but formula enrichment requested.")
+                    if isinstance(dv, str) and dv.lower().startswith("mps"):
+                        try:
+                            if not (getattr(torch_mod, "backends", None) and torch_mod.backends.mps.is_available()):
+                                raise RuntimeError("Torch MPS not available but formula enrichment requested.")
+                        except Exception as _e:
+                            raise RuntimeError(f"Torch MPS preflight failed: {_e}")
         except Exception as e:
-            raise RuntimeError(f"Torch CUDA preflight failed: {e}")
+            raise RuntimeError(f"Torch preflight failed: {e}")
 
         # Build PDF pipeline via the canonical builder (preferred)
         opts = None
@@ -1470,6 +1575,21 @@ class GlossExtract:
             return
         
         # Process files in batches
+        progress = None
+        try:
+            use_progress = (
+                bool(getattr(self, "_current_ocr_enabled", False))
+                and not bool(getattr(self, "use_pypdfium_backend", False))
+            )
+            if use_progress:
+                progress = tqdm(
+                    total=remaining_files,
+                    desc="RapidOCR",
+                    unit="file",
+                    disable=not sys.stderr.isatty(),
+                )
+        except Exception:
+            progress = None
         batch_count = (remaining_files + batch_size - 1) // batch_size  # Ceiling division
         success_count = 0
         partial_success_count = 0
@@ -1477,81 +1597,89 @@ class GlossExtract:
         
         backend_name = getattr(self, "pdf_backend_name", "unknown")
 
-        for i in range(0, len(unprocessed_files), batch_size):
-            batch = unprocessed_files[i:i + batch_size]
-            batch_start_time = time.time()
-            
-            self._log.info(f"Processing batch {i//batch_size + 1}/{batch_count} ({len(batch)} files)")
-            try:
-                # Surface intended OCR mode for this batch
-                batch_mode = "disabled"
+        try:
+            for i in range(0, len(unprocessed_files), batch_size):
+                batch = unprocessed_files[i:i + batch_size]
+                batch_start_time = time.time()
+
+                self._log.info(f"Processing batch {i//batch_size + 1}/{batch_count} ({len(batch)} files)")
                 try:
-                    if getattr(self, "_current_ocr_enabled", False):
-                        ocr_opts = None
-                        opts = getattr(self, "_active_pdf_options", None)
-                        if opts is not None:
-                            ocr_opts = getattr(opts, "ocr_options", None)
-                        if ocr_opts is None:
-                            ocr_opts = getattr(self.pipeline_options, "ocr_options", None)
-                        forced = False
-                        if ocr_opts is not None:
-                            try:
-                                forced = bool(getattr(ocr_opts, "force_full_page_ocr", False))
-                            except Exception:
-                                forced = False
-                        batch_mode = "forced" if forced else "auto"
+                    # Surface intended OCR mode for this batch
+                    batch_mode = "disabled"
+                    try:
+                        if getattr(self, "_current_ocr_enabled", False):
+                            ocr_opts = None
+                            opts = getattr(self, "_active_pdf_options", None)
+                            if opts is not None:
+                                ocr_opts = getattr(opts, "ocr_options", None)
+                            if ocr_opts is None:
+                                ocr_opts = getattr(self.pipeline_options, "ocr_options", None)
+                            forced = False
+                            if ocr_opts is not None:
+                                try:
+                                    forced = bool(getattr(ocr_opts, "force_full_page_ocr", False))
+                                except Exception:
+                                    forced = False
+                            batch_mode = "forced" if forced else "auto"
+                    except Exception:
+                        pass
+                    self._log.info("Batch OCR mode: %s", batch_mode)
+                    self._log.info("Batch backend: %s", backend_name)
+                    for idx, _p in enumerate(batch, 1):
+                        self._log.debug("Queueing [%d/%d]: %s", idx, len(batch), Path(_p).name)
                 except Exception:
                     pass
-                self._log.info("Batch OCR mode: %s", batch_mode)
-                self._log.info("Batch backend: %s", backend_name)
-                for idx, _p in enumerate(batch, 1):
-                    self._log.debug("Queueing [%d/%d]: %s", idx, len(batch), Path(_p).name)
-            except Exception:
-                pass
-            
-            # Process the batch
-            successful, problematic = self._process_batch(batch, output_dir, timeout_dir)
-            
-            # Update counts
-            success_count += len(successful)
-            failure_count += len(problematic)
-            
-            # Update processed and problematic files using canonical stems
-            processed_files.update(canonical_stem(name) for name in successful)
-            problematic_files.update(canonical_stem(name) for name in problematic)
 
-            if self.external_state_updates and self.batch_result_callback:
-                try:
-                    self.batch_result_callback(successful, problematic)
-                except Exception as exc:
-                    self._log.warning("Batch result callback failed: %s", exc)
-            
-            # Move problematic files to the problematic directory
-            for filename in problematic:
-                for input_path in input_doc_paths:
-                    if Path(input_path).name == filename:
-                        try:
-                            # Create a copy of the problematic file
-                            copy2(input_path, problematic_dir / filename)
-                            self._log.info(f"Copied problematic file to {problematic_dir / filename}")
-                            break
-                        except Exception as e:
-                            self._log.error(f"Failed to copy problematic file {filename}: {e}")
-            
-            if can_manage_state:
-                # Save the current state after each batch
-                state_mgr.save(processed_files, problematic_files)  # type: ignore[arg-type]
-            
-            batch_duration = time.time() - batch_start_time
-            self._log.info(f"Batch processed in {batch_duration:.2f} seconds")
-            self._log.info(f"Progress: {len(processed_files)}/{total_files} files ({len(problematic_files)} problematic)")
-        
-        # Check if all files have been processed
-        if len(processed_files) + len(problematic_files) >= total_files:
-            self._log.info("All files have been processed")
-            if can_manage_state:
-                # Keep the parquet-backed state in sync for resumption
-                state_mgr.save(processed_files, problematic_files)  # type: ignore[arg-type]
+                # Process the batch
+                successful, problematic = self._process_batch(batch, output_dir, timeout_dir)
+
+                # Update counts
+                success_count += len(successful)
+                failure_count += len(problematic)
+                if progress is not None:
+                    progress.update(len(successful) + len(problematic))
+
+                # Update processed and problematic files using canonical stems
+                processed_files.update(canonical_stem(name) for name in successful)
+                problematic_files.update(canonical_stem(name) for name in problematic)
+
+                if self.external_state_updates and self.batch_result_callback:
+                    try:
+                        self.batch_result_callback(successful, problematic)
+                    except Exception as exc:
+                        self._log.warning("Batch result callback failed: %s", exc)
+
+                # Move problematic files to the problematic directory
+                for filename in problematic:
+                    for input_path in input_doc_paths:
+                        if Path(input_path).name == filename:
+                            try:
+                                # Create a copy of the problematic file
+                                copy2(input_path, problematic_dir / filename)
+                                self._log.info(f"Copied problematic file to {problematic_dir / filename}")
+                                break
+                            except Exception as e:
+                                self._log.error(f"Failed to copy problematic file {filename}: {e}")
+
+                if can_manage_state:
+                    # Save the current state after each batch
+                    state_mgr.save(processed_files, problematic_files)  # type: ignore[arg-type]
+
+                batch_duration = time.time() - batch_start_time
+                self._log.info(f"Batch processed in {batch_duration:.2f} seconds")
+                self._log.info(
+                    f"Progress: {len(processed_files)}/{total_files} files ({len(problematic_files)} problematic)"
+                )
+
+                # Check if all files have been processed
+                if len(processed_files) + len(problematic_files) >= total_files:
+                    self._log.info("All files have been processed")
+                    if can_manage_state:
+                        # Keep the parquet-backed state in sync for resumption
+                        state_mgr.save(processed_files, problematic_files)  # type: ignore[arg-type]
+        finally:
+            if progress is not None:
+                progress.close()
         
         end_time = time.time() - start_time
         self._log.info(f"Document extraction complete in {end_time:.2f} seconds.")
