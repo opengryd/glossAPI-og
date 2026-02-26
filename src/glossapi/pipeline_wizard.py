@@ -899,16 +899,19 @@ def _run_wizard(
                 "(Apple Silicon). It requires sudo access.[/dim]"
             )
             console.print("[dim]Leave blank to skip and report timing only.[/dim]")
-            try:
-                pwd = typer.prompt("  sudo password", default="", hide_input=True)
-            except Exception:
-                pwd = ""
-            if pwd:
+            while True:
+                try:
+                    pwd = typer.prompt("  sudo password", default="", hide_input=True)
+                except Exception:
+                    pwd = ""
+                if not pwd:
+                    break  # user chose to skip
                 ok = _set_pwd(pwd)
-                if not ok:
-                    console.print(
-                        "[yellow]sudo password rejected — power monitoring unavailable.[/yellow]"
-                    )
+                if ok:
+                    break
+                console.print(
+                    "[yellow]sudo password rejected — leave blank to skip.[/yellow]"
+                )
         sensor_name = _prewarm()
         if sensor_name is not None:
             console.print(f"[dim]Power monitoring: {sensor_name}[/dim]")
